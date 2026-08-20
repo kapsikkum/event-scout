@@ -1,0 +1,19 @@
+# The browser profiles under data/ are tens of thousands of files and would
+# dominate the build context; the database lives there too and belongs in a
+# volume, not an image.
+data
+server/data
+web/data
+
+node_modules
+**/node_modules
+server/dist
+web/dist
+
+.git
+.gitignore
+.claude
+*.md
+Dockerfile
+.dockerignore
+docker-compose.yml

@@ -1,0 +1,27 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "event-scout",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "C:\\Users\\kapsikkum\\OneDrive - kapsikkum\\code\\event-scout",
+      "port": 5173
+    },
+    {
+      "name": "event-scout-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "web"
+      ],
+      "cwd": "C:\\Users\\kapsikkum\\OneDrive - kapsikkum\\code\\event-scout",
+      "port": 5173
+    }
+  ]
+}

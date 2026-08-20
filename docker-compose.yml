@@ -1,0 +1,44 @@
+# `docker compose up --build`, then open http://localhost:3001
+services:
+  chromium:
+    # Built rather than pulled: see Dockerfile.chromium for why a full
+    # Chromium in new-headless mode beats the ready-made headless-shell image.
+    # The switches live in that file; the user agent and the rest of the
+    # anti-detection work are applied per page, over the protocol.
+    build:
+      context: .
+      dockerfile: Dockerfile.chromium
+    init: true
+    # Chromium exhausts the default 64 MB /dev/shm and takes the renderer down
+    # with it on any page worth scraping.
+    shm_size: 512mb
+    volumes:
+      - chromium-profile:/profile
+    # Deliberately not published to the host. An open CDP port is remote code
+    # execution for anything that can reach it; the app container reaches it
+    # over the compose network, and nothing else needs to.
+    expose:
+      - "9222"
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment:
+      # Set means "attach to that browser"; unset means "start one locally",
+      # which is what happens outside Docker. See openBrowser() in cdp.ts.
+      BROWSER_CDP_URL: http://chromium:9222
+      API_PORT: "3001"
+      # Affects when an event counts as past. Override in a .env file
+      # alongside this one, e.g. TZ=America/Denver.
+      TZ: ${TZ:-Australia/Sydney}
+    ports:
+      - "3001:3001"
+    volumes:
+      - event-scout-data:/app/data
+    depends_on:
+      - chromium
+    restart: unless-stopped
+
+volumes:
+  event-scout-data:
+  chromium-profile:

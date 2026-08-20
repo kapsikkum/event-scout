@@ -1,0 +1,6 @@
+# The Docker images are built on Linux; a Dockerfile or config that arrives
+# with CRLF line endings breaks there in ways that are tedious to diagnose.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
