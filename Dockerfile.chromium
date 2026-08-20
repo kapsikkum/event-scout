@@ -19,6 +19,9 @@ RUN apt-get update \
       fonts-noto-core \
       fonts-noto-color-emoji \
       dumb-init \
+      # Relays the published port to the loopback one Chromium insists on
+      # binding; see docker/chromium-entrypoint.sh.
+      socat \
  && rm -rf /var/lib/apt/lists/*
 
 # Copied while still root, and made executable here rather than relying on the
