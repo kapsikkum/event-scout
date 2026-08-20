@@ -43,7 +43,10 @@ let
   stateDir = "/mnt/app-data/event-scout";
 in
 {
-  deployment.gateway.directPorts = [ port ];
+  # Deliberately no deployment.gateway.directPorts. That option allowlists the
+  # port to the WAF host so a service can be fronted publicly; this one stays
+  # on the LAN. The vhost below plus a DNS rewrite pointing the name at this
+  # host is the whole of it.
   deployment.reverseProxy.vhosts."${domain}" = { inherit port; };
 
   systemd.services.init-event-scout-network = {
