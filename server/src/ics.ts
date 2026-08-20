@@ -87,5 +87,8 @@ export function buildIcs(events: IcsEvent[], opts: IcsOptions = {}): string {
     );
   }
   lines.push('END:VCALENDAR');
-  return lines.map(foldLine).join('\r\n');
+  // Trailing CRLF included: RFC 5545 3.1 ends *every* content line with one,
+  // the last as much as the rest. Most clients shrug at its absence; Outlook
+  // refuses the whole calendar and says only that it cannot add it right now.
+  return lines.map(foldLine).join('\r\n') + '\r\n';
 }
