@@ -85,6 +85,15 @@ in
         # Chromium exhausts the default 64 MB /dev/shm and takes the renderer
         # down with it on any page worth scraping.
         "--shm-size=512m"
+        # Hard caps, because this host also runs immich, karakeep, mealie and
+        # n8n, and a scraper must not be able to take them down. A leaked tab
+        # per venue once put this container at 6.5 GB of an 8 GB machine with
+        # ninety-nine chromium processes and the load average north of sixty.
+        # The leak is fixed; the cap is what makes the next one survivable.
+        "--memory=2g"
+        "--memory-swap=2g"
+        "--cpus=2"
+        "--pids-limit=512"
       ];
       # Deliberately no ports. An open DevTools port is remote code execution
       # for anything that can reach it; the app container reaches it across

@@ -483,8 +483,34 @@ export class Page {
     });
   }
 
-  close(): void {
-    try { this.ws.close(); } catch { /* already closed */ }
+  /**
+   * Close the tab, not just our socket to it.
+   *
+   * Dropping the WebSocket leaves the page open in the browser, with its
+   * renderer process and its memory. That went unnoticed for as long as the
+   * browser was launched per run and killed at the end — the leak died with
+   * it. Against a browser that stays up between runs it is not survivable:
+   * sampling sixty-nine venues left sixty-nine tabs behind, ninety-nine
+   * chromium processes, and 6.5 GB of an 8 GB host.
+   *
+   * `Page.close` is sent over the page's own session, so no target id or
+   * endpoint has to be threaded through here. The socket is closed on the way
+   * out regardless of whether the browser acknowledged.
+   */
+  async close(): Promise<void> {
+    try {
+      await Promise.race([
+        this.send('Page.close'),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch {
+      // A page that has already gone is the outcome we wanted anyway.
+    }
+    try {
+      this.ws.close();
+    } catch {
+      // Already closed.
+    }
   }
 }
 

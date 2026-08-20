@@ -368,7 +368,7 @@ export async function discoverVenues(
       } catch (err) {
         log(`  ${term} failed: ${(err as Error).message}`);
       } finally {
-        page.close();
+        await page.close();
       }
       if (i < terms.length - 1) await sleep(jitter(cfg.requestDelayMs));
     }
@@ -527,7 +527,7 @@ export async function scrapePopular(
         failed++;
         log(`  ${venue.name} failed: ${(err as Error).message}`);
       } finally {
-        page.close();
+        await page.close();
       }
       if (i < venues.length - 1) await sleep(jitter(cfg.requestDelayMs));
     }

@@ -290,7 +290,7 @@ export async function signInToWaze(
       await sleep(2000);
     }
   } finally {
-    page?.close();
+    await page?.close();
     await browser.close();
   }
 
@@ -349,7 +349,7 @@ export async function scrapeWazeViaBrowser(
       while (Date.now() < until) await sleep(1000);
     }
   } finally {
-    page?.close();
+    await page?.close();
     await browser.close();
   }
 
