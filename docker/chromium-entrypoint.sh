@@ -16,6 +16,19 @@ set -e
 INTERNAL_PORT="${CHROMIUM_INTERNAL_PORT:-9221}"
 PUBLIC_PORT="${CHROMIUM_PORT:-9222}"
 
+# Clear the locks a previous container left in the profile.
+#
+# Chromium records the host and pid holding a profile and refuses to start if
+# they look like someone else's -- "the profile appears to be in use by another
+# Chromium process on another computer". A container gets a new hostname every
+# start, so any profile that was not shut down cleanly reads as exactly that,
+# and the service then fails its restart limit and takes the app down with it.
+#
+# Safe to remove unconditionally: this volume belongs to this container, and
+# nothing else can be holding it at the moment the container is starting. It
+# is the same cleanup the local launcher does in density/cdp.ts.
+rm -rf /profile/Singleton* /profile/lockfile 2>/dev/null || true
+
 socat "TCP-LISTEN:${PUBLIC_PORT},fork,reuseaddr,bind=0.0.0.0" \
       "TCP:127.0.0.1:${INTERNAL_PORT}" &
 
