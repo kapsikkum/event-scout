@@ -1,6 +1,6 @@
 # Node 24 for `node:sqlite`, which is what the database layer uses — there is
 # no native module to build here, and it should stay that way.
-FROM node:24-slim AS build
+FROM docker.io/library/node:24-slim AS build
 WORKDIR /app
 
 # Manifests first, so a change to source does not re-resolve the dependency
@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build && npm prune --omit=dev
 
 
-FROM node:24-slim
+FROM docker.io/library/node:24-slim
 ENV NODE_ENV=production
 WORKDIR /app
 

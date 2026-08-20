@@ -7,7 +7,7 @@
 # page makes a shell look like a browser as convincingly as a browser does.
 # `--headless=new` runs the real binary with no screen attached, which is a far
 # smaller lie to have to tell.
-FROM debian:bookworm-slim
+FROM docker.io/library/debian:bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
