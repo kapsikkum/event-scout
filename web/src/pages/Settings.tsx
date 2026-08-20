@@ -1,9 +1,62 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, DensityStatus, EventTopic, GeocodeResult, Settings as SettingsType, SourceStatus } from '../api';
 import { useStore } from '../store';
 
 /** Newline, as a constant so the textarea handlers stay readable. */
 const LINE_BREAK = String.fromCharCode(10);
+
+/**
+ * A textarea for the fields that hold a list.
+ *
+ * Every one of these parses its contents into a structured list on each
+ * keystroke and re-renders from the parse, which quietly eats what is being
+ * typed. Entering "Penrith, 25" was impossible: the comma parses to nothing
+ * and vanishes before the number after it can be typed, so only letters ever
+ * survived. The same round trip drops a newline as an empty entry, so a
+ * second line could not be started either.
+ *
+ * The text is the edit state here, and the parsed value is derived from it.
+ * An external change — settings finishing their load, or Reset — is adopted
+ * only while the field is not focused, so it can never fight the keyboard.
+ * Blurring re-reads the normalised text, which tidies up spacing.
+ */
+function ListArea({
+  text,
+  onText,
+  rows = 3,
+  placeholder,
+}: {
+  text: string;
+  onText: (raw: string) => void;
+  rows?: number;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(text);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setDraft(text);
+  }, [text]);
+
+  return (
+    <textarea
+      rows={rows}
+      placeholder={placeholder}
+      value={draft}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={() => {
+        focused.current = false;
+        setDraft(text);
+      }}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        onText(e.target.value);
+      }}
+    />
+  );
+}
 
 function StatusLine({ status }: { status: SourceStatus | undefined }) {
   if (!status) return null;
@@ -174,15 +227,14 @@ export default function Settings() {
           area, so a place worth the drive can be watched without widening the radius
           above and dragging in everything in between.
         </label>
-        <textarea
-          rows={3}
-          value={(draft.eventAreas ?? [])
+        <ListArea
+          text={(draft.eventAreas ?? [])
             .map((a) => [a.name, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
             .join(LINE_BREAK)}
           placeholder={'Penrith, 25' + LINE_BREAK + 'Orange'}
-          onChange={(e) =>
+          onText={(raw) =>
             set({
-              eventAreas: e.target.value
+              eventAreas: raw
                 .split(LINE_BREAK)
                 .map((line) => line.split(',').map((p) => p.trim()))
                 .filter((parts) => parts[0])
@@ -265,15 +317,14 @@ export default function Settings() {
           Areas — one per line as <code>Name, lat, lng, radiusKm</code>. Leave blank to use the
           location above.
         </label>
-        <textarea
-          rows={3}
-          value={(draft.densityAreas ?? [])
+        <ListArea
+          text={(draft.densityAreas ?? [])
             .map((a) => [a.name, a.lat, a.lng, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
             .join(LINE_BREAK)}
           placeholder="Bathurst, -33.4300, 149.5750, 5.5"
-          onChange={(e) =>
+          onText={(raw) =>
             set({
-              densityAreas: e.target.value
+              densityAreas: raw
                 .split(LINE_BREAK)
                 .map((line) => line.split(',').map((p) => p.trim()))
                 .filter((parts) => parts[0])
@@ -309,12 +360,11 @@ export default function Settings() {
           <code>Mount Panorama</code> returns the mountain, the reserve and the
           circuit, and only one of them carries busyness data.
         </label>
-        <textarea
-          rows={3}
-          value={(draft.densityPlaces ?? []).join(LINE_BREAK)}
+        <ListArea
+          text={(draft.densityPlaces ?? []).join(LINE_BREAK)}
           placeholder={'Mount Panorama' + LINE_BREAK + 'https://maps.app.goo.gl/…'}
-          onChange={(e) =>
-            set({ densityPlaces: e.target.value.split(LINE_BREAK).map((v) => v.trim()).filter(Boolean) })
+          onText={(raw) =>
+            set({ densityPlaces: raw.split(LINE_BREAK).map((v) => v.trim()).filter(Boolean) })
           }
         />
 
