@@ -51,6 +51,42 @@ const upsertStmt = () =>
       last_seen_at = excluded.last_seen_at
   `);
 
+/**
+ * What the current refresh is doing, for the UI to watch.
+ *
+ * A refresh is one long request — six sources across up to three areas, each
+ * of them rate-limited — so from the outside it was a spinning icon and no
+ * way to tell a slow source from a stuck one, or to see anything it had
+ * already found. This is held in memory rather than the database: it is only
+ * meaningful while the run is happening, and a run does not outlive the
+ * process.
+ */
+interface Progress {
+  startedAt: string | null;
+  /** Newest last. Capped, because websearch alone can log a line per query. */
+  lines: string[];
+  /** Events kept so far this run, across every source. */
+  found: number;
+  /** What each source is doing right now, for the per-source display. */
+  active: Record<string, string>;
+}
+
+const progress: Progress = { startedAt: null, lines: [], found: 0, active: {} };
+
+function note(line: string): void {
+  progress.lines.push(line);
+  if (progress.lines.length > 120) progress.lines.shift();
+}
+
+export function getProgress(): Progress {
+  return {
+    startedAt: progress.startedAt,
+    lines: [...progress.lines],
+    found: progress.found,
+    active: { ...progress.active },
+  };
+}
+
 function setStatus(name: string, state: SourceStatus['state'], message: string, count: number | null): void {
   db.prepare(`
     INSERT INTO source_status (name, state, message, last_fetch, count)
@@ -127,6 +163,13 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     const locations = await eventLocations(settings);
     const now = new Date().toISOString();
 
+    progress.startedAt = now;
+    progress.lines = [];
+    progress.found = 0;
+    progress.active = {};
+    const where = locations.map((l) => l.city).filter(Boolean).join(', ');
+    note(`Looking in ${where || 'the configured area'}`);
+
     const results = await Promise.allSettled(
       ADAPTERS.map(async (adapter) => {
         if (settings.enabledSources[adapter.name] === false) {
@@ -143,6 +186,7 @@ export async function refreshAll(): Promise<SourceStatus[]> {
         for (const [i, loc] of locations.entries()) {
           try {
             if (i > 0) await new Promise((r) => setTimeout(r, AREA_SPACING_MS));
+            progress.active[adapter.name] = locations.length > 1 ? `searching ${loc.city}` : 'searching';
             const raw = await adapter.fetchEvents(loc, settings);
             // Sources are not trustworthy about dates: recurring-event pages
             // keep last year's startDate in their markup, and a stale one
@@ -161,6 +205,10 @@ export async function refreshAll(): Promise<SourceStatus[]> {
             const stmt = upsertStmt();
             for (const ev of kept) insertRaw(stmt, adapter.name, ev, now, localRegion());
             total += kept.length;
+            progress.found += kept.length;
+            const area = locations.length > 1 ? ` in ${loc.city}` : '';
+            const dropped = rejected.length ? `, ${rejected.length} rejected on date` : '';
+            note(`${adapter.label}: ${kept.length} event${kept.length === 1 ? '' : 's'}${area}${dropped}`);
           } catch (err) {
             // Missing config is about the source, not the area, so stop early
             // rather than repeating the same complaint once per area.
@@ -172,11 +220,15 @@ export async function refreshAll(): Promise<SourceStatus[]> {
           }
         }
 
+        delete progress.active[adapter.name];
+
         if (missing) {
+          note(`${adapter.label}: not configured`);
           setStatus(adapter.name, 'missing_config', missing.message, null);
         } else if (failures.length === locations.length && locations.length > 0) {
           // The same feed failing in every area is one fault, not N.
           const reasons = [...new Set(failures.map((f) => f.slice(f.indexOf(': ') + 2)))];
+          note(`${adapter.label}: failed — ${reasons[0]}`);
           setStatus(
             adapter.name, 'error',
             reasons.length === 1 ? reasons[0] : failures.join('; '), null
@@ -194,15 +246,25 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     );
     void results;
 
+    note('Tidying dates, addresses and venue names');
     repairImplausibleDates();
     repairAddresses();
     repairVenueNames();
-    archivePastEvents();
+    const { archived } = archivePastEvents();
+    if (archived > 0) note(`Archived ${archived} that have been and gone`);
     reclassifyAll();
-    await geocodeMissing(locations);
 
+    // Worth its own line: this is the slow tail of a refresh. Nominatim asks
+    // for a second between lookups, so sixty venues is a minute on its own,
+    // and without a note here the run looks hung after the last source.
+    note('Placing venues on the map');
+    const placed = await geocodeMissing(locations);
+    if (placed > 0) note(`Placed ${placed} venue${placed === 1 ? '' : 's'}`);
+
+    note('Matching duplicate listings');
     recomputeDedupeGroups();
     setKv('lastRefresh', now);
+    note(`Done — ${progress.found} event${progress.found === 1 ? '' : 's'} kept`);
     return getStatuses();
   } finally {
     refreshing = false;

@@ -82,10 +82,21 @@ export interface DensityStatus {
   log: string[];
 }
 
+/** What a running refresh is doing and what it has turned up so far. */
+export interface RefreshProgress {
+  startedAt: string | null;
+  /** Newest last. */
+  lines: string[];
+  found: number;
+  /** Source name to what it is doing right now. */
+  active: Record<string, string>;
+}
+
 export interface StatusResponse {
   sources: SourceStatus[];
   lastRefresh: string | null;
   refreshing: boolean;
+  progress?: RefreshProgress;
 }
 
 export interface SunDay {

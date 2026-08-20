@@ -7,7 +7,7 @@ import { getKv, getSettings, saveSettings } from './db.js';
 import { getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
-import { archivePastEvents, getStatuses, isRefreshing, refreshAll } from './refresh.js';
+import { archivePastEvents, getProgress, getStatuses, isRefreshing, refreshAll } from './refresh.js';
 import { getPhotoConditions } from './photo.js';
 import { listAreas, renderArea, venueHistory, venueReadings, wazeSnapshot } from './density/pipeline.js';
 import { pickAreas } from './density/areas.js';
@@ -173,6 +173,9 @@ app.get('/api/status', (_req, res) => {
     sources: getStatuses(),
     lastRefresh: getKv('lastRefresh'),
     refreshing: isRefreshing(),
+    // What the run is doing and what it has found so far. Cheap enough to
+    // send on every poll: it is a few dozen short strings held in memory.
+    progress: getProgress(),
     density: getDensityStatus(),
   });
 });

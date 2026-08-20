@@ -96,6 +96,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [loadEvents, loadStatus]);
 
+  /**
+   * While a refresh runs, ask more often.
+   *
+   * A refresh takes minutes and the progress feed is the only sign of life,
+   * so the thirty-second poll above would show it in jumps. This one only
+   * exists while something is actually running.
+   */
+  useEffect(() => {
+    if (!refreshing) return;
+    const id = window.setInterval(() => {
+      loadStatus().catch(() => undefined);
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [refreshing, loadStatus]);
+
   return (
     <StoreContext.Provider
       value={{

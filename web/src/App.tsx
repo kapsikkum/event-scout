@@ -6,6 +6,7 @@ import Places from './pages/Places';
 import Calendar from './pages/Calendar';
 import Settings from './pages/Settings';
 import { StoreProvider, useStore } from './store';
+import RefreshActivity from './components/RefreshActivity';
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'never';
@@ -51,6 +52,7 @@ function Shell() {
         </button>
       </header>
       <main className="page">
+        <RefreshActivity />
         {needsSetup && location.pathname !== '/settings' && <Navigate to="/settings" replace />}
         <Routes>
           <Route path="/" element={<Home />} />
