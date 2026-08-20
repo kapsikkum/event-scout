@@ -65,3 +65,15 @@ test('an event with no end still gets a DTEND', () => {
   const ics = buildIcs([EVENT]);
   assert.ok(/DTEND:\d{8}T\d{6}Z/.test(ics), 'clients reject a VEVENT with neither DTEND nor DURATION');
 });
+
+test('carries no METHOD, which would make it an iTIP object', () => {
+  // Outlook reads a subscription feed with METHOD as an invitation in
+  // transit rather than a calendar, and refuses to add it.
+  assert.equal(/^METHOD:/m.test(buildIcs([EVENT])), false);
+});
+
+test('names the calendar in both the old and the standard spelling', () => {
+  const ics = buildIcs([EVENT], { name: 'Event Scout - Bathurst' });
+  assert.ok(ics.includes('X-WR-CALNAME:Event Scout - Bathurst\r\n'));
+  assert.ok(ics.includes('NAME:Event Scout - Bathurst\r\n'));
+});

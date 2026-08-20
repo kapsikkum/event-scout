@@ -60,14 +60,23 @@ export function buildIcs(events: IcsEvent[], opts: IcsOptions = {}): string {
     'VERSION:2.0',
     'PRODID:-//event-scout//EN',
     'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
+    // No METHOD. It marks a calendar as an iTIP object -- an invitation or a
+    // reply in transit -- and Outlook reads a subscription feed carrying one
+    // as exactly that rather than as a calendar to subscribe to. A published
+    // feed is not a scheduling message and should not claim to be one.
     `X-WR-CALNAME:${icsEscape(opts.name ?? 'Event Scout')}`,
+    // The standard spelling of the same thing (RFC 7986). X-WR-CALNAME is the
+    // older convention that every client still reads, so both go out.
+    `NAME:${icsEscape(opts.name ?? 'Event Scout')}`,
     // Tells subscribing clients how often to re-poll; without it some check
     // once a day and the feed looks stale.
     'REFRESH-INTERVAL;VALUE=DURATION:PT2H',
     'X-PUBLISHED-TTL:PT2H',
   ];
-  if (opts.description) lines.push(`X-WR-CALDESC:${icsEscape(opts.description)}`);
+  if (opts.description) {
+    lines.push(`X-WR-CALDESC:${icsEscape(opts.description)}`);
+    lines.push(`DESCRIPTION:${icsEscape(opts.description)}`);
+  }
 
   for (const ev of events) {
     const end = ev.endTime ?? new Date(Date.parse(ev.startTime) + 2 * 3600 * 1000).toISOString();

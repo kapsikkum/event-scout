@@ -214,7 +214,10 @@ function calendarFeed(req: express.Request, res: express.Response, download: boo
     starredOnly ? 'shortlist' : null,
     category || null,
     getSettings().city || null,
-  ].filter(Boolean).join(' · ');
+    // A plain hyphen, not the middle dot used elsewhere in the UI: Outlook is
+    // the fussiest consumer of this name and there is nothing to gain from
+    // putting a non-ASCII character in front of it.
+  ].filter(Boolean).join(' - ');
 
   const ics = buildIcs(
     events.map((ev) => ({
