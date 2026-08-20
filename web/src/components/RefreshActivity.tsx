@@ -10,8 +10,10 @@ import { useStore } from '../store';
  * from a stuck one, no sense of how far along it was, and nothing to show for
  * it until the whole thing finished and the list changed underneath you.
  *
- * It stays on screen after the run so the last result can be read, and
- * collapses to a single summary line rather than vanishing.
+ * It shows only while a run is happening. Left on screen afterwards it became
+ * a banner on every page of the app that never went away, which is a poor
+ * trade for information that is only interesting once. The finished log lives
+ * on the Settings page, next to the per-source status it belongs with.
  */
 export default function RefreshActivity() {
   const { status, refreshing } = useStore();
@@ -24,17 +26,16 @@ export default function RefreshActivity() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [progress?.lines.length]);
 
-  if (!progress?.startedAt || progress.lines.length === 0) return null;
+  if (!refreshing || !progress?.startedAt || progress.lines.length === 0) return null;
 
   const active = Object.entries(progress.active);
   const lines = progress.lines.slice(-6);
 
   return (
-    <section className={`activity${refreshing ? ' is-running' : ''}`}>
+    <section className="activity is-running">
       <header className="activity__head">
         <span className="activity__state">
-          {refreshing ? <span className="spin">⟳</span> : '✓'}{' '}
-          {refreshing ? 'Searching' : 'Last search'}
+          <span className="spin">⟳</span> Searching
         </span>
         <span className="activity__found">
           {progress.found} event{progress.found === 1 ? '' : 's'} found

@@ -37,10 +37,18 @@ let
   appImage = "localhost/event-scout:latest";
   chromiumImage = "localhost/event-scout-chromium:latest";
 
-  # The database is small but it is the entire point of the app: every event
-  # ever seen, what was shortlisted, and the density history. On the NAS mount
-  # so it outlives the guest.
-  stateDir = "/mnt/app-data/event-scout";
+  # Local disk, matching the other containers on this fleet, and emphatically
+  # not the NAS mount this first pointed at.
+  #
+  # SQLite over NFS is a bad idea twice over. POSIX advisory locking across
+  # NFS is unreliable, which is a corruption risk; and node:sqlite is
+  # synchronous, so every query blocks the event loop for as long as the
+  # filesystem takes to answer. On a hard mount with timeo=600 that is up to
+  # sixty seconds, which is exactly how long nginx waited before giving up on
+  # /api/status -- fifty-five times in one hour.
+  #
+  # The NAS is the right place for bulk media, not for a live database.
+  stateDir = "/opt/event-scout";
 in
 {
   # Deliberately no deployment.gateway.directPorts. That option allowlists the
@@ -72,6 +80,28 @@ in
 
   # uid 1000 is the "node" user the app image runs as.
   systemd.tmpfiles.rules = [ "d ${stateDir} 0750 1000 1000 - -" ];
+
+  # The database is small and it is the entire point of the app: every event
+  # ever seen, what was shortlisted, and the density history. Local disk is
+  # where it runs; a nightly copy is what puts it on the NAS.
+  systemd.services.event-scout-backup = {
+    description = "Copy the event-scout database to the NAS";
+    startAt = "daily";
+    path = [ pkgs.sqlite ];
+    serviceConfig = {
+      Type = "oneshot";
+      # VACUUM INTO writes one consistent file with the WAL folded in, which
+      # a plain copy of a live database would not be.
+      ExecStart = pkgs.writeShellScript "event-scout-backup" ''
+        set -euo pipefail
+        dest=/mnt/app-data/event-scout
+        mkdir -p "$dest"
+        rm -f "$dest/event-scout.db.tmp"
+        sqlite3 ${stateDir}/event-scout.db "VACUUM INTO '$dest/event-scout.db.tmp'"
+        mv -f "$dest/event-scout.db.tmp" "$dest/event-scout.db"
+      '';
+    };
+  };
 
   virtualisation.oci-containers.containers = {
     event-scout-chromium = {

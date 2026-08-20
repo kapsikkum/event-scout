@@ -72,6 +72,9 @@ function StatusLine({ status }: { status: SourceStatus | undefined }) {
 
 export default function Settings() {
   const { settings, status, updateSettings, refresh, refreshing } = useStore();
+  // Only once it has finished: while it runs the feed is at the top of the
+  // page, and showing the same lines twice helps nobody.
+  const lastSearch = refreshing ? [] : status?.progress?.lines ?? [];
   const [draft, setDraft] = useState<SettingsType | null>(null);
   const [geoQuery, setGeoQuery] = useState('');
   const [density, setDensity] = useState<DensityStatus | null>(null);
@@ -396,6 +399,24 @@ export default function Settings() {
         </div>
         {densityMsg && <p className="hint" style={{ marginTop: 8 }}>{densityMsg}</p>}
       </section>
+
+      {lastSearch.length > 0 && (
+        <section>
+          <h2>🔎 Last search</h2>
+          <p className="hint" style={{ margin: '0 0 8px' }}>
+            What the most recent refresh did and what it turned up. It runs at the
+            top of the page while it is happening; this is where it ends up
+            afterwards.
+          </p>
+          <div className="activity__feed" style={{ maxHeight: 220 }}>
+            {lastSearch.map((line, i) => (
+              <div key={i} className="activity__line">
+                {line}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <h2>

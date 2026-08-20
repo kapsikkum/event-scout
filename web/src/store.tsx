@@ -34,10 +34,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setEvents(await api.events());
   }, []);
 
+  /**
+   * Ask for the status, unless we are still waiting on the last answer.
+   *
+   * The server is single-threaded and its database calls are synchronous, so
+   * a heavy moment during a refresh stalls every request behind it. Polling
+   * on a timer regardless put a queue of identical requests on a server that
+   * was already busy, and nginx timed fifty-five of them out in an hour. One
+   * in flight at a time is enough to see progress and cannot pile up.
+   */
+  const statusInFlight = useRef(false);
   const loadStatus = useCallback(async () => {
-    const s = await api.status();
-    setStatus(s);
-    setRefreshing(s.refreshing);
+    if (statusInFlight.current) return;
+    statusInFlight.current = true;
+    try {
+      const s = await api.status();
+      setStatus(s);
+      setRefreshing(s.refreshing);
+    } finally {
+      statusInFlight.current = false;
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -100,14 +116,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * While a refresh runs, ask more often.
    *
    * A refresh takes minutes and the progress feed is the only sign of life,
-   * so the thirty-second poll above would show it in jumps. This one only
-   * exists while something is actually running.
+   * so the thirty-second poll above would show it in jumps. Three seconds is
+   * frequent enough to read as live without leaning on a server that is busy
+   * doing the actual work; loadStatus drops a tick if the last is unanswered.
    */
   useEffect(() => {
     if (!refreshing) return;
     const id = window.setInterval(() => {
       loadStatus().catch(() => undefined);
-    }, 1500);
+    }, 3000);
     return () => window.clearInterval(id);
   }, [refreshing, loadStatus]);
 
