@@ -72,6 +72,12 @@ export interface SunDay {
   blueEvening: { start: string; end: string } | null;
 }
 
+/** YYYY-MM-DD in the machine's own timezone. */
+function localDate(d: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function iso(d: Date | null | undefined): string | null {
   return d ? d.toISOString() : null;
 }
@@ -88,7 +94,11 @@ export function sunForDay(date: Date, lat: number, lon: number): SunDay {
   }
 
   return {
-    date: date.toISOString().slice(0, 10),
+    // The local calendar date, not the UTC one. `toISOString().slice(0, 10)`
+    // is a day behind for the whole morning anywhere east of Greenwich --
+    // 8am in Bathurst is still yesterday in UTC -- and this string is what
+    // labels the day on screen.
+    date: localDate(date),
     sunrise: iso(horizon?.rise),
     sunset: iso(horizon?.set),
     solarNoon: iso(horizon?.transit),

@@ -33,12 +33,26 @@ function moonGlyph(illumination: number, phase: string): string {
   return waxing ? '🌔' : '🌖';
 }
 
+/**
+ * "Today" alone is ambiguous on a tab left open overnight, and useless for
+ * deciding whether the forecast you are reading is the one you planned around.
+ * The date is parsed off the sun day rather than computed here, so it is the
+ * date the figures are actually for.
+ */
+const dayDate = (sun: SunDay): string =>
+  new Date(`${sun.date}T12:00:00`).toLocaleDateString(undefined, {
+    weekday: 'short', day: 'numeric', month: 'short',
+  });
+
 function DayBlock({ label, sun, weather, moon }: {
   label: string; sun: SunDay; weather: WeatherDay | null; moon: MoonInfo;
 }) {
   return (
     <div className="photo__day">
-      <h4>{label}</h4>
+      <h4>
+        {label}
+        <span className="photo__date">{dayDate(sun)}</span>
+      </h4>
 
       <div className="photo__row photo__row--hero">
         <span className="photo__k">🌅 Golden</span>

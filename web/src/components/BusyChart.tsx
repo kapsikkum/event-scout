@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { busyColour } from '../busy';
+import { Light, ObservedHour } from '../api';
 
 /**
  * Hourly busyness as inline SVG — no charting library.
  *
  * Bars are Google's typical profile for the day; dots are what we actually
- * measured at that hour. The gap between them is the point: a dot well above
- * the bar means something is happening that isn't normal for the time.
+ * measured at that hour, on that same weekday. The gap between them is the
+ * point: a dot well above the bar means something is happening that isn't
+ * normal for the time.
  *
  * The chart is drawn in real pixels rather than in a fixed viewBox stretched to
  * fit. Stretching distorts anything that isn't a rectangle — measured dots came
@@ -18,16 +20,20 @@ import { busyColour } from '../busy';
 export interface BusyChartProps {
   /** Typical percentage keyed by hour, as stored in the weekly profile. */
   hours: Record<string, number>;
-  /** Optional observed averages keyed by hour. */
-  observed?: Record<number, { avg: number; samples: number }>;
+  /** Measured averages keyed by hour, for the day being shown. */
+  observed?: Record<number, ObservedHour>;
   /** Highlight this hour, e.g. the current one. */
   markHour?: number | null;
+  /** Light band per hour, used to shade the dark end of the day. */
+  light?: Record<number, Light>;
+  /** The stretch worth shooting, drawn as a band across the plot. */
+  best?: { from: number; to: number; label: string } | null;
   height?: number;
   showAxis?: boolean;
 }
 
 export default function BusyChart({
-  hours, observed, markHour, height = 92, showAxis = true,
+  hours, observed, markHour, light, best, height = 92, showAxis = true,
 }: BusyChartProps) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(560);
@@ -61,6 +67,12 @@ export default function BusyChart({
   const y = (pct: number) => plot - (pct / 100) * plot;
   const x = (hour: number) => (hour - first) * barW;
 
+  // Dark hours are shaded behind everything, so a tall bar at 2am reads as what
+  // it is: plenty of people, no light to shoot them by.
+  const dark = light
+    ? entries.filter((e) => light[e.hour] === 'night').map((e) => e.hour)
+    : [];
+
   return (
     <div className="chart" ref={box}>
       <svg
@@ -70,6 +82,29 @@ export default function BusyChart({
         role="img"
         aria-label={`Busyness by hour, ${first}:00 to ${last}:00`}
       >
+        {dark.map((hour) => (
+          <rect
+            key={`dark-${hour}`}
+            x={x(hour)}
+            y={0}
+            width={barW}
+            height={plot}
+            className="chart__dark"
+          />
+        ))}
+
+        {best && best.to >= first && best.from <= last && (
+          <rect
+            x={x(Math.max(best.from, first))}
+            y={0}
+            width={(Math.min(best.to, last) - Math.max(best.from, first) + 1) * barW}
+            height={plot}
+            className="chart__best"
+          >
+            <title>{`Best window: ${best.from}:00–${best.to + 1}:00 (${best.label})`}</title>
+          </rect>
+        )}
+
         {/* A tick under the axis, not a column behind the bars: a pale full-height
             column is indistinguishable from a bar of that height. */}
         {markHour != null && markHour >= first && markHour <= last && (
@@ -110,7 +145,7 @@ export default function BusyChart({
                 className="chart__dot"
               >
                 <title>
-                  {`${o.hour}:00 — measured ${o.avg}% (${o.samples} sample${o.samples === 1 ? '' : 's'})`}
+                  {`${o.hour}:00 — measured ${o.avg}% live (${o.samples} reading${o.samples === 1 ? '' : 's'})`}
                 </title>
               </circle>
             ))}

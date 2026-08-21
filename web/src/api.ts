@@ -134,6 +134,25 @@ export interface PhotoConditions {
 
 export interface HistoryPoint { ts: number; live: number | null; typical: number | null }
 
+export type Light = 'golden' | 'day' | 'blue' | 'night';
+
+export interface ShootVerdict {
+  score: number;
+  label: 'Prime' | 'Good' | 'Fair' | 'Quiet' | 'Dead' | 'Unknown';
+  why: string;
+  light?: Light;
+  surge?: boolean;
+  estimated?: boolean;
+}
+
+export interface ObservedHour { avg: number; samples: number }
+
+export interface DaySummary {
+  readings: number;
+  live: number;
+  best: { from: number; to: number; score: number; label: string } | null;
+}
+
 export interface VenueHistory {
   name: string;
   lat: number;
@@ -142,7 +161,11 @@ export interface VenueHistory {
   byDay: Record<string, Record<string, number>> | null;
   busiestDay: string | null;
   busiestHour: number | null;
-  observedByHour: Record<number, { avg: number; samples: number }>;
+  /** weekday (0 = Sunday) -> hour -> measured average. */
+  observedByDay: Record<number, Record<number, ObservedHour>>;
+  daySummary: Record<number, DaySummary>;
+  lightByDay: Record<number, Record<number, Light>>;
+  now: ShootVerdict | null;
 }
 
 export interface EventTopic { key: string; label: string; terms: string[] }
@@ -167,6 +190,7 @@ export interface VenueReading {
   busiestHour: number | null;
   quietestDay: string | null;
   openDays: string[] | null;
+  shoot: ShootVerdict;
 }
 
 export interface DensityFeature {

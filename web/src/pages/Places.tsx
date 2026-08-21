@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, DensityArea, VenueHistory, VenueReading } from '../api';
+import { api, DensityArea, ShootVerdict, VenueHistory, VenueReading } from '../api';
 import { busyColour } from '../busy';
 import BusyChart from '../components/BusyChart';
 
@@ -13,6 +13,22 @@ import BusyChart from '../components/BusyChart';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+/** 9 and 13 -> "9:00-14:00", the window running to the end of the last hour. */
+const windowLabel = (from: number, to: number): string => `${from}:00–${to + 1}:00`;
+
+function ShootBadge({ shoot }: { shoot: ShootVerdict }) {
+  if (shoot.label === 'Unknown') return null;
+  return (
+    <span
+      className={`shoot shoot--${shoot.label.toLowerCase()}${shoot.estimated ? ' is-estimated' : ''}`}
+      title={shoot.why}
+    >
+      📷 {shoot.estimated ? '~' : ''}{shoot.label}
+      {shoot.surge && <span className="shoot__surge"> ↑</span>}
+    </span>
+  );
+}
+
 export default function Places() {
   const [areas, setAreas] = useState<DensityArea[]>([]);
   const [area, setArea] = useState('');
@@ -21,6 +37,7 @@ export default function Places() {
   const [history, setHistory] = useState<Record<string, VenueHistory>>({});
   const [day, setDay] = useState(new Date().getDay());
   const [filter, setFilter] = useState('');
+  const [sort, setSort] = useState<'busy' | 'shoot'>('busy');
 
   useEffect(() => {
     api.densityAreas()
@@ -53,10 +70,14 @@ export default function Places() {
   const shown = venues
     .filter((v) => v.name.toLowerCase().includes(filter.trim().toLowerCase()))
     .sort((a, b) => {
+      if (sort === 'shoot') {
+        return (b.shoot?.score ?? 0) - (a.shoot?.score ?? 0) || a.name.localeCompare(b.name);
+      }
       const rank = (v: VenueReading) => (v.live != null ? 0 : v.typical != null ? 1 : 2);
       return rank(a) - rank(b) || (b.live ?? b.typical ?? 0) - (a.live ?? a.typical ?? 0);
     });
 
+  const today = new Date().getDay();
   const hourNow = new Date().getHours();
 
   return (
@@ -74,6 +95,10 @@ export default function Places() {
           placeholder="Filter places…"
           onChange={(e) => setFilter(e.target.value)}
         />
+        <select value={sort} onChange={(e) => setSort(e.target.value as 'busy' | 'shoot')}>
+          <option value="busy">Busiest first</option>
+          <option value="shoot">Best to shoot</option>
+        </select>
         <span className="places__count">{shown.length} of {venues.length}</span>
       </div>
 
@@ -89,11 +114,13 @@ export default function Places() {
           const h = history[v.name];
           const expanded = open === v.name;
           const profileDay = h?.byDay?.[DAYS[day]] ?? null;
+          const summary = h?.daySummary?.[day];
           return (
             <li key={`${v.name}@${v.lat},${v.lon}`} className={expanded ? 'is-open' : ''}>
               <button className="places__row" onClick={() => void toggle(v.name)}>
                 <span className="dot" style={{ background: busyColour(v.score) }} />
                 <span className="places__name">{v.name}</span>
+                {v.shoot && <ShootBadge shoot={v.shoot} />}
                 {v.busiestDay && (
                   <span className="places__busiest">
                     busiest {v.busiestDay}
@@ -112,6 +139,12 @@ export default function Places() {
                     <p className="hint">Loading…</p>
                   ) : (
                     <>
+                      {h.now && (
+                        <p className="places__verdict">
+                          <ShootBadge shoot={h.now} /> <span>{h.now.why}</span>
+                        </p>
+                      )}
+
                       <div className="places__days">
                         {DAYS.map((d, i) => (
                           <button
@@ -119,8 +152,10 @@ export default function Places() {
                             className={i === day ? 'active' : ''}
                             disabled={!h.byDay?.[d] || Object.keys(h.byDay[d]).length === 0}
                             onClick={() => setDay(i)}
+                            title={i === today ? 'Today' : undefined}
                           >
                             {d.slice(0, 3)}
+                            {i === today && <span className="places__istoday">•</span>}
                           </button>
                         ))}
                       </div>
@@ -129,13 +164,35 @@ export default function Places() {
                         <>
                           <BusyChart
                             hours={profileDay}
-                            observed={day === new Date().getDay() ? h.observedByHour : undefined}
-                            markHour={day === new Date().getDay() ? hourNow : null}
+                            // Measured readings for the weekday being shown, not
+                            // for today: picking a tab is asking what that day
+                            // looks like.
+                            observed={h.observedByDay?.[day]}
+                            light={h.lightByDay?.[day]}
+                            best={summary?.best ?? null}
+                            markHour={day === today ? hourNow : null}
                           />
                           <p className="places__legend">
-                            Bars: typical for {DAYS[day]} · dots: measured ·{' '}
-                            {h.points.length} reading{h.points.length === 1 ? '' : 's'} in 14 days
+                            Bars: typical for {DAYS[day]} · dots: measured live ·{' '}
+                            {summary?.live
+                              ? `${summary.live} live reading${summary.live === 1 ? '' : 's'} on ${DAYS[day].slice(0, 3)}`
+                              : `no live readings on ${DAYS[day].slice(0, 3)} yet`}
+                            {summary && summary.readings > summary.live &&
+                              ` (of ${summary.readings} checks)`}
                           </p>
+                          {summary?.best ? (
+                            <p className="places__best">
+                              📷 Best on {DAYS[day]}:{' '}
+                              <b>{windowLabel(summary.best.from, summary.best.to)}</b>{' '}
+                              <span className="places__sub">
+                                — {summary.best.label.toLowerCase()} for photos
+                              </span>
+                            </p>
+                          ) : (
+                            <p className="places__best places__sub">
+                              📷 Nothing worth a trip on {DAYS[day]} — too quiet all day.
+                            </p>
+                          )}
                         </>
                       ) : (
                         <p className="hint">Closed on {DAYS[day]}, or no profile.</p>
@@ -148,7 +205,8 @@ export default function Places() {
                             {h.points.slice(-8).reverse().map((p) => (
                               <li key={p.ts}>
                                 <span>{new Date(p.ts * 1000).toLocaleString(undefined, {
-                                  weekday: 'short', hour: '2-digit', minute: '2-digit',
+                                  weekday: 'short', day: 'numeric', month: 'short',
+                                  hour: '2-digit', minute: '2-digit',
                                 })}</span>
                                 <span className="places__reading">
                                   {p.live != null ? `${p.live}%` : '–'}

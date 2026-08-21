@@ -1,10 +1,12 @@
 import { getSettings } from '../db.js';
 import { Area, densityConfig, pickAreas, resolveAreas } from './areas.js';
 import { insertObservations, insertRun, selectObservations, venueCount, loadVenues, Observation } from './store.js';
-import { scrapePopular, discoverVenues } from './sources/googlePopular.js';
+import { scrapePopular, discoverVenues, DAY_NAMES } from './sources/googlePopular.js';
 import { scrapeWaze, WazeResult } from './sources/waze.js';
 import { scrapeWazeViaBrowser, signInToWaze } from './sources/wazeBrowser.js';
 import { accumulate, buildGrid, colourFor, toCells } from './grid.js';
+import { bestWindow, lightBands, shootScore, Light, ShootVerdict } from './shootScore.js';
+import { sunForDay } from '../photo.js';
 
 /**
  * The scrape and render pipeline.
@@ -252,6 +254,8 @@ export interface VenueReading {
   busiestHour: number | null;
   quietestDay: string | null;
   openDays: string[] | null;
+  /** How good a place this is to shoot at the moment it was read. */
+  shoot: ShootVerdict;
 }
 
 /**
@@ -273,8 +277,15 @@ export function venueReadings(area: Area): VenueReading[] {
     });
   }
 
+  // One sun calculation per venue, reused for whatever hour its reading landed
+  // on. Doing it inside the loop below would repeat the same arithmetic for
+  // every venue in the area on every request.
+  const now = new Date();
+
   return venues.map((v) => {
     const reading = latest.get(v.name);
+    const at = reading ? new Date(reading.ts * 1000) : now;
+    const light = lightBands(sunForDay(at, v.lat, v.lon))(at.getHours());
     return {
       name: v.name,
       lat: v.lat,
@@ -287,6 +298,12 @@ export function venueReadings(area: Area): VenueReading[] {
       busiestHour: v.profile?.busiestHour ?? null,
       quietestDay: v.profile?.quietestDay ?? null,
       openDays: v.profile?.openDays ?? null,
+      shoot: shootScore({
+        busy: reading?.live ?? reading?.typical ?? null,
+        typical: reading?.typical ?? null,
+        light,
+        estimated: reading?.live == null && reading?.typical != null,
+      }),
     };
   }).sort((a, b) => b.score - a.score);
 }
@@ -295,6 +312,19 @@ export interface HistoryPoint {
   ts: number;
   live: number | null;
   typical: number | null;
+}
+
+export interface ObservedHour {
+  avg: number;
+  samples: number;
+}
+
+export interface DaySummary {
+  /** Readings taken on this weekday, and how many carried a live figure. */
+  readings: number;
+  live: number;
+  /** The stretch of hours worth shooting, from the typical profile. */
+  best: { from: number; to: number; score: number; label: string } | null;
 }
 
 export interface VenueHistory {
@@ -306,8 +336,22 @@ export interface VenueHistory {
   byDay: Record<string, Record<string, number>> | null;
   busiestDay: string | null;
   busiestHour: number | null;
-  /** Observed average per hour-of-day, across the requested window. */
-  observedByHour: Record<number, { avg: number; samples: number }>;
+  /**
+   * Measured averages as weekday -> hour -> reading, weekday being 0=Sunday to
+   * match `Date.getDay()`.
+   *
+   * Keyed by weekday and not by hour alone. Averaging a Tuesday lunchtime in
+   * with a Saturday one produced a single curve that was then drawn against
+   * whichever day you had selected, so every day showed the same dots and none
+   * of them described that day.
+   */
+  observedByDay: Record<number, Record<number, ObservedHour>>;
+  /** Per weekday, how much of the above there actually is. */
+  daySummary: Record<number, DaySummary>;
+  /** Which light band each hour falls in, at this venue, per weekday. */
+  lightByDay: Record<number, Record<number, Light>>;
+  /** How good it is to shoot right now. */
+  now: ShootVerdict | null;
 }
 
 /**
@@ -332,22 +376,68 @@ export function venueHistory(area: Area, venueName: string, days = 14): VenueHis
     return { ts: r.ts, live: meta?.live ?? null, typical: meta?.typical ?? null };
   });
 
-  // Average what we actually observed, bucketed by hour of day.
-  const buckets = new Map<number, number[]>();
+  // Average what we measured, bucketed by weekday and then hour.
+  //
+  // Only readings that carried a live figure count. The fallback used to be
+  // `live ?? typical`, which quietly plotted Google's own typical curve as if
+  // it were a measurement -- so at hours when nothing is published live, the
+  // dots sat exactly on the bars and appeared to confirm them. A venue with no
+  // live coverage now honestly shows no dots, and `daySummary` says why.
+  const buckets = new Map<string, number[]>();
+  const summary: Record<number, DaySummary> = {};
+  for (let d = 0; d < 7; d++) summary[d] = { readings: 0, live: 0, best: null };
+
   for (const p of points) {
-    const value = p.live ?? p.typical;
-    if (value == null) continue;
-    const hour = new Date(p.ts * 1000).getHours();
-    if (!buckets.has(hour)) buckets.set(hour, []);
-    buckets.get(hour)!.push(value);
+    const when = new Date(p.ts * 1000);
+    const day = when.getDay();
+    summary[day].readings++;
+    if (p.live == null) continue;
+    summary[day].live++;
+    const key = `${day}:${when.getHours()}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(p.live);
   }
-  const observedByHour: Record<number, { avg: number; samples: number }> = {};
-  for (const [hour, values] of buckets) {
-    observedByHour[hour] = {
+
+  const observedByDay: Record<number, Record<number, ObservedHour>> = {};
+  for (const [key, values] of buckets) {
+    const [day, hour] = key.split(':').map(Number);
+    (observedByDay[day] ??= {})[hour] = {
       avg: Math.round(values.reduce((a, b) => a + b, 0) / values.length),
       samples: values.length,
     };
   }
+
+  // Sun times for the next occurrence of each weekday, at the venue's own
+  // coordinates. Sunset moves by a couple of minutes across a week, which is
+  // well under the hour granularity everything here is drawn at.
+  const lightByDay: Record<number, Record<number, Light>> = {};
+  const today = new Date();
+  for (let d = 0; d < 7; d++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + ((d - today.getDay() + 7) % 7));
+    const band = lightBands(sunForDay(date, venue.lat, venue.lon));
+    lightByDay[d] = Object.fromEntries(
+      Array.from({ length: 24 }, (_, h) => [h, band(h)])
+    ) as Record<number, Light>;
+  }
+
+  for (let d = 0; d < 7; d++) {
+    const profile = venue.profile?.byDay?.[DAY_NAMES[d]];
+    if (profile && Object.keys(profile).length > 0) {
+      summary[d].best = bestWindow(profile, (h) => lightByDay[d][h]);
+    }
+  }
+
+  const newest = points[points.length - 1];
+  const fresh = newest && Date.now() / 1000 - newest.ts < 2 * 3600;
+  const now = fresh
+    ? shootScore({
+        busy: newest.live ?? newest.typical,
+        typical: newest.typical,
+        light: lightByDay[new Date(newest.ts * 1000).getDay()][new Date(newest.ts * 1000).getHours()],
+        estimated: newest.live == null,
+      })
+    : null;
 
   return {
     name: venue.name,
@@ -357,7 +447,10 @@ export function venueHistory(area: Area, venueName: string, days = 14): VenueHis
     byDay: venue.profile?.byDay ?? null,
     busiestDay: venue.profile?.busiestDay ?? null,
     busiestHour: venue.profile?.busiestHour ?? null,
-    observedByHour,
+    observedByDay,
+    daySummary: summary,
+    lightByDay,
+    now,
   };
 }
 
