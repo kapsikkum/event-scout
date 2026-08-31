@@ -17,6 +17,19 @@ import { defaultRegionFrom } from './regions.js';
 export const ADAPTERS: EventSourceAdapter[] = [ticketmaster, seatgeek, eventbrite, facebook, websearch, icalSource];
 
 let refreshing = false;
+let refreshStartedAt = 0;
+let refreshRun = 0;
+
+/**
+ * How long a refresh may run before a new one is allowed to start anyway.
+ *
+ * A source that hangs — the Facebook one drives a real browser — leaves the
+ * in-progress flag set for the life of the process, and every hourly attempt
+ * after it fails with "a refresh is already running". That is how this
+ * database went ten days without being refreshed while the server sat there
+ * apparently healthy. A refresh that has overrun this is not coming back.
+ */
+const REFRESH_WATCHDOG_MS = 30 * 60 * 1000;
 
 /** Search queries one refresh may spend in total, across every area. */
 const TOTAL_QUERY_BUDGET = 18;
@@ -25,7 +38,7 @@ const TOTAL_QUERY_BUDGET = 18;
 const AREA_SPACING_MS = 2500;
 
 export function isRefreshing(): boolean {
-  return refreshing;
+  return refreshing && Date.now() - refreshStartedAt < REFRESH_WATCHDOG_MS;
 }
 
 const upsertStmt = () =>
@@ -153,8 +166,11 @@ export async function eventLocations(settings: {
 }
 
 export async function refreshAll(): Promise<SourceStatus[]> {
-  if (refreshing) throw new Error('A refresh is already running');
+  if (isRefreshing()) throw new Error('A refresh is already running');
+  if (refreshing) console.warn('Previous refresh never finished; starting a new one');
   refreshing = true;
+  refreshStartedAt = Date.now();
+  const run = ++refreshRun;
   try {
     const settings = getSettings();
     if (settings.lat == null || settings.lng == null) {
@@ -267,7 +283,9 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     note(`Done — ${progress.found} event${progress.found === 1 ? '' : 's'} kept`);
     return getStatuses();
   } finally {
-    refreshing = false;
+    // Only if nothing has started since: an abandoned run that finally comes
+    // back must not clear the flag out from under the one that replaced it.
+    if (run === refreshRun) refreshing = false;
   }
 }
 
@@ -462,20 +480,28 @@ export function repairVenueNames(): number {
 const ARCHIVE_RETENTION_DAYS = 730;
 
 /**
- * Move events that finished (or started, if they carry no end) more than a day
- * ago into the archive, rather than deleting them. Very old archived rows are
- * eventually purged so the database stays bounded, but anything starred is
- * kept indefinitely.
+ * Move events that have been and gone into the archive, rather than deleting
+ * them. Very old archived rows are eventually purged so the database stays
+ * bounded, but anything starred is kept indefinitely.
+ *
+ * The two halves of the condition are isOver() written in SQL: an event with
+ * an end time goes when that end passes, one without goes at the end of the
+ * day it started on. It used to be a flat "finished more than 24 hours ago"
+ * against COALESCE(end_time, start_time), which kept yesterday morning's
+ * events on the page until this morning.
  */
 export function archivePastEvents(): { archived: number; purged: number } {
   const now = Date.now();
-  const cutoff = new Date(now - 24 * 3600 * 1000).toISOString();
+  const today = new Date(now);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
   const archived = db
     .prepare(
       `UPDATE events SET archived = 1, archived_at = ?
-       WHERE archived = 0 AND COALESCE(end_time, start_time) < ?`
+       WHERE archived = 0
+         AND ((end_time IS NOT NULL AND end_time < ?)
+              OR (end_time IS NULL AND start_time < ?))`
     )
-    .run(new Date(now).toISOString(), cutoff).changes;
+    .run(new Date(now).toISOString(), new Date(now).toISOString(), startOfToday).changes;
 
   const purgeBefore = new Date(now - ARCHIVE_RETENTION_DAYS * 24 * 3600 * 1000).toISOString();
   const purged = db

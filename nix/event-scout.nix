@@ -3,14 +3,16 @@
 # Deployed and verified on data-server: modules/containers/event-scout/default.nix
 # in ~/.nixos-config, with "event-scout" added to hostContainers on the host.
 #
-# The images are built ON THE HOST AS ROOT. oci-containers runs podman as root
-# and rootless podman keeps a separate image store, so an image built as your
-# own user is invisible to the service and the unit fails with
-# "image not known" -- which is exactly what happened the first time.
+# Both images come from GHCR, published by CI on every push to main, so
+# deploying a code change is:
 #
-#   cd ~/src/event-scout
-#   sudo podman build -t localhost/event-scout:latest -f Dockerfile .
-#   sudo podman build -t localhost/event-scout-chromium:latest -f Dockerfile.chromium .
+#   git push                                       # CI builds and publishes
+#   sudo systemctl restart podman-event-scout      # pulls it, pull = "newer"
+#
+# They used to be built on the host as root, because CI could not publish while
+# the GitHub account was locked. That worked, but it rebuilt Chromium's image on
+# the data server for changes CI had already built, and what ran was whatever
+# someone last compiled there rather than anything this repository could name.
 #
 {
   config,
@@ -29,13 +31,13 @@ let
   # and the app waits its full sixty seconds before giving up.
   network = "event-scout";
 
-  # Built on the host as root, not pulled: the repository's CI cannot publish
-  # to GHCR while the GitHub account is locked over an unpaid invoice. See the
-  # rebuild commands at the top of this file. Worth moving to
-  # ghcr.io/kapsikkum/event-scout once that is sorted — a locally built image
-  # is not reproducible from the flake, which is the one thing wrong here.
-  appImage = "localhost/event-scout:latest";
-  chromiumImage = "localhost/event-scout-chromium:latest";
+  # Tagged :latest rather than by digest, which is the one thing the move to
+  # the registry does not fix: a restart takes whatever main points at now, so
+  # the flake still does not pin what actually runs. CI publishes a :<sha> tag
+  # alongside; pin that if it ever matters more than being able to redeploy
+  # without editing this file.
+  appImage = "ghcr.io/kapsikkum/event-scout:latest";
+  chromiumImage = "ghcr.io/kapsikkum/event-scout-chromium:latest";
 
   # Local disk, matching the other containers on this fleet, and emphatically
   # not the NAS mount this first pointed at.
@@ -106,9 +108,7 @@ in
   virtualisation.oci-containers.containers = {
     event-scout-chromium = {
       image = chromiumImage;
-      # Built here. Left at the default, podman would try to fetch
-      # "localhost/event-scout-chromium" from a registry and fail.
-      pull = "never";
+      pull = "newer";
       autoStart = true;
       extraOptions = [
         "--network=${network}"
@@ -133,7 +133,11 @@ in
 
     event-scout = {
       image = appImage;
-      pull = "never";
+      # Pull when the registry has something newer, so a restart is all a
+      # deploy needs. "newer" rather than "always" because it falls back to the
+      # copy already on disk when GHCR cannot be reached: an outage at GitHub
+      # should not be able to stop this service coming back up.
+      pull = "newer";
       autoStart = true;
       dependsOn = [ "event-scout-chromium" ];
       extraOptions = [ "--network=${network}" ];

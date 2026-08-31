@@ -8,6 +8,11 @@ export interface MergedEvent {
   address: string;
   /** The suburb or town, worked out server-side. '' when the address names none. */
   locality: string;
+  /**
+   * The town this rounds to, out of the ones being searched — a Llanarth
+   * address arrives here as Bathurst. '' means nowhere near any of them.
+   */
+  place: string;
   lat: number | null;
   lng: number | null;
   imageUrl: string;

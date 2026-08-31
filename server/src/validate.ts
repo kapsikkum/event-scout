@@ -248,3 +248,22 @@ export function consensusStart(starts: string[]): string {
   }
   return byDate.get(best)!.slice().sort()[0];
 }
+
+/**
+ * Whether an event has been and gone.
+ *
+ * An event that carries an end time is over when that end passes. One that
+ * carries none is over at the end of the day it started: a listing that says
+ * "Sunday 10:30am" and nothing more is worth showing for the rest of Sunday
+ * and no longer. Local midnight, not a fixed number of hours, because the
+ * complaint this answers is about yesterday's events rather than about a
+ * particular number of hours having elapsed.
+ */
+export function isOver(startTime: string, endTime: string | null, now: Date = new Date()): boolean {
+  const end = endTime ? Date.parse(endTime) : NaN;
+  if (Number.isFinite(end)) return end < now.getTime();
+  const start = Date.parse(startTime);
+  if (!Number.isFinite(start)) return false;
+  const day = new Date(start);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime() <= now.getTime();
+}

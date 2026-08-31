@@ -3,10 +3,25 @@ import { MergedEvent, Settings, haversineKm } from './api';
 export type DateChip = 'all' | 'today' | 'weekend' | 'week' | 'month';
 export type SortKey = 'date' | 'photo' | 'distance' | 'place';
 
+/**
+ * The two location choices that are not the name of a town.
+ *
+ * Given a colon so neither can collide with a real place: the towns come from
+ * the user's settings and from their own event data, and "Nearby" would be
+ * a perfectly good name for a village somewhere.
+ */
+export const NEARBY = 'nearby:any';
+export const ELSEWHERE = 'nearby:none';
+
 export interface Filters {
   dateChip: DateChip;
   category: string;
   source: string;
+  /**
+   * A town name, NEARBY for anywhere the user searches, ELSEWHERE for
+   * everything beyond them, or '' for no location filter at all.
+   */
+  place: string;
   search: string;
   hideOnline: boolean;
   showHidden: boolean;
@@ -18,6 +33,7 @@ export const DEFAULT_FILTERS: Filters = {
   dateChip: 'all',
   category: '',
   source: '',
+  place: '',
   search: '',
   hideOnline: true,
   showHidden: false,
@@ -56,6 +72,9 @@ export function applyFilters(events: MergedEvent[], f: Filters, settings: Settin
     if (f.hideOnline && ev.isOnline) return false;
     if (f.category && ev.category !== f.category) return false;
     if (f.source && !ev.sources.some((s) => s.source === f.source)) return false;
+    if (f.place === NEARBY && !ev.place) return false;
+    else if (f.place === ELSEWHERE && ev.place) return false;
+    else if (f.place && f.place !== NEARBY && f.place !== ELSEWHERE && ev.place !== f.place) return false;
     if (window) {
       const t = new Date(ev.startTime);
       if (t < window[0] || t >= window[1]) return false;
@@ -109,4 +128,25 @@ export function placeLabel(ev: MergedEvent): string {
 
 export function categoriesOf(events: MergedEvent[]): string[] {
   return [...new Set(events.map((e) => e.category).filter(Boolean))].sort();
+}
+
+/**
+ * The towns to offer in the location filter, busiest first, plus how many
+ * events fall outside all of them.
+ *
+ * Busiest first rather than alphabetical: the list is read to find where the
+ * events are, and the towns with three listings between them are not the
+ * answer to that question.
+ */
+export function placesOf(events: MergedEvent[]): { places: { name: string; count: number }[]; elsewhere: number } {
+  const counts = new Map<string, number>();
+  let elsewhere = 0;
+  for (const ev of events) {
+    if (!ev.place) elsewhere++;
+    else counts.set(ev.place, (counts.get(ev.place) ?? 0) + 1);
+  }
+  const places = [...counts]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  return { places, elsewhere };
 }

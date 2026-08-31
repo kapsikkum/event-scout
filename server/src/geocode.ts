@@ -15,6 +15,20 @@ export function isGeocodeCached(query: string): boolean {
   return getKv(cacheKeyFor(query)) !== null;
 }
 
+/**
+ * The cached answer for a query, without going near the network.
+ *
+ * Everything that geocodes runs inside a refresh, which is asynchronous and
+ * rate-limited. Placing an event against the towns the user searches happens
+ * on every read of the event list instead, which is neither — so it reads what
+ * earlier refreshes already looked up and does without an answer when there
+ * isn't one, rather than turning a page load into a Nominatim request.
+ */
+export function cachedGeocode(query: string): GeocodeResult[] | null {
+  const cached = getKv(cacheKeyFor(query));
+  return cached ? (JSON.parse(cached) as GeocodeResult[]) : null;
+}
+
 export async function geocode(query: string): Promise<GeocodeResult[]> {
   const cacheKey = cacheKeyFor(query);
   const cached = getKv(cacheKey);

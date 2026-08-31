@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
-import { db } from './db.js';
-import { consensusStart } from './validate.js';
+import { db, getSettings } from './db.js';
+import { consensusStart, isOver } from './validate.js';
 import { localityOf } from './regions.js';
+import { assignPlaces, hubsFromSettings } from './places.js';
+import { cachedGeocode } from './geocode.js';
 
 export interface EventRow {
   id: number;
@@ -49,6 +51,11 @@ export interface MergedEvent {
   address: string;
   /** The suburb or town the address names, '' when it names none. */
   locality: string;
+  /**
+   * The town this rounds to, out of the ones the user searches. '' means
+   * nowhere near any of them. See places.ts.
+   */
+  place: string;
   lat: number | null;
   lng: number | null;
   imageUrl: string;
@@ -128,6 +135,9 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       // address empty — those are exactly the rows that need a locality most,
       // since without one they head their own group by street number.
       locality: localityOf(str((r) => r.address)) || localityOf(str((r) => r.venue_name)),
+      // Filled in below, once every event is known: which town an event
+      // rounds to depends on what the others taught about its suburb.
+      place: '',
       lat: members.find((m) => m.lat != null)?.lat ?? null,
       lng: members.find((m) => m.lng != null)?.lng ?? null,
       imageUrl: images[0] ?? '',
@@ -151,10 +161,24 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       manual: Boolean(members[0].manual_group),
     });
   }
-  merged.sort((a, b) =>
+  // Events that have been and gone are dropped here as well as archived on a
+  // timer, so the list is right the moment it is read. Archiving used to be
+  // the only thing that removed them and it only ran inside a refresh — so a
+  // refresh that failed, or simply was not due, left yesterday at the top of
+  // the page. See isOver and archivePastEvents.
+  const live = opts.archived ? merged : merged.filter((ev) => !isOver(ev.startTime, ev.endTime));
+
+  // After the past ones are gone, so that a town is offered on the strength of
+  // the events still to come rather than of last month's.
+  const hubs = hubsFromSettings(getSettings(), (name) => cachedGeocode(name)?.[0] ?? null);
+  assignPlaces(live, hubs).forEach((place, i) => {
+    live[i].place = place;
+  });
+
+  live.sort((a, b) =>
     opts.archived ? b.startTime.localeCompare(a.startTime) : a.startTime.localeCompare(b.startTime)
   );
-  return merged;
+  return live;
 }
 
 /** The rows behind a group key, whichever kind of group it is. */

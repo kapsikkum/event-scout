@@ -87,20 +87,24 @@ test('a dead day has no window worth naming', () => {
 });
 
 test('light bands follow the sun rather than the clock', () => {
+  // lightBands reads the sun times in the machine's own timezone, because that
+  // is the timezone the chart is drawn in — so the fixture is written in local
+  // time too. Pinning it to +10:00 instead made this the one test that passed
+  // in Sydney and failed on a UTC runner, which kept CI red for a fortnight
+  // and, with it, every image the deploy pulls.
+  const local = (hour: number, minute = 0): string => new Date(2026, 7, 21, hour, minute).toISOString();
   const band = lightBands({
     date: '2026-08-21',
-    sunrise: '2026-08-21T06:30:00+10:00',
-    sunset: '2026-08-21T17:40:00+10:00',
+    sunrise: local(6, 30),
+    sunset: local(17, 40),
     solarNoon: null,
     dayLength: null,
-    goldenMorning: { start: '2026-08-21T06:30:00+10:00', end: '2026-08-21T07:10:00+10:00' },
-    goldenEvening: { start: '2026-08-21T17:00:00+10:00', end: '2026-08-21T17:40:00+10:00' },
-    blueMorning: { start: '2026-08-21T06:00:00+10:00', end: '2026-08-21T06:30:00+10:00' },
-    blueEvening: { start: '2026-08-21T17:40:00+10:00', end: '2026-08-21T18:10:00+10:00' },
+    goldenMorning: { start: local(6, 30), end: local(7, 10) },
+    goldenEvening: { start: local(17), end: local(17, 40) },
+    blueMorning: { start: local(6), end: local(6, 30) },
+    blueEvening: { start: local(17, 40), end: local(18, 10) },
   });
-  // Asserted in the machine's own timezone, since that is what the chart draws.
-  const hourOf = (iso: string) => new Date(iso).getHours();
-  assert.equal(band(hourOf('2026-08-21T12:00:00+10:00')), 'day');
-  assert.equal(band(hourOf('2026-08-21T02:00:00+10:00')), 'night');
-  assert.equal(band(hourOf('2026-08-21T17:10:00+10:00')), 'golden');
+  assert.equal(band(12), 'day');
+  assert.equal(band(2), 'night');
+  assert.equal(band(17), 'golden');
 });

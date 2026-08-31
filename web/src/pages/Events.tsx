@@ -4,7 +4,18 @@ import EventCard from '../components/EventCard';
 import EventDetail from '../components/EventDetail';
 import { MergedEvent } from '../api';
 import { decodeEntities } from '../text';
-import { applyFilters, categoriesOf, DEFAULT_FILTERS, DateChip, Filters, placeLabel, SortKey } from '../filtering';
+import {
+  applyFilters,
+  categoriesOf,
+  DEFAULT_FILTERS,
+  DateChip,
+  ELSEWHERE,
+  Filters,
+  NEARBY,
+  placeLabel,
+  placesOf,
+  SortKey,
+} from '../filtering';
 
 /**
  * Split the visible list into the sections to render.
@@ -62,6 +73,10 @@ export default function Events() {
 
   const filtered = useMemo(() => applyFilters(events, filters, settings), [events, filters, settings]);
   const categories = useMemo(() => categoriesOf(events), [events]);
+  // Counted over everything rather than over the filtered list, so picking a
+  // town does not immediately rewrite the menu it was picked from.
+  const { places, elsewhere } = useMemo(() => placesOf(events), [events]);
+  const nearby = events.length - elsewhere;
   const sourceNames = useMemo(
     () => (status ? status.sources.filter((s) => s.state === 'ok' || s.count > 0).map((s) => s.name) : []),
     [status]
@@ -88,6 +103,22 @@ export default function Events() {
             </button>
           ))}
         </div>
+        {/* Where, rounded to the towns being searched: a Llanarth address is
+            filed under Bathurst, and anything out of reach under Elsewhere. */}
+        <select
+          title="Filter by town"
+          value={filters.place}
+          onChange={(e) => set({ place: e.target.value })}
+        >
+          <option value="">Anywhere</option>
+          {nearby > 0 && <option value={NEARBY}>Nearby ({nearby})</option>}
+          {places.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name} ({p.count})
+            </option>
+          ))}
+          {elsewhere > 0 && <option value={ELSEWHERE}>Elsewhere ({elsewhere})</option>}
+        </select>
         <select value={filters.category} onChange={(e) => set({ category: e.target.value })}>
           <option value="">All categories</option>
           {categories.map((c) => (

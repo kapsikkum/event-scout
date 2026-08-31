@@ -281,6 +281,26 @@ async function refreshIfStale(): Promise<void> {
 setTimeout(refreshIfStale, 5000);
 cron.schedule('15 * * * *', refreshIfStale);
 
+/**
+ * Age past events out on their own clock.
+ *
+ * Archiving used to happen only inside a refresh, so when the refresh stopped
+ * running — a hung source held its in-progress flag for ten days — yesterday's
+ * events stayed at the top of the list indefinitely. Events go stale whether
+ * or not new ones are arriving, so this is its own tick. getMergedEvents
+ * filters them out on read as well; this keeps the database in step.
+ */
+function archiveNow(): void {
+  try {
+    const { archived } = archivePastEvents();
+    if (archived > 0) console.log(`Archived ${archived} past event${archived === 1 ? '' : 's'}`);
+  } catch (err) {
+    console.error('Archiving failed:', (err as Error).message);
+  }
+}
+archiveNow();
+cron.schedule('*/10 * * * *', archiveNow);
+
 // Density is sampled far more often than events, so it gets its own tick. The
 // job itself decides whether the configured interval has actually elapsed.
 cron.schedule('*/5 * * * *', () => {
