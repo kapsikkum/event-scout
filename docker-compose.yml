@@ -1,10 +1,15 @@
-# `docker compose up --build`, then open http://localhost:3001
+# `docker compose pull && docker compose up -d`, then open http://localhost:3001
+#
+# Both services name a published image and can also build it. Naming the image
+# is what lets `docker compose pull` fetch what CI already built; the build
+# stanza is still there so `--build` works on a change you have not pushed.
 services:
   chromium:
-    # Built rather than pulled: see Dockerfile.chromium for why a full
-    # Chromium in new-headless mode beats the ready-made headless-shell image.
-    # The switches live in that file; the user agent and the rest of the
-    # anti-detection work are applied per page, over the protocol.
+    # A full Chromium in new-headless mode rather than the ready-made
+    # headless-shell image: see Dockerfile.chromium for why. The switches live
+    # in that file; the user agent and the rest of the anti-detection work are
+    # applied per page, over the protocol.
+    image: ghcr.io/kapsikkum/event-scout-chromium:latest
     build:
       context: .
       dockerfile: Dockerfile.chromium
@@ -22,6 +27,7 @@ services:
     restart: unless-stopped
 
   app:
+    image: ghcr.io/kapsikkum/event-scout:latest
     build: .
     environment:
       # Set means "attach to that browser"; unset means "start one locally",

@@ -2,6 +2,27 @@
 
 A local web app that aggregates upcoming events in your area from multiple sources, scored and filterable for photography scouting. Everything runs and stays on your machine — API keys and the event cache live in a local SQLite database.
 
+## TL;DR — run it with Docker
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Then open <http://localhost:3001>. That pulls the images CI publishes to GHCR,
+so nothing is built locally. Set your timezone — it decides when an event
+counts as past — in a `.env` file beside `docker-compose.yml`:
+
+```
+TZ=Australia/Sydney
+```
+
+To update later, `docker compose pull && docker compose up -d` again; your
+database and browser profile live in named volumes and survive it. To run a
+change you have not pushed, `docker compose up --build` instead. More detail,
+including how the Chromium container is wired up, is in
+[Running in Docker](#running-in-docker).
+
 ## Quick start
 
 ```powershell
@@ -43,7 +64,8 @@ This source needs no API key. For each search term it queries DuckDuckGo (fallin
 
 ## Features
 
-- **Events** — card grid with date chips (today / weekend / 7 days / month), category/source filters, text search, and sorts: soonest, **best for photos**, nearest. Online-only events are hidden by default.
+- **Events** — card grid with date chips (today / weekend / 7 days / month), category/source filters, text search, and sorts: soonest, **best for photos**, nearest. Online-only events are hidden by default, and events that have been and gone drop off on their own.
+- **Location filter** — every event is rounded to the nearest of the towns you actually search (your home city plus each configured area), so a suburb address is filed under the town it belongs to and anything out of reach lands in **Elsewhere**. Anywhere with enough listings of its own gets its own entry rather than being swallowed by it.
 - **Photo score** — a keyword/category heuristic that ranks events by photographic appeal (festivals, parades, air shows, markets, fireworks rank high; webinars rank zero).
 - **Shortlist** — star events, then export the shortlist as `.ics` to drop onto your real calendar.
 - **Map** — dark Leaflet map with pins colored by category; starred events ringed in amber.
@@ -122,11 +144,20 @@ Two containers: the app, and a Chromium the app drives over the DevTools
 protocol for the parts of the density layer that need a real browser.
 
 ```bash
+docker compose pull      # ghcr.io/kapsikkum/event-scout{,-chromium}:latest
+docker compose up -d
+```
+
+Both are published by CI on every push to `main` and both are public, so no
+registry login is needed. Building them yourself is still one flag:
+
+```bash
 docker compose up --build
 ```
 
 Then open <http://localhost:3001>. The database lives in the `event-scout-data`
-volume and the browser profile in `chromium-profile`, so both survive a rebuild.
+volume and the browser profile in `chromium-profile`, so both survive a pull or
+a rebuild.
 
 Set the timezone — it decides when an event counts as past — in a `.env` file
 next to `docker-compose.yml`:
