@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import Events from './pages/Events';
@@ -22,14 +23,38 @@ function Shell() {
   const { status, refreshing, refresh, settings } = useStore();
   const location = useLocation();
   const needsSetup = settings !== null && (settings.lat == null || settings.lng == null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const updated = `Updated ${relativeTime(status?.lastRefresh ?? null)}`;
+
+  // The menu is an overlay lying over the page beneath it, so anything that
+  // means "I am done with it" has to shut it: following a link, pressing
+  // Escape, or tapping the page outside it.
+  useEffect(() => setMenuOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
 
   return (
     <>
       <header className="topbar">
+        <button
+          className="topbar__burger"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+          aria-controls="topbar-nav"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? '✕' : '☰'}
+        </button>
         <Link to="/" className="logo" title="Home">
           📸 Event<span>Scout</span>
         </Link>
-        <nav>
+        <nav id="topbar-nav" className={menuOpen ? 'is-open' : ''}>
           <NavLink to="/events" className={({ isActive }) => (isActive ? 'active' : '')}>
             Events
           </NavLink>
@@ -45,12 +70,19 @@ function Shell() {
           <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
             Settings
           </NavLink>
+          {/* The bar has no room for the timestamp once it is this narrow, and
+              how stale the list is matters as much on a phone as anywhere, so
+              it comes along into the menu. Only one of the two is ever shown. */}
+          <span className="topbar__nav-meta">{updated}</span>
         </nav>
-        <span className="meta">Updated {relativeTime(status?.lastRefresh ?? null)}</span>
+        <span className="meta">{updated}</span>
         <button className="primary" onClick={() => void refresh()} disabled={refreshing || needsSetup}>
           {refreshing ? <span className="spin">⟳</span> : '⟳'} Refresh
         </button>
       </header>
+      {menuOpen && (
+        <div className="topbar__scrim" onClick={() => setMenuOpen(false)} aria-hidden="true" />
+      )}
       <main className="page">
         <RefreshActivity />
         {needsSetup && location.pathname !== '/settings' && <Navigate to="/settings" replace />}

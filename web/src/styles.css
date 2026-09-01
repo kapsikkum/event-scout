@@ -675,3 +675,76 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 }
 .activity__line { white-space: pre-wrap; overflow-wrap: anywhere; }
 .activity__line:last-child { color: var(--text); }
+
+/* ── Narrow screens ── */
+/*
+ * Laid out in a row, the bar needs about 800px for its five links, the
+ * timestamp and the refresh button. On a phone it got roughly half that, and
+ * the overflow was not scrollable or wrapped - Calendar, Settings and the
+ * refresh button were simply off the right-hand edge, unreachable. Below the
+ * breakpoint the links fold into a menu instead, leaving the bar holding the
+ * three things worth a permanent place: the way back home, the way into the
+ * menu, and refresh.
+ */
+.topbar__burger { display: none; }
+.topbar__nav-meta { display: none; }
+
+@media (max-width: 820px) {
+  .topbar { gap: 10px; padding: 10px 14px; }
+  .topbar__burger {
+    display: block;
+    order: -1;
+    flex: none;
+    padding: 6px 11px;
+    font-size: 16px;
+    line-height: 1.2;
+  }
+  /* Takes the space the nav had, so the refresh button still sits hard right. */
+  .topbar .logo { flex: 1; font-size: 16px; }
+  .topbar .meta { display: none; }
+
+  .topbar nav {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.5);
+  }
+  .topbar nav.is-open { display: flex; }
+  /* Roomy enough to hit with a thumb rather than a cursor. */
+  .topbar nav a { padding: 11px 14px; font-size: 16px; }
+  .topbar__nav-meta {
+    display: block;
+    color: var(--muted);
+    font-size: 12.5px;
+    margin-top: 4px;
+    padding: 10px 14px 2px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Under the bar, which is 1100, so the open menu stays above the scrim. */
+  .topbar__scrim { position: fixed; inset: 0; z-index: 1050; background: rgba(0, 0, 0, 0.45); }
+
+  .page { padding: 14px 14px 48px; }
+
+  /*
+   * A 250px panel pinned to the right leaves a sliver of map on a phone.
+   * Along the bottom it keeps its full width and the map keeps its top half,
+   * clear of the layers control in the opposite corner.
+   */
+  .map-panel {
+    top: auto;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: 42%;
+  }
+  .map-panel__list--all { max-height: none; }
+}
