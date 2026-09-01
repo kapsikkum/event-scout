@@ -25,6 +25,52 @@ const escape = (s: string): string => s.replace(/[&<>"]/g, (c) =>
  */
 const venueKey = (v: VenueReading): string => `${v.name}@${v.lat},${v.lon}`;
 
+/**
+ * Basemaps, none of which need an API key.
+ *
+ * CARTO's dark tiles used to be hardcoded here. They still answer 200, which
+ * is why the map went quietly blank rather than erroring: since their basemaps
+ * moved behind an account the CDN serves a 103-byte empty PNG to anyone
+ * without a key, and Leaflet draws that as happily as it draws a street.
+ *
+ * OpenStreetMap's own tiles lead because they are the most detailed of the
+ * three for scouting - tracks, gates, parking, building outlines - and that is
+ * worth more than matching the dark UI. The other two are one click away in
+ * the layers control: Esri's dark canvas for something close to the old look,
+ * and their imagery for seeing what a spot actually looks like on the ground.
+ *
+ * OSM asks that clients identify themselves, which a browser does by sending a
+ * Referer, and that nobody bulk-downloads:
+ * https://operations.osmfoundation.org/policies/tiles/
+ */
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
+
+function basemaps(): Record<string, L.TileLayer> {
+  return {
+    Map: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }),
+    Dark: L.tileLayer(`${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
+      attribution: 'Tiles &copy; Esri',
+      // The canvas has nothing past zoom 16. Without this the layer drops out
+      // entirely when the user zooms in on a venue, leaving pins on black.
+      maxNativeZoom: 16,
+      maxZoom: 19,
+    }),
+    Satellite: L.tileLayer(`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, {
+      attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics',
+      // Esri has imagery to 19 over the cities but only to 18 out this way -
+      // Bathurst and Mount Panorama both return the ''Map data not yet
+      // available'' placeholder at 19. Capping here upscales the last real
+      // tile instead, which is worth more than a sharper Sydney.
+      maxNativeZoom: 18,
+      maxZoom: 19,
+    }),
+  };
+}
+
 export default function MapView() {
   const { events, settings } = useStore();
   const mapRef = useRef<L.Map | null>(null);
@@ -45,10 +91,8 @@ export default function MapView() {
     const center: [number, number] =
       settings?.lat != null && settings.lng != null ? [settings.lat, settings.lng] : [39.5, -98.35];
     const map = L.map('leaflet-map').setView(center, settings?.lat != null ? 10 : 4);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-      maxZoom: 19,
-    }).addTo(map);
+    const bases = basemaps();
+    bases.Map.addTo(map);
 
     // Order matters: density sits under venues, which sit under event pins.
     densityLayer.current = L.layerGroup().addTo(map);
@@ -58,7 +102,7 @@ export default function MapView() {
     // Top-left, under the zoom buttons: top-right is where the info panel sits.
     L.control
       .layers(
-        {},
+        bases,
         {
           'Density': densityLayer.current,
           'Venues (live busyness)': venuesLayer.current,
