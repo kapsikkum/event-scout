@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { db, getSettings } from './db.js';
 import { consensusStart, isOver } from './validate.js';
 import { localityOf } from './regions.js';
+import { flyerHref } from './flyers.js';
+import { storedPath } from './flyerStore.js';
 import { assignPlaces, hubsFromSettings } from './places.js';
 import { cachedGeocode } from './geocode.js';
 import { chooseFields, EditError, parseEditPatch } from './merge.js';
@@ -121,6 +123,14 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
     // A merge is worth doing partly for this: a listing with no picture
     // inherits one from its twin. Distinct images are kept so nothing is lost.
     const images = [...new Set(members.map((m) => m.image_url).filter(Boolean))];
+    // The stored copies go last, so the original is still preferred and the
+    // copy is only reached when the browser finds the original will not load.
+    // EventImage walks this list on error, so the fallback costs nothing here.
+    for (const m of members) {
+      if (!m.image_url) continue;
+      const kept = storedPath(m.image_url, m.start_time);
+      if (kept) images.push(flyerHref(kept));
+    }
 
     merged.push({
       group,

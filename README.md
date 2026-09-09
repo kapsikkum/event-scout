@@ -233,6 +233,37 @@ Settings clears every reading.
 
 Routes: `GET /api/llm/status` (the `vision` block), `POST /api/vision/reset`.
 
+## Keeping the flyers
+
+On by default, as the `flyers` task. Downloads the picture from each upcoming or
+shortlisted event and keeps it under `data/flyers/`, in a folder per event date:
+
+```
+data/flyers/2026-10-08/9f193315aa56fe5a.jpg
+```
+
+Mostly a cache rather than an archive. The app already fetches every flyer for
+the reading pass, and re-fetches the lot whenever the prompt version changes; a
+local copy makes that free and stops it pulling the same megabyte off somebody
+else's CDN each time. Pictures do rot — Facebook signs its URLs and they start
+answering `403` — but measured across 1,085 of them only 3% had gone, and all of
+those were Facebook.
+
+The page still loads the original first and only falls back to the copy when the
+original will not load, so nothing changes while a source is healthy.
+
+| | |
+|---|---|
+| Kept | Upcoming events, and shortlisted ones for as long as they are shortlisted — those are never purged, so their flyers stay indefinitely. |
+| Dropped | Once an event is past and was never shortlisted. |
+| Re-filed | When an event's date changes, by the `archive` task. |
+| Served at | `GET /api/flyer/:day/:name`, open like the rest of the reads. |
+| Types | JPEG, PNG, WebP, AVIF and GIF. Not SVG: it is markup, and markup served from this app's own origin is a script it would run on itself. |
+
+Roughly 180 KB an image — about 26 MB for a few hundred. They live beside the
+database rather than inside it, so the nightly backup stays a small file and you
+can decide separately whether the pictures are worth copying too.
+
 ## Venue density
 
 Off by default. Samples how busy venues are on its own schedule, feeding the
@@ -423,6 +454,7 @@ replace and which it may only fill in when blank.
 | `GET /api/topics` | The preset event topics. |
 | `GET /api/geocode?q=` | Geocode a place name via OpenStreetMap. |
 | `GET /api/photo` | Sun, moon and weather for the configured location. `?force=1` skips the cache. |
+| `GET /api/flyer/:day/:name` | A stored flyer. Immutable, so it caches hard. |
 
 ### Tasks
 
@@ -432,7 +464,7 @@ replace and which it may only fill in when blank.
 | `POST /api/tasks/:name/run` | Run now, ignoring schedule and enabled state. `409` if blocked. |
 | `POST /api/tasks/:name/enable` | Body `{ enabled: boolean }`. |
 
-Names: `events`, `archive`, `density`, `enrich`, `vision`, `densityDiscover`.
+Names: `events`, `archive`, `density`, `enrich`, `vision`, `flyers`, `densityDiscover`.
 
 ### Settings and auth
 

@@ -2,6 +2,7 @@ import { getKv, getSettings, saveSettings, setKv } from '../db.js';
 import { archivePastEvents, getProgress, refreshAll } from '../refresh.js';
 import { runDensityScrape, runVenueDiscovery } from '../densityRefresh.js';
 import { pruneObservations } from '../density/store.js';
+import { runFlyerFetch, tidyFlyers } from '../flyerStore.js';
 import { runEnrichment } from '../enrich/pipeline.js';
 import { runVisionPass } from '../enrich/visionPipeline.js';
 import { createRegistry } from './registry.js';
@@ -112,6 +113,11 @@ tasks.register({
     // nothing else would be looking at that table.
     const stale = pruneObservations();
     if (stale.observations > 0) log(`pruned ${stale.observations} density observations`);
+    // Same beat as the events themselves: a flyer is re-filed when its event
+    // moves, and dropped once the event is past and was never shortlisted.
+    const flyers = tidyFlyers();
+    if (flyers.refiled > 0) log(`re-filed ${flyers.refiled} flyers`);
+    if (flyers.removed > 0) log(`removed ${flyers.removed} flyers`);
     return {
       ok: true,
       message:
@@ -159,6 +165,18 @@ tasks.register({
   enabled: () => Boolean(getSettings().visionEnabled),
   setEnabled: (on) => saveSettings({ ...getSettings(), visionEnabled: on }),
   run: (log) => runVisionPass(log),
+});
+
+tasks.register({
+  name: 'flyers',
+  label: 'Keep a copy of the flyers',
+  description:
+    'Download the picture from each upcoming or shortlisted event and keep it, filed by the date of the event. Makes re-reading a flyer free, and keeps the card working when the original address stops answering.',
+  schedule: '*/20 * * * *',
+  intervalMinutes: () => 20,
+  enabled: () => !paused('flyers'),
+  setEnabled: (on) => setPaused('flyers', !on),
+  run: (log) => runFlyerFetch(log),
 });
 
 tasks.register({

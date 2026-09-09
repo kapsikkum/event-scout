@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_SETTINGS, Settings } from './sources/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.resolve(__dirname, '../../data');
+/** Where everything this app keeps on disk lives, database and flyers alike. */
+export const dataDir = path.resolve(__dirname, '../../data');
 fs.mkdirSync(dataDir, { recursive: true });
 
 export const db = new DatabaseSync(path.join(dataDir, 'event-scout.db'));

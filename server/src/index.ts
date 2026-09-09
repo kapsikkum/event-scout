@@ -6,6 +6,8 @@ import { getKv, getSettings, saveSettings } from './db.js';
 import { needsAuth, readCookie, SESSION_COOKIE } from './auth.js';
 import { corsDecision, readOrigins } from './cors.js';
 import { mergeSecrets, redactSettings } from './secrets.js';
+import { flyerRelative, isSafeFlyerPath } from './flyers.js';
+import { store } from './flyerStore.js';
 import {
   checkPassword,
   apiToken,
@@ -293,6 +295,25 @@ app.get('/api/events/:group', (req, res) => {
 
 app.post('/api/archive', (_req, res) => {
   res.json(archivePastEvents());
+});
+
+/**
+ * A stored flyer.
+ *
+ * Open, like everything else that only reads: the picture is already on the
+ * card, and a copy of it is no more secret than the original. Both halves of
+ * the path are checked against the shapes this app writes before anything
+ * touches the disk, so a request cannot climb out of the folder.
+ */
+app.get('/api/flyer/:day/:name', (req, res) => {
+  const { day, name } = req.params;
+  if (!isSafeFlyerPath(day, name)) return res.status(404).json({ error: 'No such flyer' });
+  const relative = flyerRelative(day, name);
+  if (!store.has(relative)) return res.status(404).json({ error: 'No such flyer' });
+  // Named by a hash of the address it came from, so it never changes once
+  // written and can be cached hard.
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(store.absolute(relative));
 });
 
 app.get('/api/photo', async (req, res) => {
