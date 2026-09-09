@@ -25,7 +25,7 @@ import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
 import { archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
 import { getPhotoConditions } from './photo.js';
-import { listAreas, renderArea, venueHistory, venueReadings, wazeSnapshot } from './density/pipeline.js';
+import { listAreas, renderArea, venueHistory, venueReadings } from './density/pipeline.js';
 import { pickAreas } from './density/areas.js';
 import { getDensityStatus } from './densityRefresh.js';
 import { clearEnrichment, getLlmStatus } from './enrich/pipeline.js';
@@ -239,34 +239,6 @@ app.get('/api/density/:area/venues', (req, res) => {
   res.json(venueReadings(area));
 });
 
-app.get('/api/density/:area/waze', (req, res) => {
-  const [area] = pickAreas([req.params.area]);
-  if (!area) return res.status(404).json({ error: `Unknown area: ${req.params.area}` });
-  res.json(wazeSnapshot(area, req.query.hours ? Number(req.query.hours) : 3));
-});
-
-// Opens the Waze live map in a browser and reads what that page fetches. Slow
-// and visible on purpose - the window is there to be driven by hand.
-app.post('/api/density/waze', async (req, res) => {
-  const hold = Number((req.body as { holdSeconds?: number } | undefined)?.holdSeconds ?? 0);
-  const result = await tasks.run('waze', {
-    force: true,
-    arg: { holdSeconds: Number.isFinite(hold) ? hold : 0 },
-  });
-  res.status(result.ok ? 200 : 409).json(result);
-});
-
-// Opens the live map and waits while the user signs in to Waze themselves.
-// No credentials pass through here: they use Waze's own form or QR code.
-app.post('/api/density/waze/signin', async (req, res) => {
-  const hold = Number((req.body as { holdSeconds?: number } | undefined)?.holdSeconds ?? 180);
-  const result = await tasks.run('wazeSignIn', {
-    force: true,
-    arg: { holdSeconds: Number.isFinite(hold) ? hold : 180 },
-  });
-  res.status(result.ok ? 200 : 409).json(result);
-});
-
 app.post('/api/merge', (req, res) => {
   const { groups } = req.body as { groups?: string[] };
   if (!Array.isArray(groups) || groups.length < 2) {
@@ -329,11 +301,7 @@ app.get('/api/tasks', (_req, res) => {
 });
 
 app.post('/api/tasks/:name/run', async (req, res) => {
-  const hold = Number((req.body as { holdSeconds?: number } | undefined)?.holdSeconds);
-  const result = await tasks.run(req.params.name, {
-    force: true,
-    arg: Number.isFinite(hold) ? { holdSeconds: hold } : {},
-  });
+  const result = await tasks.run(req.params.name, { force: true });
   res.status(result.ok ? 200 : 409).json(result);
 });
 

@@ -2,8 +2,6 @@ import { getSettings } from '../db.js';
 import { Area, densityConfig, pickAreas, resolveAreas } from './areas.js';
 import { insertObservations, insertRun, selectObservations, venueCount, loadVenues, Observation } from './store.js';
 import { scrapePopular, discoverVenues, DAY_NAMES } from './sources/googlePopular.js';
-import { scrapeWaze, WazeResult } from './sources/waze.js';
-import { scrapeWazeViaBrowser, signInToWaze } from './sources/wazeBrowser.js';
 import { accumulate, buildGrid, colourFor, toCells } from './grid.js';
 import { bestWindow, lightBands, shootScore, Light, ShootVerdict } from './shootScore.js';
 import { sunForDay } from '../photo.js';
@@ -25,94 +23,6 @@ export interface AreaResult {
   error?: string;
 }
 
-/**
- * One Waze pass.
- *
- * The direct fetch is tried first because it costs one request and would be the
- * cheaper answer if it ever started working; when it is refused — which is the
- * normal outcome — the browser transport can open the live map so the page makes
- * the requests itself. See `sources/waze.ts` for why it works that way.
- *
- * The browser half runs only when a person asked for it. reCAPTCHA Enterprise
- * scores behaviour, and an unattended window scores like what it is, so running
- * it on the hourly timer would pop a window on the desktop every hour and
- * collect nothing. The button exists precisely so the window has someone at it.
- */
-async function scrapeWazePass(
-  area: Area, cfg: ReturnType<typeof densityConfig>, log: (msg: string) => void,
-  opts: { useBrowser: boolean; holdMs?: number } = { useBrowser: false }
-): Promise<WazeResult> {
-  const direct = await scrapeWaze(area, { cookie: process.env.WAZE_COOKIE ?? '' }, log);
-  if (direct.observations.length > 0) return direct;
-  if (!opts.useBrowser) {
-    log('  waze: refused without a browser - use "Collect Waze reports" under Settings');
-    return direct;
-  }
-
-  log('  waze: opening the live map in a browser');
-  const viaBrowser = await scrapeWazeViaBrowser(
-    area,
-    {
-      browserPath: cfg.browserPath,
-      headless: cfg.wazeHeadless,
-      profileDir: cfg.wazeProfileDir,
-      holdMs: opts.holdMs ?? cfg.wazeHoldMs,
-      cookie: cfg.wazeCookie,
-    },
-    log
-  );
-  log(
-    `  waze: ${viaBrowser.summary.jams} jam(s), ${viaBrowser.summary.alerts} alert(s), ` +
-    `${viaBrowser.summary.users} wazer(s)`
-  );
-  return viaBrowser;
-}
-
-/** Open the live map so the user can sign in; the profile keeps the session. */
-export async function runWazeSignIn(
-  holdSeconds: number, log: (msg: string) => void = () => {}
-): Promise<{ signedIn: boolean; message: string }> {
-  const cfg = densityConfig();
-  return signInToWaze(
-    {
-      browserPath: cfg.browserPath,
-      profileDir: cfg.wazeProfileDir,
-      cookie: cfg.wazeCookie,
-      holdMs: Math.max(30, holdSeconds) * 1000,
-    },
-    log
-  );
-}
-
-/** A Waze-only pass, for the button that opens the map so it can be driven. */
-export async function runWaze(
-  areaNames: string[] | undefined, holdSeconds: number, log: (msg: string) => void = () => {}
-): Promise<AreaResult[]> {
-  const cfg = densityConfig();
-  const results: AreaResult[] = [];
-  for (const area of pickAreas(areaNames)) {
-    log(`${area.name}:`);
-    try {
-      const res = await scrapeWazePass(area, cfg, log, { useBrowser: true, holdMs: holdSeconds * 1000 });
-      const ts = Math.floor(Date.now() / 1000);
-      const runId = insertRun({
-        ts, area: area.slug, bbox: area.bbox,
-        summary: { waze: res.summary }, durationMs: 0,
-      });
-      insertObservations(runId, ts, area.slug, res.observations);
-      results.push({
-        area: area.slug, name: area.name, ok: !res.summary.blocked,
-        observations: res.observations.length,
-        error: res.summary.blocked ?? undefined,
-      });
-    } catch (err) {
-      log(`  ${area.name} failed: ${(err as Error).message}`);
-      results.push({ area: area.slug, name: area.name, ok: false, error: (err as Error).message });
-    }
-  }
-  return results;
-}
-
 /** Scrape every enabled source for one area and store the result. */
 export async function scrapeArea(area: Area, log: (msg: string) => void = () => {}): Promise<AreaResult> {
   const started = Date.now();
@@ -121,12 +31,6 @@ export async function scrapeArea(area: Area, log: (msg: string) => void = () => 
   const cfg = densityConfig(settings);
   const observations: Observation[] = [];
   const summary: Record<string, unknown> = {};
-
-  if (settings.densityWaze) {
-    const res = await scrapeWazePass(area, cfg, log);
-    observations.push(...res.observations);
-    summary.waze = res.summary;
-  }
 
   const popular = await scrapePopular(area, cfg, log);
   observations.push(...popular.observations);
@@ -471,78 +375,4 @@ export function listAreas(): AreaSummary[] {
       withProfile: venues.filter((v) => v.profile).length,
     };
   });
-}
-
-export interface WazeReport {
-  kind: string;
-  type: string | null;
-  lat: number;
-  lon: number;
-  street: string | null;
-  description: string | null;
-  reportedAt: string | null;
-  observedAt: string;
-  /** Jam-only: how much time it is costing, and how long the queue is. */
-  delaySec?: number | null;
-  lengthM?: number | null;
-}
-
-export interface WazeSnapshot {
-  observedAt: string | null;
-  reports: WazeReport[];
-  wazers: { lat: number; lon: number; stationary: boolean }[];
-}
-
-/**
- * The most recent Waze pass for an area: hazards, police, crashes, closures and
- * jams, plus wazer positions.
- *
- * Only the newest pass is returned rather than everything inside a window. An
- * alert that has been cleared simply stops appearing in later passes, so
- * merging passes together would keep showing police who left an hour ago.
- */
-export function wazeSnapshot(area: Area, maxAgeHours = 3): WazeSnapshot {
-  const since = Math.floor(Date.now() / 1000) - maxAgeHours * 3600;
-  const rows = selectObservations({
-    area: area.slug,
-    sinceTs: since,
-    sources: ['waze-alert', 'waze-jam', 'waze-users'],
-  });
-  if (rows.length === 0) return { observedAt: null, reports: [], wazers: [] };
-
-  const newest = Math.max(...rows.map((r) => r.ts));
-  const latest = rows.filter((r) => r.ts === newest);
-
-  const reports: WazeReport[] = [];
-  const wazers: { lat: number; lon: number; stationary: boolean }[] = [];
-  // A jam is stored as one observation per sampled point along its line; the
-  // map wants one marker per jam, so the first point of each stands for it.
-  const seenJams = new Set<string>();
-
-  for (const row of latest) {
-    const meta = (row.meta ?? {}) as Record<string, unknown>;
-    if (row.source === 'waze-users') {
-      wazers.push({ lat: row.lat, lon: row.lon, stationary: row.kind === 'stationary' });
-      continue;
-    }
-    if (row.source === 'waze-jam') {
-      const key = `${meta.street ?? ''}|${meta.lengthM ?? ''}|${meta.delaySec ?? ''}`;
-      if (seenJams.has(key)) continue;
-      seenJams.add(key);
-    }
-    reports.push({
-      kind: row.source === 'waze-jam' ? 'JAM' : String(row.kind ?? 'UNKNOWN'),
-      type: (meta.type as string) ?? (row.source === 'waze-jam' ? 'JAM' : null),
-      lat: row.lat,
-      lon: row.lon,
-      street: (meta.street as string) ?? null,
-      description: (meta.description as string) ?? null,
-      reportedAt: (meta.reportedAt as string) ?? null,
-      observedAt: new Date(row.ts * 1000).toISOString(),
-      delaySec: (meta.delaySec as number) ?? null,
-      lengthM: (meta.lengthM as number) ?? null,
-    });
-  }
-
-  return { observedAt: new Date(newest * 1000).toISOString(), reports, wazers };
 }

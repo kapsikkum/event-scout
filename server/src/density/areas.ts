@@ -47,15 +47,6 @@ export interface DensityConfig {
   headless: boolean;
   browserPath: string | null;
   profileDir: string;
-  /**
-   * Waze gets its own profile. Two browsers cannot share a profile directory —
-   * the lock on it is exclusive — and a Waze login has no business sitting in
-   * the profile used to read Google Maps.
-   */
-  wazeProfileDir: string;
-  wazeHeadless: boolean;
-  wazeHoldMs: number;
-  wazeCookie: string;
   weight: number;
 }
 
@@ -84,10 +75,6 @@ export function densityConfig(settings: Settings = getSettings()): DensityConfig
     // every run gets served Google's stripped-down "limited view", which omits
     // popular times entirely. This profile is ours alone.
     profileDir: resolve(process.cwd(), 'data', 'browser-profile'),
-    wazeProfileDir: resolve(process.cwd(), 'data', 'waze-profile'),
-    wazeHeadless: Boolean(settings.densityWazeHeadless),
-    wazeHoldMs: Math.max(0, settings.densityWazeHoldSeconds ?? 0) * 1000,
-    wazeCookie: settings.densityWazeCookie || process.env.WAZE_COOKIE || '',
     weight: 1,
   };
 }

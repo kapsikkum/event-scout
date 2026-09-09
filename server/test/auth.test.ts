@@ -19,7 +19,7 @@ test('reading is open and changing is not', () => {
     ['POST', '/api/groups/abc'],
     ['POST', '/api/unmerge/abc'],
     ['POST', '/api/archive'],
-    ['POST', '/api/density/waze'],
+    ['POST', '/api/density/discover'],
     ['DELETE', '/api/anything'],
   ] as const) {
     assert.equal(needsAuth(method, path), true, `${method} ${path} should be gated`);
@@ -31,7 +31,7 @@ test('reading is open and changing is not', () => {
  * classifier is not simply "GET is open".
  */
 test('the reads that hand back a secret are gated despite being reads', () => {
-  // Every API key, the Facebook cookie and the Waze cookie, in plaintext.
+  // Every API key and the Facebook cookie, in plaintext.
   assert.equal(needsAuth('GET', '/api/settings'), true);
   // The secret that guards the calendar feed; open, it would hand over the
   // very thing it protects.

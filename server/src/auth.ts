@@ -7,7 +7,7 @@ import { getKv, setKv } from './db.js';
  * The app had none at all: every route was open, and `docker-compose.yml`
  * publishes 3001 on every interface. Anyone who could reach the port could
  * change the settings, and — worse — read them, since that response carries the
- * Facebook cookie, the Waze cookie and every API key in plaintext.
+ * Facebook cookie and every API key in plaintext.
  *
  * Deliberately small: no session library, no JWTs, a signed cookie over
  * `node:crypto`. The dependency list is short everywhere else in this project
@@ -28,8 +28,7 @@ const OPEN_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/s
  * Reads that hand back a secret, and so cannot ride on "GET is open".
  *
  * These two are the whole reason the rule is not simply about the method.
- * `/api/settings` returns the Facebook cookie, the Waze cookie and every API
- * key in plaintext; `/api/auth/feed-token` returns the secret that guards the
+ * `/api/settings` returns the Facebook cookie and every API key in plaintext; `/api/auth/feed-token` returns the secret that guards the
  * calendar feed, so leaving it open would hand over the thing it protects.
  */
 const GATED_READS = new Set(['/api/settings', '/api/auth/feed-token']);

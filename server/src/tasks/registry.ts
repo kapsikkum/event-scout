@@ -21,17 +21,6 @@ export interface TaskResult {
 
 export type TaskLog = (msg: string) => void;
 
-/**
- * What a Run button can hand a task beyond "go".
- *
- * Only the Waze passes want anything: they can be asked to leave the window
- * open so the map can be driven by hand, and how long for is a decision made at
- * the moment somebody presses the button, not a setting.
- */
-export interface TaskArg {
-  holdSeconds?: number;
-}
-
 export interface KvStore {
   get(key: string): string | null;
   set(key: string, value: string): void;
@@ -59,13 +48,13 @@ export interface TaskDef {
    * Tasks that must never run at the same time as one another, named by a
    * shared string. Defaults to the task name, meaning it excludes only itself.
    *
-   * This is not decoration. Density sampling, venue discovery and both Waze
-   * passes drive the same browser and the same profile directory, whose lock is
-   * exclusive; they shared a single `running` flag before this, and losing that
-   * would put two of them on one browser.
+   * This is not decoration. Density sampling and venue discovery drive the same
+   * browser and the same profile directory, whose lock is exclusive; they
+   * shared a single `running` flag before this, and losing that would put two
+   * of them on one browser.
    */
   lockGroup?: string;
-  run: (log: TaskLog, arg: TaskArg) => Promise<TaskResult>;
+  run: (log: TaskLog) => Promise<TaskResult>;
 }
 
 export interface TaskStatus {
@@ -182,7 +171,7 @@ export function createRegistry(store: KvStore) {
    */
   async function run(
     name: string,
-    opts: { force?: boolean; arg?: TaskArg } = {}
+    opts: { force?: boolean } = {}
   ): Promise<TaskResult> {
     const def = defs.get(name);
     if (!def) return { ok: false, message: `Unknown task: ${name}` };
@@ -208,7 +197,7 @@ export function createRegistry(store: KvStore) {
     };
 
     try {
-      const result = await def.run(log, opts.arg ?? {});
+      const result = await def.run(log);
       logs.set(name, lines);
       record(name, result);
       return result;

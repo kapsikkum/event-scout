@@ -1,5 +1,5 @@
 import { getSettings } from './db.js';
-import { runDiscover, runScrape, runWaze, runWazeSignIn, listAreas, AreaSummary } from './density/pipeline.js';
+import { runDiscover, runScrape, listAreas, AreaSummary } from './density/pipeline.js';
 import { resolveAreas } from './density/areas.js';
 import { TaskLog, TaskResult } from './tasks/registry.js';
 import { tasks } from './tasks/tasks.js';
@@ -65,27 +65,6 @@ export async function runDensityScrape(log: TaskLog): Promise<TaskResult> {
     .map((a) => (a.ok ? `${a.name}: ${a.observations ?? 0} obs` : `${a.name}: ${a.error}`))
     .join('; ');
   return { ok: result.ok, message: summary || 'no areas configured' };
-}
-
-/**
- * A Waze-only pass.
- *
- * Kept apart from the full density run because it opens a visible window and
- * can be asked to hold it open: the live map is meant to be driven while this
- * runs, and nobody wants that happening on a timer.
- */
-export async function runWazePass(log: TaskLog, holdSeconds: number): Promise<TaskResult> {
-  const results = await runWaze(getSettings().densityCities ?? [], holdSeconds, log);
-  const message = results
-    .map((r) => (r.ok ? `${r.name}: ${r.observations} observations` : `${r.name}: ${r.error}`))
-    .join('; ');
-  return { ok: results.some((r) => r.ok), message: message || 'no areas configured' };
-}
-
-/** Open the live map so the user can sign in to Waze in the window. */
-export async function runWazeSignInPass(log: TaskLog, holdSeconds: number): Promise<TaskResult> {
-  const res = await runWazeSignIn(holdSeconds, log);
-  return { ok: res.signedIn, message: res.message };
 }
 
 /** Rebuild venue lists. Slow and rarely needed, so never on a schedule. */

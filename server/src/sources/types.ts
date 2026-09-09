@@ -89,23 +89,6 @@ export interface Settings {
   densityCellMeters: number;
   densityKernelMeters: number;
   densityBrowserPath: string;
-  /**
-   * Collect Waze live-map jams, alerts and wazer positions. Needs a browser:
-   * the endpoint refuses scripted requests, so the live map is opened and the
-   * responses that page receives are read. Off by default because it opens a
-   * window.
-   */
-  densityWaze: boolean;
-  /** Run the Waze pass without a visible window. Scores worse; rarely works. */
-  densityWazeHeadless: boolean;
-  /** Seconds to leave the Waze window open so the map can be panned by hand. */
-  densityWazeHoldSeconds: number;
-  /**
-   * A Waze cookie exported from the user's own browser. The live-map API needs
-   * an account; signing in through the window is the tidier route, but a cookie
-   * works and survives a profile reset.
-   */
-  densityWazeCookie: string;
 }
 
 export interface EventArea {
@@ -160,10 +143,6 @@ export const DEFAULT_SETTINGS: Settings = {
   densityCellMeters: 150,
   densityKernelMeters: 300,
   densityBrowserPath: '',
-  densityWaze: false,
-  densityWazeHeadless: false,
-  densityWazeHoldSeconds: 0,
-  densityWazeCookie: '',
   enabledSources: {
     ticketmaster: true,
     seatgeek: true,

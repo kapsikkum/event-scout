@@ -1,11 +1,6 @@
 import { getKv, getSettings, saveSettings, setKv } from '../db.js';
 import { archivePastEvents, getProgress, refreshAll } from '../refresh.js';
-import {
-  runDensityScrape,
-  runVenueDiscovery,
-  runWazePass,
-  runWazeSignInPass,
-} from '../densityRefresh.js';
+import { runDensityScrape, runVenueDiscovery } from '../densityRefresh.js';
 import { runEnrichment } from '../enrich/pipeline.js';
 import { createRegistry } from './registry.js';
 
@@ -154,22 +149,4 @@ tasks.register({
   enabled: () => true,
   lockGroup: BROWSER,
   run: (log) => runVenueDiscovery(log),
-});
-
-tasks.register({
-  name: 'waze',
-  label: 'Waze live map',
-  description: 'Read jams, alerts and wazer positions from the Waze live map. Opens a window, and can be asked to hold it open so the map can be driven by hand.',
-  enabled: () => true,
-  lockGroup: BROWSER,
-  run: (log, arg) => runWazePass(log, arg.holdSeconds ?? 0),
-});
-
-tasks.register({
-  name: 'wazeSignIn',
-  label: 'Sign in to Waze',
-  description: 'Open the live map and wait while you sign in yourself. No credentials pass through here; the browser profile keeps the session.',
-  enabled: () => true,
-  lockGroup: BROWSER,
-  run: (log, arg) => runWazeSignInPass(log, arg.holdSeconds ?? 180),
 });

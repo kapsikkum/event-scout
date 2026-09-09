@@ -100,15 +100,15 @@ test('a second run is refused while the first is still going', async () => {
 });
 
 /**
- * The one that matters. Density sampling, venue discovery and both Waze passes
- * drive the same browser and the same profile directory, whose lock is
- * exclusive. They shared a single module-level flag before the registry
- * existed, and a per-task lock would quietly let two of them start at once.
+ * The one that matters. Density sampling and venue discovery drive the same
+ * browser and the same profile directory, whose lock is exclusive. They shared
+ * a single module-level flag before the registry existed, and a per-task lock
+ * would quietly let two of them start at once.
  */
 test('tasks sharing a lock group cannot run at the same time', async () => {
   const tasks = createRegistry(store());
   const gate = deferred();
-  for (const name of ['density', 'discover', 'waze']) {
+  for (const name of ['density', 'discover']) {
     tasks.register({
       name, label: name, description: '', enabled: () => true, lockGroup: 'browser',
       run: name === 'density' ? () => gate.promise : async () => OK,
@@ -119,18 +119,16 @@ test('tasks sharing a lock group cannot run at the same time', async () => {
 
   const running = tasks.run('density');
 
-  for (const blocked of ['discover', 'waze']) {
-    const result = await tasks.run(blocked);
-    assert.equal(result.ok, false, `${blocked} should have been refused`);
-    assert.match(result.message, /shares the same browser/);
-    assert.equal(tasks.status(blocked)!.blockedBy, 'density');
-  }
+  const refused = await tasks.run('discover');
+  assert.equal(refused.ok, false);
+  assert.match(refused.message, /shares the same browser/);
+  assert.equal(tasks.status('discover')!.blockedBy, 'density');
   assert.deepEqual(await tasks.run('events'), OK);
 
   gate.resolve(OK);
   await running;
   // With the browser free again, the others go.
-  assert.deepEqual(await tasks.run('waze'), OK);
+  assert.deepEqual(await tasks.run('discover'), OK);
 });
 
 test('a switched-off task runs when asked by hand but not on a tick', async () => {

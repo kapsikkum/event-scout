@@ -165,7 +165,7 @@ leaves reading open and puts everything else behind it:
 |---|---|
 | Events, map, places, calendar, tasks list, source status | Saving settings, running tasks, refreshing |
 | The `.ics` feed, with its token | Starring, hiding, merging and unmerging |
-| | **Reading `/api/settings`** — it returns every API key, the Facebook cookie and the Waze cookie in plaintext |
+| | **Reading `/api/settings`** — it returns every API key and the Facebook cookie in plaintext |
 
 The split is decided in one place by method (`needsAuth` in `server/src/auth.ts`)
 rather than route by route, so a route added later is covered by default. The two
@@ -196,17 +196,15 @@ for a week was events quietly going stale — say so there instead.
 | Archive past events | every 10 min | Move events that have been and gone into the archive; purge very old archived rows. |
 | Venue density sampling | your density interval, ticked every 5 min | One page load per venue, recording how busy each is. |
 | Rebuild venue list | when asked | Re-run venue discovery. Slow, rarely needed. |
-| Waze live map | when asked | Read the live map in a window that can be driven by hand. |
-| Sign in to Waze | when asked | Hold a window open while you sign in yourself. |
 
 Two rules that matter:
 
 - **A task refuses to start a second copy of itself** rather than queueing —
   for jobs where the next run supersedes the last, queueing only builds a pile
   behind whatever is stuck.
-- **The four browser jobs share one lock.** Density sampling, venue discovery
-  and both Waze passes drive the same browser and the same profile directory,
-  whose lock is exclusive, so only one of them runs at a time. The others report
+- **The two browser jobs share one lock.** Density sampling and venue discovery
+  drive the same browser and the same profile directory, whose lock is
+  exclusive, so only one of them runs at a time. The other reports
   "waiting on …" rather than failing.
 
 Ticks are deliberately more frequent than the intervals they gate, which is what
