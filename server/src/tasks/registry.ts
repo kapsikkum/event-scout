@@ -79,6 +79,27 @@ export interface TaskStatus {
 /** Lines one task keeps. Enough to see what a pass did, bounded so it cannot grow. */
 const MAX_LOG_LINES = 200;
 
+/**
+ * Lines the shared console keeps, across every task.
+ *
+ * In memory, like the per-task logs: this is for watching what is happening,
+ * not a record. A restart starts it empty, which the page says.
+ */
+const MAX_HISTORY = 500;
+
+/** One line in the shared console. */
+export interface LogEntry {
+  /** Monotonic, so a reader can ask for only what it has not seen. */
+  seq: number;
+  at: string;
+  task: string;
+  /** 'log' is the task talking; the other two bracket a run. */
+  kind: 'start' | 'log' | 'end';
+  line: string;
+  /** Set on an 'end' line that failed, so the console can colour it. */
+  failed?: boolean;
+}
+
 /** When a task with an interval may next run. Null when it has never run. */
 export function nextDueFrom(lastRun: string | null, intervalMinutes: number | null): string | null {
   if (!lastRun || intervalMinutes == null) return null;
@@ -104,6 +125,25 @@ export function isDue(lastRun: string | null, intervalMinutes: number | null, no
 export function createRegistry(store: KvStore) {
   const defs = new Map<string, TaskDef>();
   const logs = new Map<string, string[]>();
+  const history: LogEntry[] = [];
+  let seq = 0;
+
+  function remember(task: string, kind: LogEntry['kind'], line: string, failed?: boolean): void {
+    history.push({ seq: ++seq, at: new Date().toISOString(), task, kind, line, ...(failed ? { failed } : {}) });
+    if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
+  }
+
+  /**
+   * Everything since `since`, for a reader that polls.
+   *
+   * Incremental because the Tasks page asks every three seconds, and sending
+   * five hundred lines each time to show the two that are new is a waste of a
+   * server that may well be busy running one of these.
+   */
+  function since(from = 0): { entries: LogEntry[]; seq: number } {
+    return { entries: from <= 0 ? [...history] : history.filter((e) => e.seq > from), seq };
+  }
+
   /** Lock group to the task currently holding it. */
   const held = new Map<string, string>();
 
@@ -194,17 +234,21 @@ export function createRegistry(store: KvStore) {
     const log: TaskLog = (msg) => {
       lines.push(msg);
       if (lines.length > MAX_LOG_LINES) lines.shift();
+      remember(name, 'log', msg);
     };
+    remember(name, 'start', `${def.label} started`);
 
     try {
       const result = await def.run(log);
       logs.set(name, lines);
       record(name, result);
+      remember(name, 'end', result.message, !result.ok);
       return result;
     } catch (err) {
       const message = (err as Error).message;
       logs.set(name, [...lines, `failed: ${message}`].slice(-MAX_LOG_LINES));
       record(name, { ok: false, message: `failed: ${message}` });
+      remember(name, 'end', `failed: ${message}`, true);
       return { ok: false, message };
     } finally {
       held.delete(group);
@@ -229,7 +273,7 @@ export function createRegistry(store: KvStore) {
     return { ok: true, message: `${def.label} ${on ? 'enabled' : 'disabled'}` };
   }
 
-  return { register, list, run, runIfDue, isRunning, status, statuses, setEnabled };
+  return { register, list, run, runIfDue, isRunning, status, statuses, setEnabled, since };
 }
 
 export type TaskRegistry = ReturnType<typeof createRegistry>;

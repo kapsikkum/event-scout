@@ -872,3 +872,29 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 @media (max-width: 1000px) {
   .topbar:has(.topbar__signout) .meta { display: none; }
 }
+
+/* The tasks console: every task's output in one place, in order. Monospace and
+   dense, because it is read by scanning rather than by sentence. */
+.console {
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.console__empty { color: var(--muted); font-family: inherit; }
+.console__line { display: flex; gap: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.console__time { color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+/* Fixed width so the messages line up into a column that can be scanned. */
+.console__task { color: var(--blue); flex: none; width: 108px; overflow: hidden; text-overflow: ellipsis; }
+.console__text { color: var(--text); }
+/* A run's first and last lines are the structure; what a task says between
+   them is detail, so the brackets are what stands out. */
+.console__line--start .console__text { color: var(--accent); }
+.console__line--end .console__text { color: var(--green); }
+.console__line--log .console__text { color: var(--muted); }
+.console__line.is-failed .console__text { color: var(--red); }

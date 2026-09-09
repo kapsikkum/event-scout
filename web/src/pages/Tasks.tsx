@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, TaskStatus } from '../api';
+import { api, LogEntry, TaskStatus } from '../api';
 
 /**
  * Every background job, with what it did last and a way to run it now.
@@ -42,8 +42,72 @@ function State({ task }: { task: TaskStatus }) {
   return <span style={{ color: 'var(--muted)' }}>not run yet</span>;
 }
 
+/**
+ * Everything every task has said, oldest first.
+ *
+ * Each task keeps its own log, but reading them one at a time cannot show what
+ * the machine was doing at a given moment — which is the question you have when
+ * something looks wrong. Held in memory on the server, so it starts empty after
+ * a restart; the footer says so rather than looking like nothing has run.
+ */
+function Console({ lines, onClear }: { lines: LogEntry[]; onClear: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+
+  // Follow the tail, unless the reader has scrolled up to look at something.
+  useEffect(() => {
+    const el = box.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+
+  const time = (iso: string): string => new Date(iso).toLocaleTimeString();
+
+  return (
+    <section>
+      <div className="taskrow">
+        <strong style={{ fontSize: 15.5 }}>Console</strong>
+        <span className="hint" style={{ margin: 0 }}>
+          every task, as it happens
+        </span>
+        <div className="taskrow__actions">
+          <button onClick={onClear} disabled={lines.length === 0}>
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="console"
+        ref={box}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+      >
+        {lines.length === 0 ? (
+          <div className="console__empty">
+            Nothing yet. Lines appear as tasks run, and are kept in memory only —
+            a restart clears them.
+          </div>
+        ) : (
+          lines.map((e) => (
+            <div key={e.seq} className={`console__line console__line--${e.kind}${e.failed ? ' is-failed' : ''}`}>
+              <span className="console__time">{time(e.at)}</span>
+              <span className="console__task">{e.task}</span>
+              <span className="console__text">{e.line}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function Tasks() {
   const [tasks, setTasks] = useState<TaskStatus[] | null>(null);
+  const [lines, setLines] = useState<LogEntry[]>([]);
+  /** Highest sequence held, so each poll asks only for what is new. */
+  const seen = useRef(0);
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string>('');
@@ -55,7 +119,17 @@ export default function Tasks() {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      setTasks((await api.tasks()).tasks);
+      const answer = await api.tasks(seen.current);
+      setTasks(answer.tasks);
+      if (answer.seq < seen.current) {
+        // The server has restarted and started counting again; drop what we
+        // hold rather than showing a gap that will never fill.
+        seen.current = answer.seq;
+        setLines(answer.log);
+      } else if (answer.log.length > 0) {
+        seen.current = answer.seq;
+        setLines((prev) => [...prev, ...answer.log].slice(-500));
+      }
     } catch {
       /* leave the last good list on screen */
     } finally {
@@ -173,6 +247,15 @@ export default function Tasks() {
             )}
         </section>
       ))}
+
+      <Console
+        lines={lines}
+        onClear={() => {
+          // Only this reader's copy: the server keeps its own, and another tab
+          // watching the same run should not lose it.
+          setLines([]);
+        }}
+      />
     </>
   );
 }

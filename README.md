@@ -91,6 +91,12 @@ result and a Run button.
 | `vision` | your interval (default 60 min) | Read event flyers with a vision model. Off by default. |
 | `densityDiscover` | when asked | Rebuild the venue list. Slow, rarely needed. |
 
+At the foot of the tab is a **console**: every task's output in one place, in
+order, as it happens. Each task keeps its own log too, but reading them one at a
+time cannot show what the machine was doing at a given moment, which is the
+question you have when something looks wrong. It is held in memory, so a restart
+clears it, and the page polls only for lines it has not already seen.
+
 - A task refuses to start a second copy of itself rather than queueing.
 - `density` and `densityDiscover` share one lock — they drive the same browser
   and profile directory. The other shows "waiting on …" rather than failing.
@@ -259,7 +265,7 @@ cookie, as do `GET /api/settings` and `GET /api/auth/feed-token`.
 
 | Route | Meaning |
 |---|---|
-| `GET /api/tasks` | `{ tasks: [...] }` — schedule, last run, next due, result, log. |
+| `GET /api/tasks` | `{ tasks, log, seq }` — schedules and state, plus console lines. `?since=<seq>` returns only newer lines. |
 | `POST /api/tasks/:name/run` | Run now, ignoring schedule and enabled state. `409` if blocked. |
 | `POST /api/tasks/:name/enable` | Body `{ enabled: boolean }`. |
 

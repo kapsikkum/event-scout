@@ -301,8 +301,13 @@ app.post('/api/vision/reset', (_req, res) => {
 
 // --- tasks ------------------------------------------------------------------
 
-app.get('/api/tasks', (_req, res) => {
-  res.json({ tasks: tasks.statuses() });
+app.get('/api/tasks', (req, res) => {
+  // ?since= returns only console lines newer than that sequence number, so the
+  // page's three-second poll carries the two lines that are new rather than the
+  // five hundred it already has.
+  const since = Number(req.query.since);
+  const log = tasks.since(Number.isFinite(since) ? since : 0);
+  res.json({ tasks: tasks.statuses(), log: log.entries, seq: log.seq });
 });
 
 app.post('/api/tasks/:name/run', async (req, res) => {

@@ -169,6 +169,76 @@ test('a switched-off task runs when asked by hand but not on a tick', async () =
   assert.equal(runs, 2);
 });
 
+test('the console brackets each run and carries what the task said between', async () => {
+  const tasks = createRegistry(store());
+  tasks.register({
+    name: 'events', label: 'Event refresh', description: '', enabled: () => true,
+    run: async (log) => {
+      log('looking in Bathurst');
+      log('websearch: 12 events');
+      return { ok: true, message: '12 kept' };
+    },
+  });
+  await tasks.run('events');
+
+  const { entries } = tasks.since();
+  assert.deepEqual(entries.map((e) => e.kind), ['start', 'log', 'log', 'end']);
+  assert.deepEqual(entries.map((e) => e.line), [
+    'Event refresh started', 'looking in Bathurst', 'websearch: 12 events', '12 kept',
+  ]);
+  assert.ok(entries.every((e) => e.task === 'events'));
+  // Sequence numbers only ever go up, which is what makes polling work.
+  assert.deepEqual(entries.map((e) => e.seq), [1, 2, 3, 4]);
+});
+
+test('a failed run is marked, so the console can say so', async () => {
+  const tasks = createRegistry(store());
+  tasks.register({
+    name: 'boom', label: 'Boom', description: '', enabled: () => true,
+    run: async () => { throw new Error('ollama went away'); },
+  });
+  await tasks.run('boom');
+  const last = tasks.since().entries.at(-1)!;
+  assert.equal(last.kind, 'end');
+  assert.equal(last.failed, true);
+  assert.match(last.line, /ollama went away/);
+});
+
+/** The whole point of the sequence number: a poll carries only what is new. */
+test('the console can be read incrementally', async () => {
+  const tasks = createRegistry(store());
+  tasks.register({ name: 'a', label: 'A', description: '', enabled: () => true, run: async () => OK });
+  await tasks.run('a');
+
+  const first = tasks.since(0);
+  assert.equal(first.entries.length, 2);
+  assert.equal(first.seq, 2);
+  // Nothing has happened since, so nothing comes back.
+  assert.deepEqual(tasks.since(first.seq).entries, []);
+
+  await tasks.run('a');
+  const next = tasks.since(first.seq);
+  assert.equal(next.entries.length, 2, 'only the second run');
+  assert.ok(next.entries.every((e) => e.seq > first.seq));
+});
+
+test('the console is bounded, dropping the oldest first', async () => {
+  const tasks = createRegistry(store());
+  tasks.register({
+    name: 'chatty', label: 'Chatty', description: '', enabled: () => true,
+    run: async (log) => {
+      for (let i = 0; i < 600; i++) log(`line ${i}`);
+      return OK;
+    },
+  });
+  await tasks.run('chatty');
+  const { entries } = tasks.since();
+  assert.equal(entries.length, 500);
+  // The tail survives; the head is what goes.
+  assert.match(entries.at(-1)!.line, /done/);
+  assert.ok(!entries.some((e) => e.line === 'line 0'));
+});
+
 test('a task with no setting behind it cannot be switched off', () => {
   const tasks = createRegistry(store());
   tasks.register({ name: 'always', label: 'Always', description: '', enabled: () => true, run: async () => OK });

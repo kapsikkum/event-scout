@@ -129,6 +129,16 @@ export interface LlmStatus {
   vision: { enabled: boolean; model: string; modelInstalled: boolean; backlog: number };
 }
 
+/** One line in the tasks console. */
+export interface LogEntry {
+  seq: number;
+  at: string;
+  task: string;
+  kind: 'start' | 'log' | 'end';
+  line: string;
+  failed?: boolean;
+}
+
 /** One background job, as the Tasks page shows it. */
 export interface TaskStatus {
   name: string;
@@ -346,7 +356,12 @@ export const api = {
   llmStatus: () => fetch('/api/llm/status').then((r) => json<LlmStatus>(r)),
   llmReset: () => fetch('/api/llm/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),
   visionReset: () => fetch('/api/vision/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),
-  tasks: () => fetch('/api/tasks').then((r) => json<{ tasks: TaskStatus[] }>(r)),
+  // `since` is the highest sequence number already held, so a poll carries only
+  // what is new. Zero asks for everything the server still remembers.
+  tasks: (since = 0) =>
+    fetch(`/api/tasks?since=${since}`).then((r) =>
+      json<{ tasks: TaskStatus[]; log: LogEntry[]; seq: number }>(r)
+    ),
   // A refused run — already going, or sharing a busy browser — answers 409 with
   // a reason worth showing, so the body is read either way rather than thrown.
   runTask: (name: string, body: { holdSeconds?: number } = {}) =>
