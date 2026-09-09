@@ -4,6 +4,34 @@ Aggregates upcoming local events from several sources into one list, scored and
 filtered for photography scouting. Everything runs on your machine; API keys and
 the event cache live in a local SQLite file.
 
+![The events list, filtered to motorsport near Bathurst](docs/screenshots/events.png)
+
+## A look around
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/home.png" alt="Home"><br>
+<b>Home</b> — your shortlist, which venues are busiest right now, and the
+light: golden and blue hours, cloud, moon.</td>
+<td width="50%"><img src="docs/screenshots/map.png" alt="Map"><br>
+<b>Map</b> — events and venue busyness over dark, street or satellite tiles.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/places.png" alt="Places"><br>
+<b>Places</b> — measured busyness per venue against its typical week, and the
+hour worth shooting.</td>
+<td><img src="docs/screenshots/calendar.png" alt="Calendar"><br>
+<b>Calendar</b> — agenda, month or week, with a live <code>.ics</code> feed to
+subscribe to.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/settings.png" alt="Settings"><br>
+<b>Settings</b> — where to look, what to look for, and which of the optional
+passes to run.</td>
+<td></td>
+</tr>
+</table>
+
 ## Requirements
 
 - **Docker**, or **Node 24+** — the database layer uses `node:sqlite` and older
