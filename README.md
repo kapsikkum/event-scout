@@ -115,7 +115,7 @@ everything else needs it.
 |---|---|
 | Events, map, places, calendar, tasks, status, version | Saving settings, refreshing, running tasks |
 | The `.ics` feed, with its token | Starring, hiding, merging, unmerging |
-| | `GET /api/settings` — it returns every API key and the Facebook cookie in plaintext |
+| | `GET /api/settings` — the credentials themselves are redacted, but it still describes everything this instance watches |
 
 Sessions are a signed cookie (`node:crypto`; the secret is kept in the database
 so sign-in survives a restart). Passwords are scrypt-hashed. `AUTH_PASSWORD`
@@ -373,8 +373,8 @@ Names: `events`, `archive`, `density`, `enrich`, `vision`, `densityDiscover`.
 
 | Route | Meaning |
 |---|---|
-| `GET /api/settings` | All settings. **Gated** — contains keys and cookies. |
-| `PUT /api/settings` | Partial update, merged over the current settings. |
+| `GET /api/settings` | All settings. **Gated.** API keys and the Facebook cookie come back as `""`; `secretsSet` says which are stored. |
+| `PUT /api/settings` | Partial update, merged over the current settings. For a credential, `""` or omitted leaves the stored value alone — send `null` to clear it. |
 | `GET /api/auth/status` | `{ required, authed, fromEnv }`. |
 | `POST /api/auth/login` | Body `{ password }`. Sets the session cookie. |
 | `POST /api/auth/logout` | Clears it. |

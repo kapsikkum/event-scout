@@ -829,15 +829,18 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
    instead of a save bar. */
 .wizard__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .wizard__head h1 { margin: 0; font-size: 21px; }
-.wizard__head .linky {
-  margin-left: auto;
+/* A button that reads as a link. Was defined only inside the wizard head; the
+   credential rows want the same thing, so the look lives here and the wizard
+   keeps just its own placement. */
+.linky {
   padding: 0;
   border: 0;
   background: none;
   color: var(--blue);
   font-size: 13px;
 }
-.wizard__head .linky:hover { background: none; text-decoration: underline; }
+.linky:hover { background: none; text-decoration: underline; }
+.wizard__head .linky { margin-left: auto; }
 
 .wizard__steps {
   display: flex;

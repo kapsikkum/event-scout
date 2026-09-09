@@ -6,7 +6,9 @@ import crypto from 'node:crypto';
  * The app had none at all: every route was open, and `docker-compose.yml`
  * publishes 3001 on every interface. Anyone who could reach the port could
  * change the settings, and — worse — read them, since that response carries the
- * Facebook cookie and every API key in plaintext.
+ * Facebook cookie and every API key in plaintext. Those are redacted now —
+ * see secrets.ts — but the response still carries everything else about how
+ * this instance is configured, so it stays gated.
  *
  * Deliberately small: no session library, no JWTs, a signed cookie over
  * `node:crypto`. The dependency list is short everywhere else in this project
@@ -30,7 +32,8 @@ const OPEN_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/s
  * Reads that hand back a secret, and so cannot ride on "GET is open".
  *
  * These are the whole reason the rule is not simply about the method.
- * `/api/settings` returns the Facebook cookie and every API key in plaintext;
+ * `/api/settings` no longer returns the credentials themselves, but still every
+ * search term, feed URL and area this instance watches;
  * `/api/auth/feed-token` returns the secret that guards the calendar feed, and
  * `/api/auth/token` the bearer that stands in for the password itself. Leaving
  * any of them open would hand over the thing it protects.
@@ -102,7 +105,6 @@ export function readCookie(header: string | undefined, name: string): string | u
   return undefined;
 }
 
-/** How long a sign-in lasts. Long, because this is a tool you leave open. */
 /**
  * The token out of an `Authorization: Bearer ...` header.
  *
@@ -117,4 +119,5 @@ export function readBearer(header: string | undefined): string | undefined {
   return match ? match[1].trim() || undefined : undefined;
 }
 
+/** How long a sign-in lasts. Long, because this is a tool you leave open. */
 export const SESSION_DAYS = 30;

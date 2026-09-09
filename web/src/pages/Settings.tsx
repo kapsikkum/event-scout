@@ -60,6 +60,57 @@ const STEPS = [
   },
 ] as const;
 
+/**
+ * An input for a credential the server will not read back.
+ *
+ * The box is always empty on arrival, whatever is stored, so there is nothing
+ * to show and nothing to leak. What it can say is whether one exists — and,
+ * since blank now means "leave it alone", it needs its own way to say "remove
+ * it", which is what Clear stages.
+ */
+function SecretField({
+  label,
+  value,
+  isSet,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  isSet: boolean;
+  placeholder?: string;
+  onChange: (next: string | null) => void;
+}) {
+  const cleared = value === null;
+  return (
+    <>
+      <div className="formrow">
+        <label>{label}</label>
+        <input
+          value={value ?? ''}
+          placeholder={isSet && !cleared ? 'stored — type to replace' : placeholder}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </div>
+      {(isSet || cleared) && (
+        <p className="hint" style={{ marginTop: -4 }}>
+          {cleared ? (
+            <>
+              Will be removed when you save.{' '}
+              <button className="linky" onClick={() => onChange('')}>Keep it</button>
+            </>
+          ) : (
+            <>
+              One is stored. Leave the box empty to keep it.{' '}
+              <button className="linky" onClick={() => onChange(null)}>Remove</button>
+            </>
+          )}
+        </p>
+      )}
+    </>
+  );
+}
+
 /** The states the car-meet feed covers, in the order its own sitemap lists them. */
 const MIDNIGHTSPEC_STATES = ['nsw', 'vic', 'qld', 'wa', 'sa', 'nt'];
 
@@ -221,12 +272,14 @@ function SecuritySection({
         <p className="hint">
           Browsing, the map and the calendar are open to anyone who can reach this
           address. Changing settings, running tasks, starring and merging need the
-          password — as does reading this page, since it carries your API keys.
+          password — as does reading this page, which describes everything this
+          instance watches. Your keys and cookies are never read back to it.
         </p>
       ) : (
         <p className="hint" style={{ color: 'var(--red)' }}>
           No password is set, so anyone who can reach this address can change your
-          settings and read every API key and cookie stored in them. That is fine on
+          settings and read everything in them bar the credentials, which are never
+          sent back. That is fine on
           a machine only you can reach, and worth fixing if the port is exposed.
         </p>
       )}
@@ -753,7 +806,7 @@ export default function Settings() {
           <section>
             <h2>🔒 Sign in</h2>
             <p className="hint">
-              This page carries your API keys and saved cookies, so it is only shown
+              This page describes everything this instance watches, so it is only shown
               to a signed-in browser. Everything else — events, the map, the
               calendar — stays open.
             </p>
@@ -1070,10 +1123,12 @@ export default function Settings() {
           </a>
           .
         </p>
-        <div className="formrow">
-          <label>API key</label>
-          <input value={draft.ticketmasterKey} onChange={(e) => set({ ticketmasterKey: e.target.value })} />
-        </div>
+        <SecretField
+          label="API key"
+          value={draft.ticketmasterKey}
+          isSet={Boolean(draft.secretsSet?.ticketmasterKey)}
+          onChange={(v) => set({ ticketmasterKey: v })}
+        />
         <StatusLine status={statusFor('ticketmaster')} />
       </section>
 
@@ -1096,10 +1151,12 @@ export default function Settings() {
           </a>
           .
         </p>
-        <div className="formrow">
-          <label>Client ID</label>
-          <input value={draft.seatgeekClientId} onChange={(e) => set({ seatgeekClientId: e.target.value })} />
-        </div>
+        <SecretField
+          label="Client ID"
+          value={draft.seatgeekClientId}
+          isSet={Boolean(draft.secretsSet?.seatgeekClientId)}
+          onChange={(v) => set({ seatgeekClientId: v })}
+        />
         <StatusLine status={statusFor('seatgeek')} />
       </section>
 
@@ -1122,10 +1179,12 @@ export default function Settings() {
           </a>
           . Organizer IDs are the number in an organizer page URL (eventbrite.com/o/name-<strong>1234567890</strong>).
         </p>
-        <div className="formrow">
-          <label>Private token</label>
-          <input value={draft.eventbriteToken} onChange={(e) => set({ eventbriteToken: e.target.value })} />
-        </div>
+        <SecretField
+          label="Private token"
+          value={draft.eventbriteToken}
+          isSet={Boolean(draft.secretsSet?.eventbriteToken)}
+          onChange={(v) => set({ eventbriteToken: v })}
+        />
         <label className="hint">Organizer IDs</label>
         {listEditor('organizer', draft.eventbriteOrganizerIds, (v) => set({ eventbriteOrganizerIds: v }), '1234567890')}
         <StatusLine status={statusFor('eventbrite')} />
@@ -1148,14 +1207,13 @@ export default function Settings() {
           far better with a logged-in cookie: open facebook.com → DevTools (F12) → Application → Cookies → copy the{' '}
           <code>c_user</code> and <code>xs</code> values as <code>c_user=…; xs=…</code>. Consider a throwaway account.
         </p>
-        <div className="formrow">
-          <label>Cookie</label>
-          <input
-            value={draft.fbCookie}
-            placeholder="c_user=100000000000000; xs=abc123…"
-            onChange={(e) => set({ fbCookie: e.target.value })}
-          />
-        </div>
+        <SecretField
+          label="Cookie"
+          value={draft.fbCookie}
+          isSet={Boolean(draft.secretsSet?.fbCookie)}
+          placeholder="c_user=100000000000000; xs=abc123…"
+          onChange={(v) => set({ fbCookie: v })}
+        />
         <label className="hint">Search terms (defaults to your city if empty)</label>
         {listEditor('search term', draft.fbSearchTerms, (v) => set({ fbSearchTerms: v }), 'e.g. Portland events')}
         <label className="hint" style={{ display: 'block', marginTop: 10 }}>

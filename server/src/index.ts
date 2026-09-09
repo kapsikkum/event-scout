@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { getKv, getSettings, saveSettings } from './db.js';
 import { needsAuth, readCookie, SESSION_COOKIE } from './auth.js';
 import { corsDecision, readOrigins } from './cors.js';
+import { mergeSecrets, redactSettings } from './secrets.js';
 import {
   checkPassword,
   apiToken,
@@ -188,8 +189,12 @@ app.delete('/api/auth/token', (_req, res) => {
   res.json({ token: '' });
 });
 
+/**
+ * The credentials are never sent back — see secrets.ts. The page is told which
+ * are set, which is all it has ever needed to know.
+ */
 app.get('/api/settings', (_req, res) => {
-  res.json(getSettings());
+  res.json(redactSettings(getSettings()));
 });
 
 app.put('/api/settings', (req, res) => {
@@ -199,13 +204,18 @@ app.put('/api/settings', (req, res) => {
     ...current,
     ...body,
     enabledSources: { ...current.enabledSources, ...(body.enabledSources ?? {}) },
+    // After the spread, so a blanked credential coming back from the page
+    // cannot overwrite the stored one. Null is how a caller asks to clear one.
+    ...mergeSecrets(current, (req.body ?? {}) as Record<string, unknown>),
   };
   // Keep arrays sane if the client sends junk
   for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
   saveSettings(next);
-  res.json(next);
+  // Redacted on the way out too, or the answer would hand straight back what
+  // the request was careful not to ask for.
+  res.json(redactSettings(next));
 });
 
 // Open, and deliberately so: "what is this instance running" is the first

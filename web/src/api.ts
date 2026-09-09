@@ -63,11 +63,17 @@ export interface Settings {
   lat: number | null;
   lng: number | null;
   radiusKm: number;
-  ticketmasterKey: string;
-  seatgeekClientId: string;
-  eventbriteToken: string;
+  ticketmasterKey: string | null;
+  seatgeekClientId: string | null;
+  eventbriteToken: string | null;
   eventbriteOrganizerIds: string[];
-  fbCookie: string;
+  /**
+   * Credentials are never sent back — these arrive as '' whatever is stored,
+   * and `secretsSet` says which exist. Sending '' back leaves the stored value
+   * alone, which is what makes saving the whole settings object safe; `null`
+   * is how one is cleared on purpose.
+   */
+  fbCookie: string | null;
   fbSearchTerms: string[];
   fbPages: string[];
   webSearchTerms: string[];
@@ -76,6 +82,8 @@ export interface Settings {
   icalFeeds: { name: string; url: string }[];
   midnightspecStates: string[];
   tasksDisabled: string[];
+  /** Which credentials are stored. Read-only; sending it back changes nothing. */
+  secretsSet?: Record<'ticketmasterKey' | 'seatgeekClientId' | 'eventbriteToken' | 'fbCookie', boolean>;
   /**
    * Origins allowed to read the API from a page served elsewhere. Empty means
    * none, which is what a browser does by default. "*" means any. Only ever

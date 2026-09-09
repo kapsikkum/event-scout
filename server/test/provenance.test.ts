@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { chooseFields } from '../src/events.js';
-import type { EventRow } from '../src/events.js';
+// merge.js, not events.js: the latter opens the database at import, and these
+// tests need nothing but rows.
+import { chooseFields } from '../src/merge.js';
+import type { EventRow } from '../src/merge.js';
 
 /**
  * Which of the three opinions a reader is actually looking at.
