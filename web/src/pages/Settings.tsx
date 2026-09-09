@@ -24,6 +24,42 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]['key'];
 
+/**
+ * The first-run walk-through.
+ *
+ * The same panels as the tabs, one at a time, with somewhere to go next. Only
+ * the first step is required — everything after it is a source you may not
+ * want, a password you may not need, and two features that are off by default —
+ * so each carries its own way past it.
+ */
+const STEPS = [
+  {
+    key: 'general',
+    title: 'Where are you?',
+    blurb: 'The one thing that has to be set — nothing can search without it. Everything after this step is optional.',
+  },
+  {
+    key: 'sources',
+    title: 'Where should it look?',
+    blurb: 'Enable what you want and fill in the keys you have. You can add the rest later.',
+  },
+  {
+    key: 'access',
+    title: 'Who can change it?',
+    blurb: 'Set a password if this will be reachable by anyone but you. Reading stays open either way.',
+  },
+  {
+    key: 'model',
+    title: 'Tidy listings with a local model?',
+    blurb: 'Optional, and off unless you point it at an Ollama. Nothing else depends on it.',
+  },
+  {
+    key: 'density',
+    title: 'Track how busy venues get?',
+    blurb: 'Optional. Samples venues on a timer to build the density map. Off by default.',
+  },
+] as const;
+
 /** The states the car-meet feed covers, in the order its own sitemap lists them. */
 const MIDNIGHTSPEC_STATES = ['nsw', 'vic', 'qld', 'wa', 'sa', 'nt'];
 
@@ -400,6 +436,18 @@ export default function Settings() {
   const { tab } = useParams<{ tab?: string }>();
   const navigate = useNavigate();
   const active: TabKey = (TABS.find((t) => t.key === tab)?.key ?? 'general');
+  const [step, setStep] = useState(0);
+  /** Set when somebody would rather have the whole page than be walked through it. */
+  const [skipWizard, setSkipWizard] = useState(false);
+  /**
+   * Whether this visit began without a location, latched on the first answer
+   * from the server.
+   *
+   * It cannot be derived per render from whether a location exists now: step
+   * one saves the location, which would make the walk-through decide it was no
+   * longer needed and drop the reader into the tabbed page at step two.
+   */
+  const [wizardRun, setWizardRun] = useState<boolean | null>(null);
 
   // Only once it has finished: while it runs the feed is at the top of the
   // page, and showing the same lines twice helps nobody.
@@ -449,6 +497,10 @@ export default function Settings() {
   useEffect(() => {
     api.topics().then((r) => setTopics(r.topics)).catch(() => setTopics([]));
   }, []);
+
+  useEffect(() => {
+    if (settings && wizardRun === null) setWizardRun(settings.lat == null);
+  }, [settings, wizardRun]);
 
   useEffect(() => {
     if (settings && !draft) {
@@ -535,6 +587,234 @@ export default function Settings() {
    * want, save. Hiding the sources behind a tab on a first run would leave the
    * welcome banner telling you to add API keys with none on screen.
    */
+  const locationPanel = (
+      <section>
+        <h2>📍 Location</h2>
+        <p className="hint">Events are searched around this point. Powered by OpenStreetMap geocoding.</p>
+        <div className="formrow">
+          <label>City / area</label>
+          <input
+            value={geoQuery}
+            placeholder="e.g. Portland, OR"
+            onChange={(e) => setGeoQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void searchCity()}
+          />
+          <button onClick={() => void searchCity()} disabled={geoBusy}>
+            {geoBusy ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+        {geoResults && (
+          <div className="geocode-results">
+            {geoResults.length === 0 && <span className="hint">No matches found.</span>}
+            {geoResults.map((r) => (
+              <button
+                key={`${r.lat},${r.lng}`}
+                onClick={() => {
+                  set({ city: r.displayName.split(',')[0], lat: r.lat, lng: r.lng });
+                  setGeoResults(null);
+                }}
+              >
+                📍 {r.displayName}
+              </button>
+            ))}
+          </div>
+        )}
+        {draft.lat != null && (
+          <div className="status-line ok">
+            ● Location set: {draft.city} ({draft.lat.toFixed(4)}, {draft.lng?.toFixed(4)})
+          </div>
+        )}
+        <div className="formrow" style={{ marginTop: 12 }}>
+          <label>Radius: {draft.radiusKm} km</label>
+          <input
+            type="range"
+            min={5}
+            max={300}
+            step={5}
+            value={draft.radiusKm}
+            onChange={(e) => set({ radiusKm: Number(e.target.value) })}
+          />
+        </div>
+
+        <label className="hint" style={{ display: 'block', marginTop: 14 }}>
+          Also look here — one per line. A name is enough (<code>Penrith</code>); add
+          <code> , radiusKm</code> to give it its own reach. Every source runs once per
+          area, so a place worth the drive can be watched without widening the radius
+          above and dragging in everything in between.
+        </label>
+        <ListArea
+          text={(draft.eventAreas ?? [])
+            .map((a) => [a.name, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
+            .join(LINE_BREAK)}
+          placeholder={'Penrith, 25' + LINE_BREAK + 'Orange'}
+          onText={(raw) =>
+            set({
+              eventAreas: raw
+                .split(LINE_BREAK)
+                .map((line) => line.split(',').map((p) => p.trim()))
+                .filter((parts) => parts[0])
+                .map((parts) => ({
+                  name: parts[0],
+                  radiusKm: parts[1] ? Number(parts[1]) : undefined,
+                })),
+            })
+          }
+        />
+
+        <h4 style={{ margin: '16px 0 4px', fontSize: 13 }}>What to look for</h4>
+        <p className="hint" style={{ margin: '0 0 8px' }}>
+          Each topic expands to a set of search phrases, run against every area. Pick a
+          few rather than all: they rotate across refreshes, so everything gets covered
+          either way, and fewer at once means faster passes. Your own terms further
+          down still apply on top.
+        </p>
+        <div className="chiprow">
+          {topics.map((t) => {
+            const on = (draft.eventTopics ?? []).includes(t.key);
+            return (
+              <button
+                key={t.key}
+                className={`chip ${on ? 'active' : ''}`}
+                title={t.terms.join(' · ')}
+                onClick={() =>
+                  set({
+                    eventTopics: on
+                      ? (draft.eventTopics ?? []).filter((k) => k !== t.key)
+                      : [...(draft.eventTopics ?? []), t.key],
+                  })
+                }
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+        {(draft.eventTopics ?? []).length > 0 && (
+          <p className="hint" style={{ marginTop: 8 }}>
+            {(draft.eventTopics ?? []).reduce(
+              (n, k) => n + (topics.find((t) => t.key === k)?.terms.length ?? 0), 0
+            )}{' '}
+            phrases across {Math.max(1, (draft.eventAreas ?? []).length + (draft.lat != null ? 1 : 0))} area(s)
+          </p>
+        )}
+      </section>
+  );
+
+  const densityPanel = (
+      <section>
+        <h2>
+          📊 Venue density
+          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+            <input
+              type="checkbox"
+              checked={draft.densityEnabled === true}
+              onChange={(e) => set({ densityEnabled: e.target.checked })}
+            />{' '}
+            Enabled
+          </label>
+        </h2>
+        <p className="hint">
+          Samples how busy local venues are, on its own schedule alongside the event sources.
+          Each pass opens one page per venue, so keep the interval relaxed.
+        </p>
+
+        <div className="formrow" style={{ marginTop: 12 }}>
+          <label>Every: {draft.densityIntervalMinutes ?? 60} min</label>
+          <input
+            type="range"
+            min={15}
+            max={240}
+            step={15}
+            value={draft.densityIntervalMinutes ?? 60}
+            onChange={(e) => set({ densityIntervalMinutes: Number(e.target.value) })}
+          />
+        </div>
+
+        <label className="hint">
+          Areas — one per line as <code>Name, lat, lng, radiusKm</code>. Leave blank to use the
+          location above.
+        </label>
+        <ListArea
+          text={(draft.densityAreas ?? [])
+            .map((a) => [a.name, a.lat, a.lng, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
+            .join(LINE_BREAK)}
+          placeholder="Bathurst, -33.4300, 149.5750, 5.5"
+          onText={(raw) =>
+            set({
+              densityAreas: raw
+                .split(LINE_BREAK)
+                .map((line) => line.split(',').map((p) => p.trim()))
+                .filter((parts) => parts[0])
+                .map((parts) => ({
+                  name: parts[0],
+                  lat: parts[1] ? Number(parts[1]) : undefined,
+                  lng: parts[2] ? Number(parts[2]) : undefined,
+                  radiusKm: parts[3] ? Number(parts[3]) : undefined,
+                })),
+            })
+          }
+        />
+
+        <div className="formrow" style={{ marginTop: 10 }}>
+          <label>Max venues</label>
+          <input
+            type="number"
+            min={0}
+            step={5}
+            value={draft.densityMaxVenues ?? 30}
+            onChange={(e) => set({ densityMaxVenues: Math.max(0, Number(e.target.value) || 0) })}
+          />
+        </div>
+        <p className="hint" style={{ marginTop: 0 }}>
+          <b>0 tracks every place found.</b> Each venue is one page load, so this is a
+          time budget rather than a limit — around 10 seconds each, and the hourly run
+          skips itself while one is still going.
+        </p>
+
+        <label className="hint" style={{ display: 'block', marginTop: 10 }}>
+          Always include these venues — a name, or a Google Maps link. A link pins
+          exactly one place, which a name cannot: searching{' '}
+          <code>Mount Panorama</code> returns the mountain, the reserve and the
+          circuit, and only one of them carries busyness data.
+        </label>
+        <ListArea
+          text={(draft.densityPlaces ?? []).join(LINE_BREAK)}
+          placeholder={'Mount Panorama' + LINE_BREAK + 'https://maps.app.goo.gl/…'}
+          onText={(raw) =>
+            set({ densityPlaces: raw.split(LINE_BREAK).map((v) => v.trim()).filter(Boolean) })
+          }
+        />
+
+        {density && (
+          <div className={`status-line ${density.running ? 'never_run' : 'ok'}`}>
+            {density.running
+              ? '○ Sampling now…'
+              : `● ${density.lastResult ?? 'not sampled yet'}${
+                  density.lastRun ? ` (${new Date(density.lastRun).toLocaleString()})` : ''
+                }`}
+          </div>
+        )}
+
+        {density && density.areas.length > 0 && (
+          <p className="map-panel__meta" style={{ marginTop: 6 }}>
+            {density.areas
+              .map((a) => `${a.name}: ${a.venues} venues, ${a.withProfile} profiled`)
+              .join(' · ')}
+          </p>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button className="ghost" disabled={density?.running} onClick={() => runDensity('refresh')}>
+            Sample now
+          </button>
+          <button className="ghost" disabled={density?.running} onClick={() => runDensity('discover')}>
+            Rebuild venue list
+          </button>
+        </div>
+        {densityMsg && <p className="hint" style={{ marginTop: 8 }}>{densityMsg}</p>}
+      </section>
+  );
+
   const sourcePanels = (
     <>
       <section>
@@ -800,15 +1080,98 @@ export default function Settings() {
     </>
   );
 
+  const panelFor = (key: string) =>
+    key === 'general' ? locationPanel
+    : key === 'sources' ? sourcePanels
+    : key === 'access' ? <SecuritySection />
+    : key === 'model' ? <LocalModelSection draft={draft} set={set} />
+    : densityPanel;
+
+  /**
+   * The walk-through, shown until a location exists.
+   *
+   * Deliberately not the tabbed page with a banner over it: on a first run
+   * there is an order to do things in, and one panel with somewhere to go next
+   * says that better than six tabs and a save button do.
+   */
+  if (wizardRun && !skipWizard) {
+    const current = STEPS[step];
+    const last = step === STEPS.length - 1;
+    const canAdvance = current.key !== 'general' || draft.lat != null;
+
+    return (
+      <div className="settings wizard">
+        <div className="wizard__head">
+          <h1>Set up Event Scout</h1>
+          <button className="linky" onClick={() => setSkipWizard(true)}>
+            Skip and use the full settings page
+          </button>
+        </div>
+
+        <ol className="wizard__steps">
+          {STEPS.map((st, i) => (
+            <li
+              key={st.key}
+              className={i === step ? 'is-current' : i < step ? 'is-done' : ''}
+              // Backwards only: a step ahead may depend on this one being done.
+              onClick={() => i < step && setStep(i)}
+            >
+              <span className="wizard__num">{i < step ? '✓' : i + 1}</span>
+              {TABS.find((t) => t.key === st.key)?.label}
+            </li>
+          ))}
+        </ol>
+
+        <div className="wizard__intro">
+          <h2>{current.title}</h2>
+          <p className="hint">{current.blurb}</p>
+        </div>
+
+        {panelFor(current.key)}
+
+        <div className="savebar wizard__nav">
+          <button onClick={() => setStep((n) => n - 1)} disabled={step === 0}>
+            ← Back
+          </button>
+          <span className="note">
+            Step {step + 1} of {STEPS.length}
+          </span>
+          {!canAdvance && <span className="note">Set a location to continue</span>}
+          {last ? (
+            <button
+              className="primary"
+              disabled={draft.lat == null || refreshing}
+              onClick={() =>
+                void save()
+                  .then(() => setWizardRun(false))
+                  .then(() => refresh())
+              }
+            >
+              {refreshing ? 'Searching…' : 'Finish & search now'}
+            </button>
+          ) : (
+            <>
+              {current.key !== 'general' && (
+                <button onClick={() => setStep((n) => n + 1)}>Skip</button>
+              )}
+              <button
+                className="primary"
+                disabled={!canAdvance}
+                onClick={() => void save().then(() => setStep((n) => n + 1))}
+              >
+                Next →
+              </button>
+            </>
+          )}
+        </div>
+
+        <VersionLine />
+      </div>
+    );
+  }
+
   return (
     <div className="settings">
-      {firstRun && (
-        <div className="banner">
-          <strong>Welcome to Event Scout!</strong> Set your location below, add API keys
-          for the sources you want (each is optional), then hit <em>Save &amp; refresh now</em>.
-        </div>
-      )}
-
       <nav className="subtabs" aria-label="Settings sections">
         {TABS.map((t) => (
           <button
@@ -822,251 +1185,15 @@ export default function Settings() {
         ))}
       </nav>
 
-      {active === 'general' && (
-        <>
-      <section>
-        <h2>📍 Location</h2>
-        <p className="hint">Events are searched around this point. Powered by OpenStreetMap geocoding.</p>
-        <div className="formrow">
-          <label>City / area</label>
-          <input
-            value={geoQuery}
-            placeholder="e.g. Portland, OR"
-            onChange={(e) => setGeoQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void searchCity()}
-          />
-          <button onClick={() => void searchCity()} disabled={geoBusy}>
-            {geoBusy ? 'Searching…' : 'Search'}
-          </button>
-        </div>
-        {geoResults && (
-          <div className="geocode-results">
-            {geoResults.length === 0 && <span className="hint">No matches found.</span>}
-            {geoResults.map((r) => (
-              <button
-                key={`${r.lat},${r.lng}`}
-                onClick={() => {
-                  set({ city: r.displayName.split(',')[0], lat: r.lat, lng: r.lng });
-                  setGeoResults(null);
-                }}
-              >
-                📍 {r.displayName}
-              </button>
-            ))}
-          </div>
-        )}
-        {draft.lat != null && (
-          <div className="status-line ok">
-            ● Location set: {draft.city} ({draft.lat.toFixed(4)}, {draft.lng?.toFixed(4)})
-          </div>
-        )}
-        <div className="formrow" style={{ marginTop: 12 }}>
-          <label>Radius: {draft.radiusKm} km</label>
-          <input
-            type="range"
-            min={5}
-            max={300}
-            step={5}
-            value={draft.radiusKm}
-            onChange={(e) => set({ radiusKm: Number(e.target.value) })}
-          />
-        </div>
-
-        <label className="hint" style={{ display: 'block', marginTop: 14 }}>
-          Also look here — one per line. A name is enough (<code>Penrith</code>); add
-          <code> , radiusKm</code> to give it its own reach. Every source runs once per
-          area, so a place worth the drive can be watched without widening the radius
-          above and dragging in everything in between.
-        </label>
-        <ListArea
-          text={(draft.eventAreas ?? [])
-            .map((a) => [a.name, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
-            .join(LINE_BREAK)}
-          placeholder={'Penrith, 25' + LINE_BREAK + 'Orange'}
-          onText={(raw) =>
-            set({
-              eventAreas: raw
-                .split(LINE_BREAK)
-                .map((line) => line.split(',').map((p) => p.trim()))
-                .filter((parts) => parts[0])
-                .map((parts) => ({
-                  name: parts[0],
-                  radiusKm: parts[1] ? Number(parts[1]) : undefined,
-                })),
-            })
-          }
-        />
-
-        <h4 style={{ margin: '16px 0 4px', fontSize: 13 }}>What to look for</h4>
-        <p className="hint" style={{ margin: '0 0 8px' }}>
-          Each topic expands to a set of search phrases, run against every area. Pick a
-          few rather than all: they rotate across refreshes, so everything gets covered
-          either way, and fewer at once means faster passes. Your own terms further
-          down still apply on top.
-        </p>
-        <div className="chiprow">
-          {topics.map((t) => {
-            const on = (draft.eventTopics ?? []).includes(t.key);
-            return (
-              <button
-                key={t.key}
-                className={`chip ${on ? 'active' : ''}`}
-                title={t.terms.join(' · ')}
-                onClick={() =>
-                  set({
-                    eventTopics: on
-                      ? (draft.eventTopics ?? []).filter((k) => k !== t.key)
-                      : [...(draft.eventTopics ?? []), t.key],
-                  })
-                }
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-        {(draft.eventTopics ?? []).length > 0 && (
-          <p className="hint" style={{ marginTop: 8 }}>
-            {(draft.eventTopics ?? []).reduce(
-              (n, k) => n + (topics.find((t) => t.key === k)?.terms.length ?? 0), 0
-            )}{' '}
-            phrases across {Math.max(1, (draft.eventAreas ?? []).length + (draft.lat != null ? 1 : 0))} area(s)
-          </p>
-        )}
-      </section>
-
-          {firstRun && sourcePanels}
-        </>
-      )}
+      {active === 'general' && locationPanel}
 
       {active === 'sources' && <>{sourcePanels}</>}
 
       {active === 'tasks' && <Tasks />}
 
-      {active === 'density' && (
-        <>
-      <section>
-        <h2>
-          📊 Venue density
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
-            <input
-              type="checkbox"
-              checked={draft.densityEnabled === true}
-              onChange={(e) => set({ densityEnabled: e.target.checked })}
-            />{' '}
-            Enabled
-          </label>
-        </h2>
-        <p className="hint">
-          Samples how busy local venues are, on its own schedule alongside the event sources.
-          Each pass opens one page per venue, so keep the interval relaxed.
-        </p>
+      {active === 'density' && densityPanel}
 
-        <div className="formrow" style={{ marginTop: 12 }}>
-          <label>Every: {draft.densityIntervalMinutes ?? 60} min</label>
-          <input
-            type="range"
-            min={15}
-            max={240}
-            step={15}
-            value={draft.densityIntervalMinutes ?? 60}
-            onChange={(e) => set({ densityIntervalMinutes: Number(e.target.value) })}
-          />
-        </div>
-
-        <label className="hint">
-          Areas — one per line as <code>Name, lat, lng, radiusKm</code>. Leave blank to use the
-          location above.
-        </label>
-        <ListArea
-          text={(draft.densityAreas ?? [])
-            .map((a) => [a.name, a.lat, a.lng, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
-            .join(LINE_BREAK)}
-          placeholder="Bathurst, -33.4300, 149.5750, 5.5"
-          onText={(raw) =>
-            set({
-              densityAreas: raw
-                .split(LINE_BREAK)
-                .map((line) => line.split(',').map((p) => p.trim()))
-                .filter((parts) => parts[0])
-                .map((parts) => ({
-                  name: parts[0],
-                  lat: parts[1] ? Number(parts[1]) : undefined,
-                  lng: parts[2] ? Number(parts[2]) : undefined,
-                  radiusKm: parts[3] ? Number(parts[3]) : undefined,
-                })),
-            })
-          }
-        />
-
-        <div className="formrow" style={{ marginTop: 10 }}>
-          <label>Max venues</label>
-          <input
-            type="number"
-            min={0}
-            step={5}
-            value={draft.densityMaxVenues ?? 30}
-            onChange={(e) => set({ densityMaxVenues: Math.max(0, Number(e.target.value) || 0) })}
-          />
-        </div>
-        <p className="hint" style={{ marginTop: 0 }}>
-          <b>0 tracks every place found.</b> Each venue is one page load, so this is a
-          time budget rather than a limit — around 10 seconds each, and the hourly run
-          skips itself while one is still going.
-        </p>
-
-        <label className="hint" style={{ display: 'block', marginTop: 10 }}>
-          Always include these venues — a name, or a Google Maps link. A link pins
-          exactly one place, which a name cannot: searching{' '}
-          <code>Mount Panorama</code> returns the mountain, the reserve and the
-          circuit, and only one of them carries busyness data.
-        </label>
-        <ListArea
-          text={(draft.densityPlaces ?? []).join(LINE_BREAK)}
-          placeholder={'Mount Panorama' + LINE_BREAK + 'https://maps.app.goo.gl/…'}
-          onText={(raw) =>
-            set({ densityPlaces: raw.split(LINE_BREAK).map((v) => v.trim()).filter(Boolean) })
-          }
-        />
-
-        {density && (
-          <div className={`status-line ${density.running ? 'never_run' : 'ok'}`}>
-            {density.running
-              ? '○ Sampling now…'
-              : `● ${density.lastResult ?? 'not sampled yet'}${
-                  density.lastRun ? ` (${new Date(density.lastRun).toLocaleString()})` : ''
-                }`}
-          </div>
-        )}
-
-        {density && density.areas.length > 0 && (
-          <p className="map-panel__meta" style={{ marginTop: 6 }}>
-            {density.areas
-              .map((a) => `${a.name}: ${a.venues} venues, ${a.withProfile} profiled`)
-              .join(' · ')}
-          </p>
-        )}
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button className="ghost" disabled={density?.running} onClick={() => runDensity('refresh')}>
-            Sample now
-          </button>
-          <button className="ghost" disabled={density?.running} onClick={() => runDensity('discover')}>
-            Rebuild venue list
-          </button>
-        </div>
-        {densityMsg && <p className="hint" style={{ marginTop: 8 }}>{densityMsg}</p>}
-      </section>
-
-        </>
-      )}
-
-      {active === 'model' && (
-        <>
-      <LocalModelSection draft={draft} set={set} />
-
-        </>
-      )}
+      {active === 'model' && <LocalModelSection draft={draft} set={set} />}
 
       {active === 'access' && <SecuritySection />}
 

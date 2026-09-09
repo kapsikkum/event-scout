@@ -799,3 +799,76 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   font-size: inherit;
 }
 .taskmeta button:hover { background: none; border-color: transparent; text-decoration: underline; }
+
+/* ── First-run wizard ──
+   The same panels as the settings tabs, one at a time. The chrome around them
+   is what differs: a step rail instead of tabs, and a nav bar that moves you on
+   instead of a save bar. */
+.wizard__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.wizard__head h1 { margin: 0; font-size: 21px; }
+.wizard__head .linky {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font-size: 13px;
+}
+.wizard__head .linky:hover { background: none; text-decoration: underline; }
+
+.wizard__steps {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+}
+.wizard__steps li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+/* Done steps are the only ones you can jump back to, so they are the only ones
+   that look clickable. */
+.wizard__steps li.is-done { cursor: pointer; color: var(--text); }
+.wizard__steps li.is-done:hover { border-color: var(--accent); }
+.wizard__steps li.is-current {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.wizard__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--panel-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.wizard__steps li.is-current .wizard__num { background: var(--accent); color: #1a1304; }
+.wizard__steps li.is-done .wizard__num { background: transparent; color: var(--green); }
+
+.wizard__intro { margin-bottom: 12px; }
+.wizard__intro h2 { margin: 0 0 2px; font-size: 17px; }
+.wizard__intro .hint { color: var(--muted); font-size: 13.5px; margin: 0; }
+
+/* Back sits left, the primary action right, the step count between them. */
+.wizard__nav .note { margin-right: auto; }
+
+/* The sign-out button exists only when a password is set, and its 58px is
+   enough to push the bar past its width in the band just above the point where
+   the nav collapses into the burger. The timestamp is the least important thing
+   in the bar, so it is what gives way — and only when that button is there. */
+@media (max-width: 1000px) {
+  .topbar:has(.topbar__signout) .meta { display: none; }
+}

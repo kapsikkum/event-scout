@@ -80,7 +80,7 @@ function Shell() {
         {/* Only worth a place in the bar once a password exists; with none set
             there is nothing to be signed in or out of. */}
         {auth?.required && auth.authed && (
-          <button onClick={() => void signOut()} title="Sign out">
+          <button className="topbar__signout" onClick={() => void signOut()} title="Sign out">
             Sign out
           </button>
         )}
