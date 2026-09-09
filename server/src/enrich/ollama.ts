@@ -59,6 +59,16 @@ export interface ChatOptions {
    * far more than the inference.
    */
   keepAliveMinutes?: number;
+  /** Base64 JPEG/PNG data, for the vision models. */
+  images?: string[];
+  /**
+   * Context window to ask for.
+   *
+   * Only meaningful with an image. A flyer is a few thousand tokens on its own
+   * and the default 4096 is not enough for one — qwen2.5vl answers a plain
+   * "exceeds the available context size" rather than doing anything useful.
+   */
+  numCtx?: number;
 }
 
 /**
@@ -81,8 +91,10 @@ export async function chatJson(opts: ChatOptions): Promise<unknown> {
         think: false,
         format: opts.schema,
         keep_alive: `${opts.keepAliveMinutes ?? 10}m`,
-        options: { temperature: 0 },
-        messages: [{ role: 'user', content: opts.prompt }],
+        options: { temperature: 0, ...(opts.numCtx ? { num_ctx: opts.numCtx } : {}) },
+        messages: [
+          { role: 'user', content: opts.prompt, ...(opts.images ? { images: opts.images } : {}) },
+        ],
       }),
     }).catch((err: Error) => {
       throw new OllamaError(
@@ -107,7 +119,9 @@ export async function chatJson(opts: ChatOptions): Promise<unknown> {
 
   const body = JSON.parse(text) as { message?: { content?: string } };
   const content = body.message?.content;
-  if (!content) throw new OllamaError('empty answer');
+  // Some vision models answer nothing at all when handed a schema — qwen3-vl
+  // does, reliably. Worth naming, because it looks like a timeout otherwise.
+  if (!content || !content.trim()) throw new OllamaError('answered nothing');
   try {
     return JSON.parse(content);
   } catch {

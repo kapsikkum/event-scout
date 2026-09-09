@@ -28,6 +28,8 @@ export interface MergedEvent {
   members: EventMember[];
   /** True when a person merged these, rather than the deduper. */
   manual: boolean;
+  /** A line read off the flyer — when gates open, which entrance. '' when none. */
+  note: string;
 }
 
 export interface EventMember {
@@ -74,6 +76,10 @@ export interface Settings {
   llmJobs: string[];
   llmIntervalMinutes: number;
   llmMaxPerRun: number;
+  visionEnabled: boolean;
+  visionModel: string;
+  visionIntervalMinutes: number;
+  visionMaxPerRun: number;
   enabledSources: Record<string, boolean>;
   densityEnabled: boolean;
   densityIntervalMinutes: number;
@@ -119,6 +125,8 @@ export interface LlmStatus {
   /** Events still waiting to be read. */
   backlog: number;
   availableJobs: { key: string; label: string; hint: string }[];
+  /** The flyer pass, which shares the server and the model list. */
+  vision: { enabled: boolean; model: string; modelInstalled: boolean; backlog: number };
 }
 
 /** One background job, as the Tasks page shows it. */
@@ -337,6 +345,7 @@ export const api = {
     fetch('/api/auth/feed-token', { method: 'POST' }).then((r) => json<{ token: string }>(r)),
   llmStatus: () => fetch('/api/llm/status').then((r) => json<LlmStatus>(r)),
   llmReset: () => fetch('/api/llm/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),
+  visionReset: () => fetch('/api/vision/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),
   tasks: () => fetch('/api/tasks').then((r) => json<{ tasks: TaskStatus[] }>(r)),
   // A refused run — already going, or sharing a busy browser — answers 409 with
   // a reason worth showing, so the body is read either way rather than thrown.

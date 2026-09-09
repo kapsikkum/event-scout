@@ -29,6 +29,7 @@ import { listAreas, renderArea, venueHistory, venueReadings } from './density/pi
 import { pickAreas } from './density/areas.js';
 import { getDensityStatus } from './densityRefresh.js';
 import { clearEnrichment, getLlmStatus } from './enrich/pipeline.js';
+import { clearVision } from './enrich/visionPipeline.js';
 import { ENRICH_JOBS } from './enrich/schema.js';
 import { tasks } from './tasks/tasks.js';
 import { runDueTasksOnStartup, startScheduler } from './tasks/scheduler.js';
@@ -292,6 +293,10 @@ app.get('/api/llm/status', async (_req, res) => {
 // for after changing model or prompt; the scraped values are untouched.
 app.post('/api/llm/reset', (_req, res) => {
   res.json({ ok: true, cleared: clearEnrichment() });
+});
+
+app.post('/api/vision/reset', (_req, res) => {
+  res.json({ ok: true, cleared: clearVision() });
 });
 
 // --- tasks ------------------------------------------------------------------

@@ -106,6 +106,15 @@ function migrate(): void {
    * changes or the model does. Kept in its own table so clearing it — the way
    * to force a re-run — cannot touch the events.
    */
+  /**
+   * What a vision model read off the event's flyer. Its own columns, kept apart
+   * from both the scraped values and the text model's, so the three can be
+   * chosen between rather than overwriting one another.
+   */
+  for (const col of ['vision_venue_name', 'vision_address', 'vision_price_text', 'vision_note']) {
+    if (!cols.includes(col)) db.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS event_enrichment (
       event_id INTEGER PRIMARY KEY,
@@ -114,6 +123,18 @@ function migrate(): void {
       ok INTEGER NOT NULL DEFAULT 1,
       note TEXT DEFAULT '',
       enriched_at TEXT NOT NULL
+    )
+  `);
+
+  /** The same bookkeeping for the flyer pass, keyed on the image it read. */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS event_vision (
+      event_id INTEGER PRIMARY KEY,
+      content_hash TEXT NOT NULL,
+      model TEXT NOT NULL,
+      ok INTEGER NOT NULL DEFAULT 1,
+      note TEXT DEFAULT '',
+      read_at TEXT NOT NULL
     )
   `);
 }

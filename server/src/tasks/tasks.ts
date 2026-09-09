@@ -2,6 +2,7 @@ import { getKv, getSettings, saveSettings, setKv } from '../db.js';
 import { archivePastEvents, getProgress, refreshAll } from '../refresh.js';
 import { runDensityScrape, runVenueDiscovery } from '../densityRefresh.js';
 import { runEnrichment } from '../enrich/pipeline.js';
+import { runVisionPass } from '../enrich/visionPipeline.js';
 import { createRegistry } from './registry.js';
 
 /**
@@ -140,6 +141,17 @@ tasks.register({
   enabled: () => Boolean(getSettings().llmEnabled),
   setEnabled: (on) => saveSettings({ ...getSettings(), llmEnabled: on }),
   run: (log) => runEnrichment(log),
+});
+
+tasks.register({
+  name: 'vision',
+  label: 'Read event flyers',
+  description: 'Ask a vision model to read the venue, address and price printed on each event flyer, filling only the fields the listing left blank.',
+  schedule: '*/5 * * * *',
+  intervalMinutes: () => Math.max(5, getSettings().visionIntervalMinutes ?? 60),
+  enabled: () => Boolean(getSettings().visionEnabled),
+  setEnabled: (on) => saveSettings({ ...getSettings(), visionEnabled: on }),
+  run: (log) => runVisionPass(log),
 });
 
 tasks.register({

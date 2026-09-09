@@ -138,6 +138,16 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
           {ev.photoScore > 0 && <span className="tag">📸 {ev.photoScore.toFixed(1)}</span>}
         </div>
 
+        {/* Read off the flyer, so it is shown as found and nothing is derived
+            from it — a gates time is worth knowing and worth trusting no
+            further than that. */}
+        {ev.note && (
+          <div className="detail__block">
+            <h4>On the flyer</h4>
+            <p>{decodeEntities(ev.note)}</p>
+          </div>
+        )}
+
         {(ev.venueName || ev.address) && (
           <div className="detail__block">
             <h4>Location</h4>

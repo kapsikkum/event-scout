@@ -259,7 +259,8 @@ function LocalModelSection({
   const jobs = llm?.availableJobs ?? [];
 
   return (
-    <section>
+    <>
+      <section>
       <h2>
         🧠 Local model
         <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
@@ -385,7 +386,10 @@ function LocalModelSection({
         Forget what it decided
       </button>
       {msg && <p className="hint" style={{ marginBottom: 0 }}>{msg}</p>}
-    </section>
+      </section>
+
+      <VisionSection draft={draft} set={set} llm={llm} reload={() => void reload()} />
+    </>
   );
 }
 
@@ -416,6 +420,113 @@ function VersionLine() {
         changelog
       </a>
     </p>
+  );
+}
+
+/**
+ * The flyer reader.
+ *
+ * Its own model rather than a fifth job on the text pass. The models that read
+ * an image are not the ones that write well, a flyer costs four times what a
+ * description does, and the two fail in unrelated ways — so they are switched
+ * on, scheduled and reset separately.
+ */
+function VisionSection({
+  draft,
+  set,
+  llm,
+  reload,
+}: {
+  draft: SettingsType;
+  set: (patch: Partial<SettingsType>) => void;
+  llm: LlmStatus | null;
+  reload: () => void;
+}) {
+  const [msg, setMsg] = useState('');
+  return (
+    <section>
+      <h2>
+        🖼 Flyer reading
+        <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <input
+            type="checkbox"
+            checked={draft.visionEnabled === true}
+            onChange={(e) => set({ visionEnabled: e.target.checked })}
+          />{' '}
+          enabled
+        </label>
+      </h2>
+      <p className="hint">
+        Most listings arrive with a flyer, and for the ones scraped from organiser
+        posts the venue, street and price are printed on it rather than written
+        anywhere a parser can reach. This reads them, and fills only the fields
+        the listing left blank.
+      </p>
+
+      <div className="formrow">
+        <label>Vision model</label>
+        {llm?.reachable && llm.models.length > 0 ? (
+          <select value={draft.visionModel} onChange={(e) => set({ visionModel: e.target.value })}>
+            <option value="">Choose a model…</option>
+            {llm.models.map((m) => (
+              <option key={m.name} value={m.name}>
+                {m.name} ({Math.round(m.size / 1e9)} GB)
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input value={draft.visionModel} onChange={(e) => set({ visionModel: e.target.value })} />
+        )}
+      </div>
+      <p className="hint" style={{ marginTop: -4 }}>
+        It has to be a model that can see — a text model will answer nothing, or
+        nonsense. Uses the same Ollama as above.
+      </p>
+
+      <div className="formrow">
+        <label>Every</label>
+        <input
+          type="number"
+          min={5}
+          max={1440}
+          style={{ maxWidth: 90 }}
+          value={draft.visionIntervalMinutes}
+          onChange={(e) => set({ visionIntervalMinutes: Number(e.target.value) })}
+        />
+        <span className="hint" style={{ margin: 0 }}>minutes,</span>
+        <input
+          type="number"
+          min={1}
+          max={200}
+          style={{ maxWidth: 90 }}
+          value={draft.visionMaxPerRun}
+          onChange={(e) => set({ visionMaxPerRun: Number(e.target.value) })}
+        />
+        <span className="hint" style={{ margin: 0 }}>flyers per pass</span>
+      </div>
+
+      {llm?.vision && (
+        <p className="hint" style={{ marginBottom: 6 }}>
+          {llm.vision.backlog > 0
+            ? `${llm.vision.backlog} flyer${llm.vision.backlog === 1 ? '' : 's'} worth reading — that is only the events still missing a venue, address or price.`
+            : 'No flyers worth reading: nothing is missing a venue, address or price.'}{' '}
+          Around 15–25 seconds each. Run it from the Tasks tab.
+        </p>
+      )}
+
+      <button
+        className="ghost"
+        onClick={() =>
+          void api.visionReset().then((r) => {
+            setMsg(`Forgot ${r.cleared} flyer reading${r.cleared === 1 ? '' : 's'}.`);
+            reload();
+          })
+        }
+      >
+        Forget what it read
+      </button>
+      {msg && <p className="hint" style={{ marginBottom: 0 }}>{msg}</p>}
+    </section>
   );
 }
 

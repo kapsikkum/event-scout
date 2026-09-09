@@ -67,6 +67,16 @@ export interface Settings {
   llmIntervalMinutes: number;
   /** Events per pass. A backlog drains over several runs rather than one long one. */
   llmMaxPerRun: number;
+  /**
+   * Read event flyers with a vision model, filling venue, address and price
+   * where the listing left them blank. Its own model and schedule: a flyer
+   * costs four times what a description does, and the models that can read one
+   * are not the models that write well.
+   */
+  visionEnabled: boolean;
+  visionModel: string;
+  visionIntervalMinutes: number;
+  visionMaxPerRun: number;
   enabledSources: Record<string, boolean>;
   /** Scrape venue density on a timer, alongside the event sources. */
   densityEnabled: boolean;
@@ -133,6 +143,10 @@ export const DEFAULT_SETTINGS: Settings = {
   llmJobs: ['describe', 'classify', 'extract', 'score'],
   llmIntervalMinutes: 60,
   llmMaxPerRun: 40,
+  visionEnabled: false,
+  visionModel: '',
+  visionIntervalMinutes: 60,
+  visionMaxPerRun: 20,
   densityEnabled: false,
   densityIntervalMinutes: 60,
   densityAreas: [],

@@ -51,9 +51,11 @@ UI and API together on <http://localhost:3001>.
 
 ## First run
 
-You land on **Settings**. Search for your city, pick a radius, enable the
-sources you want, then **Save & refresh now**. A refresh refuses to run until a
-location is set.
+With no location set you land on a walk-through at `/setup`: location, sources,
+access, local model, flyer reading — one step at a time. Only the first is
+required; the rest carry a Skip. **Finish & search now** saves and starts the
+first refresh. There is a link out to the full settings page if you would rather
+not be walked through it.
 
 ## Event sources
 
@@ -86,6 +88,7 @@ result and a Run button.
 | `archive` | every 10 min | Move finished events to the archive; purge archived rows over 730 days old. |
 | `density` | your interval (default 60 min), ticked every 5 min | One page load per venue, recording how busy each is. |
 | `enrich` | your interval (default 60 min) | Read listings with a local model. Off by default. |
+| `vision` | your interval (default 60 min) | Read event flyers with a vision model. Off by default. |
 | `densityDiscover` | when asked | Rebuild the venue list. Slow, rarely needed. |
 
 - A task refuses to start a second copy of itself rather than queueing.
@@ -146,6 +149,44 @@ Blank `llmUrl` falls back to `OLLAMA_URL`, then `http://localhost:11434`. From a
 container the host's Ollama is `http://host.docker.internal:11434`, not
 localhost.
 
+## Reading flyers with a vision model
+
+Optional, off by default, and separate from the text pass above — a different
+model, its own schedule, its own switch.
+
+Most listings arrive with a promotional image, and for those scraped from
+organiser posts the practical detail is printed on it rather than written
+anywhere a parser can reach. The text pass cannot help: asked to fill blank
+venue and price fields from prose it filled none in eighty events, because the
+prose genuinely does not say. The flyer does.
+
+It reads `venueName`, `address`, `priceText` and one short `note` — when gates
+open, which entrance to use — and **fills only fields the listing left blank**.
+The note is shown on the event and nothing is derived from it.
+
+**It is not asked for the date or the start time.** Handed a flyer printing both,
+qwen2.5vl answered "SEPTEMBER 9TH 2026" as the time. Dates are what this app
+defends hardest, with a validator, a past-grace window and a consensus rule
+between sources; a model that confuses the two has no business near them.
+
+| Setting | Meaning |
+|---|---|
+| `visionEnabled` | Off by default. |
+| `visionModel` | Must be a model that can see. `qwen2.5vl:7b` works; `qwen3-vl:8b` answers nothing when given a schema. |
+| `visionIntervalMinutes` | Default 60. |
+| `visionMaxPerRun` | Flyers per pass, default 20. |
+
+Uses the same Ollama as the text pass. It asks for a 16k context — a flyer is a
+few thousand tokens and the 4096 default simply errors. Where a source publishes
+a thumbnail it reads that instead of the full image: same reading, a fraction of
+the bytes and the time. Roughly 6–25 seconds a flyer.
+
+Only events missing a venue, address or price are considered, so the queue is a
+fraction of the library rather than all of it. **Forget what it read** in
+Settings clears every reading.
+
+Routes: `GET /api/llm/status` (the `vision` block), `POST /api/vision/reset`.
+
 ## Venue density
 
 Off by default. Samples how busy venues are on its own schedule, feeding the
@@ -184,7 +225,8 @@ Everything else is stored in the database and edited in the UI or through
 `eventbriteToken`, `eventbriteOrganizerIds`, `fbCookie`, `fbSearchTerms`,
 `fbPages`, `webSearchTerms`, `icalFeeds`, `midnightspecStates`, `tasksDisabled`,
 `llmEnabled`, `llmUrl`, `llmModel`, `llmJobs`, `llmIntervalMinutes`,
-`llmMaxPerRun`, and the `density*` keys above.
+`llmMaxPerRun`, `visionEnabled`, `visionModel`, `visionIntervalMinutes`,
+`visionMaxPerRun`, and the `density*` keys above.
 
 ## API
 
@@ -221,7 +263,7 @@ cookie, as do `GET /api/settings` and `GET /api/auth/feed-token`.
 | `POST /api/tasks/:name/run` | Run now, ignoring schedule and enabled state. `409` if blocked. |
 | `POST /api/tasks/:name/enable` | Body `{ enabled: boolean }`. |
 
-Names: `events`, `archive`, `density`, `enrich`, `densityDiscover`.
+Names: `events`, `archive`, `density`, `enrich`, `vision`, `densityDiscover`.
 
 ### Settings and auth
 
@@ -254,6 +296,7 @@ Names: `events`, `archive`, `density`, `enrich`, `densityDiscover`.
 |---|---|
 | `GET /api/llm/status` | Reachability, installed models, chosen model, backlog, available jobs. |
 | `POST /api/llm/reset` | Forget every verdict. Scraped values untouched. |
+| `POST /api/vision/reset` | Forget every flyer reading. Scraped values untouched. |
 
 ### Calendar
 

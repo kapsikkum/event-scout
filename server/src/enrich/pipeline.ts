@@ -1,6 +1,7 @@
 import { db, getSettings } from '../db.js';
 import { TaskLog, TaskResult } from '../tasks/registry.js';
 import { chatJson, listModels, OllamaError } from './ollama.js';
+import { flyerBacklog } from './visionPipeline.js';
 import {
   buildPrompt,
   buildSchema,
@@ -224,6 +225,13 @@ export interface LlmStatus {
   models: { name: string; size: number }[];
   modelInstalled: boolean;
   backlog: number;
+  /** The flyer pass, which shares the server and the model list. */
+  vision: {
+    enabled: boolean;
+    model: string;
+    modelInstalled: boolean;
+    backlog: number;
+  };
 }
 
 export async function getLlmStatus(): Promise<LlmStatus> {
@@ -236,6 +244,12 @@ export async function getLlmStatus(): Promise<LlmStatus> {
     model: settings.llmModel ?? '',
     jobs,
     backlog: jobs.length ? backlogCount() : 0,
+    vision: {
+      enabled: Boolean(settings.visionEnabled),
+      model: settings.visionModel ?? '',
+      modelInstalled: false,
+      backlog: flyerBacklog(),
+    },
   };
   try {
     const models = await listModels(url);
@@ -245,6 +259,7 @@ export async function getLlmStatus(): Promise<LlmStatus> {
       problem: '',
       models,
       modelInstalled: models.some((m) => m.name === base.model),
+      vision: { ...base.vision, modelInstalled: models.some((m) => m.name === base.vision.model) },
     };
   } catch (err) {
     return {

@@ -42,6 +42,11 @@ export interface EventRow {
   llm_address: string;
   llm_price_text: string;
   llm_photo_score: number | null;
+  /** What a vision model read off the flyer. See enrich/vision.ts. */
+  vision_venue_name: string;
+  vision_address: string;
+  vision_price_text: string;
+  vision_note: string;
 }
 
 export interface EventMember {
@@ -85,6 +90,12 @@ export interface MergedEvent {
   members: EventMember[];
   /** True when a person merged these rather than the deduper. */
   manual: boolean;
+  /**
+   * A line of practical detail read off the flyer — when gates open, which
+   * entrance to use. Shown as it is; nothing is derived from it, least of all
+   * the start time, which flyers and models between them get wrong.
+   */
+  note: string;
 }
 
 /**
@@ -149,8 +160,18 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
      * and swapped them. Both were then wrong. Asking it to leave populated
      * fields alone helps; not consulting it about them cannot fail.
      */
-    const fillBlank = (llm: (r: EventRow) => string, scraped: (r: EventRow) => string): string =>
-      str(scraped) || str(llm);
+    const fillBlank = (
+      scraped: (r: EventRow) => string,
+      ...guesses: ((r: EventRow) => string)[]
+    ): string => {
+      const stated = str(scraped);
+      if (stated) return stated;
+      for (const guess of guesses) {
+        const value = str(guess);
+        if (value) return value;
+      }
+      return '';
+    };
     const longestDesc = members.reduce((best, m) => (m.description.length > best.length ? m.description : best), '');
     // A tidied blurb is preferred over the longest raw one: length was only
     // ever a stand-in for "most complete", and a rewritten one beats it.
@@ -168,8 +189,8 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       // members agree on is the one to show.
       startTime: consensusStart(members.map((m) => m.start_time)),
       endTime: members.find((m) => m.end_time)?.end_time ?? null,
-      venueName: fillBlank((r) => r.llm_venue_name, (r) => r.venue_name),
-      address: fillBlank((r) => r.llm_address, (r) => r.address),
+      venueName: fillBlank((r) => r.venue_name, (r) => r.vision_venue_name, (r) => r.llm_venue_name),
+      address: fillBlank((r) => r.address, (r) => r.vision_address, (r) => r.llm_address),
       // Derived here rather than in the browser: reading a locality out of an
       // address means knowing every country's postal tail, and that table
       // belongs in one place. See regions.ts. The venue field is tried too,
@@ -177,8 +198,8 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       // address empty — those are exactly the rows that need a locality most,
       // since without one they head their own group by street number.
       locality:
-        localityOf(fillBlank((r) => r.llm_address, (r) => r.address)) ||
-        localityOf(fillBlank((r) => r.llm_venue_name, (r) => r.venue_name)),
+        localityOf(fillBlank((r) => r.address, (r) => r.vision_address, (r) => r.llm_address)) ||
+        localityOf(fillBlank((r) => r.venue_name, (r) => r.vision_venue_name, (r) => r.llm_venue_name)),
       // Filled in below, once every event is known: which town an event
       // rounds to depends on what the others taught about its suburb.
       place: '',
@@ -187,7 +208,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       imageUrl: images[0] ?? '',
       images,
       category: preferLlm((r) => r.llm_category, (r) => r.category),
-      priceText: fillBlank((r) => r.llm_price_text, (r) => r.price_text),
+      priceText: fillBlank((r) => r.price_text, (r) => r.vision_price_text, (r) => r.llm_price_text),
       isOnline: members.every((m) => m.is_online === 1),
       // Blended rather than replaced: the keyword heuristic is deterministic
       // and tuned on listings that have actually turned up here, and the model
@@ -208,6 +229,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
         venueName: m.venue_name,
       })),
       manual: Boolean(members[0].manual_group),
+      note: str((r) => r.vision_note),
     });
   }
   // Events that have been and gone are dropped here as well as archived on a
