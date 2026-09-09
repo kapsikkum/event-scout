@@ -124,9 +124,11 @@ export interface LlmStatus {
   modelInstalled: boolean;
   /** Events still waiting to be read. */
   backlog: number;
+  /** Events already read, so a reset can say what it is throwing away. */
+  read: number;
   availableJobs: { key: string; label: string; hint: string }[];
   /** The flyer pass, which shares the server and the model list. */
-  vision: { enabled: boolean; model: string; modelInstalled: boolean; backlog: number };
+  vision: { enabled: boolean; model: string; modelInstalled: boolean; backlog: number; read: number };
 }
 
 /** One line in the tasks console. */

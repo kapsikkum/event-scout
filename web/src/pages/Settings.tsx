@@ -117,6 +117,51 @@ function ListArea({
 }
 
 /**
+ * A destructive button that asks first.
+ *
+ * The two "forget" buttons wiped every reading on a single click. Nothing
+ * scraped is lost when they do — the models are re-run and arrive at an answer
+ * again — so the real cost is the inference time to redo it, and that is what
+ * the question says rather than a generic are-you-sure.
+ */
+function ConfirmButton({
+  label,
+  question,
+  confirmLabel,
+  onConfirm,
+}: {
+  label: string;
+  question: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+}) {
+  const [asking, setAsking] = useState(false);
+
+  if (!asking) {
+    return (
+      <button className="ghost" onClick={() => setAsking(true)}>
+        {label}
+      </button>
+    );
+  }
+  return (
+    <div className="confirm">
+      <span className="confirm__q">{question}</span>
+      <button
+        className="danger"
+        onClick={() => {
+          setAsking(false);
+          onConfirm();
+        }}
+      >
+        {confirmLabel}
+      </button>
+      <button onClick={() => setAsking(false)}>Cancel</button>
+    </div>
+  );
+}
+
+/**
  * The password, and the calendar feed's secret.
  *
  * Its own component because it neither reads nor writes the settings draft:
@@ -374,17 +419,21 @@ function LocalModelSection({
         </p>
       )}
 
-      <button
-        className="ghost"
-        onClick={() =>
+      <ConfirmButton
+        label="Forget what it decided"
+        question={
+          llm?.read
+            ? `Forget what the model made of ${llm.read} event${llm.read === 1 ? '' : 's'}? Nothing scraped is lost, but reading them again takes about ${Math.max(1, Math.round((llm.read * 12) / 60))} min.`
+            : 'Forget every verdict? Nothing scraped is lost.'
+        }
+        confirmLabel="Forget them"
+        onConfirm={() =>
           void api.llmReset().then((r) => {
             setMsg(`Forgot ${r.cleared} verdict${r.cleared === 1 ? '' : 's'}; the next pass reconsiders everything.`);
             void reload();
           })
         }
-      >
-        Forget what it decided
-      </button>
+      />
       {msg && <p className="hint" style={{ marginBottom: 0 }}>{msg}</p>}
       </section>
 
@@ -514,17 +563,21 @@ function VisionSection({
         </p>
       )}
 
-      <button
-        className="ghost"
-        onClick={() =>
+      <ConfirmButton
+        label="Forget what it read"
+        question={
+          llm?.vision.read
+            ? `Forget ${llm.vision.read} flyer reading${llm.vision.read === 1 ? '' : 's'}? Nothing scraped is lost, but reading them again takes about ${Math.max(1, Math.round((llm.vision.read * 10) / 60))} min.`
+            : 'Forget every flyer reading? Nothing scraped is lost.'
+        }
+        confirmLabel="Forget them"
+        onConfirm={() =>
           void api.visionReset().then((r) => {
             setMsg(`Forgot ${r.cleared} flyer reading${r.cleared === 1 ? '' : 's'}.`);
             reload();
           })
         }
-      >
-        Forget what it read
-      </button>
+      />
       {msg && <p className="hint" style={{ marginBottom: 0 }}>{msg}</p>}
     </section>
   );

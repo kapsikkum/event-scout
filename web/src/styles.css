@@ -898,3 +898,20 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .console__line--end .console__text { color: var(--green); }
 .console__line--log .console__text { color: var(--muted); }
 .console__line.is-failed .console__text { color: var(--red); }
+
+/* An inline confirm, in place of the button that asked for it. Native confirm()
+   would do the job but looks like nothing else here, and the question is worth
+   phrasing properly: these buttons cost time to undo, not data. */
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+.confirm__q { font-size: 13px; flex: 1; min-width: 220px; }
+button.danger { background: var(--red); border-color: var(--red); color: #2a0b0b; font-weight: 600; }
+button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }

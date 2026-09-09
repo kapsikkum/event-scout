@@ -225,12 +225,15 @@ export interface LlmStatus {
   models: { name: string; size: number }[];
   modelInstalled: boolean;
   backlog: number;
+  /** Events already read, so a reset can say what it is throwing away. */
+  read: number;
   /** The flyer pass, which shares the server and the model list. */
   vision: {
     enabled: boolean;
     model: string;
     modelInstalled: boolean;
     backlog: number;
+    read: number;
   };
 }
 
@@ -244,11 +247,13 @@ export async function getLlmStatus(): Promise<LlmStatus> {
     model: settings.llmModel ?? '',
     jobs,
     backlog: jobs.length ? backlogCount() : 0,
+    read: countRead('event_enrichment'),
     vision: {
       enabled: Boolean(settings.visionEnabled),
       model: settings.visionModel ?? '',
       modelInstalled: false,
       backlog: flyerBacklog(),
+      read: countRead('event_vision'),
     },
   };
   try {
@@ -270,6 +275,11 @@ export async function getLlmStatus(): Promise<LlmStatus> {
       modelInstalled: false,
     };
   }
+}
+
+/** How many events a pass has already looked at. Table name is ours, not input. */
+function countRead(table: 'event_enrichment' | 'event_vision'): number {
+  return (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
 }
 
 /** Forget every verdict, so the next pass reconsiders everything. */
