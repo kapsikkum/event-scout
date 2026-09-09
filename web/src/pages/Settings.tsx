@@ -173,7 +173,13 @@ function ConfirmButton({
  * address can change things and read every API key — which is worth saying on
  * the page rather than leaving to be discovered.
  */
-function SecuritySection() {
+function SecuritySection({
+  draft,
+  set,
+}: {
+  draft: SettingsType;
+  set: (patch: Partial<SettingsType>) => void;
+}) {
   const { auth, loadAuth } = useStore();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -272,6 +278,33 @@ function SecuritySection() {
           </div>
         </>
       )}
+
+      <h3 style={{ marginTop: 22 }}>Other sites</h3>
+      <p className="hint">
+        A page served from another address cannot read this API unless you say so
+        here — that is the browser's rule, not this app's. List the origins you
+        want to allow, one per line, scheme and host only. <code>*</code> allows
+        any.
+      </p>
+      <ListArea
+        rows={2}
+        text={(draft.corsOrigins ?? []).join(LINE_BREAK)}
+        placeholder={'https://dash.example.com' + LINE_BREAK + 'http://localhost:5173'}
+        onText={(raw) =>
+          set({
+            corsOrigins: raw
+              .split(LINE_BREAK)
+              .map((line) => line.trim())
+              .filter(Boolean),
+          })
+        }
+      />
+      <p className="hint">
+        Only the reads that are already open to anyone who can reach this address:
+        never a change, and never this page, which carries your keys. Signing in
+        does not travel across origins either, so a listed site sees exactly what
+        a signed-out visitor sees.
+      </p>
 
       {msg && <p className="hint" style={{ marginBottom: 0 }}>{msg}</p>}
     </section>
@@ -1242,7 +1275,7 @@ export default function Settings() {
   const panelFor = (key: string) =>
     key === 'general' ? locationPanel
     : key === 'sources' ? sourcePanels
-    : key === 'access' ? <SecuritySection />
+    : key === 'access' ? <SecuritySection draft={draft} set={set} />
     : key === 'model' ? <LocalModelSection draft={draft} set={set} />
     : densityPanel;
 
@@ -1354,7 +1387,7 @@ export default function Settings() {
 
       {active === 'model' && <LocalModelSection draft={draft} set={set} />}
 
-      {active === 'access' && <SecuritySection />}
+      {active === 'access' && <SecuritySection draft={draft} set={set} />}
 
       {/* Tasks is the one tab with nothing to save. Edits made elsewhere are
           still pending though, so say so rather than hiding the bar silently. */}

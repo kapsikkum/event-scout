@@ -76,6 +76,12 @@ export interface Settings {
   icalFeeds: { name: string; url: string }[];
   midnightspecStates: string[];
   tasksDisabled: string[];
+  /**
+   * Origins allowed to read the API from a page served elsewhere. Empty means
+   * none, which is what a browser does by default. "*" means any. Only ever
+   * grants the open reads — never a write, never this settings object.
+   */
+  corsOrigins: string[];
   llmEnabled: boolean;
   llmUrl: string;
   llmModel: string;

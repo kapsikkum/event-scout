@@ -234,6 +234,7 @@ Everything else is stored in the database and edited in the UI or through
 `eventTopics`, `enabledSources`, `ticketmasterKey`, `seatgeekClientId`,
 `eventbriteToken`, `eventbriteOrganizerIds`, `fbCookie`, `fbSearchTerms`,
 `fbPages`, `webSearchTerms`, `icalFeeds`, `midnightspecStates`, `tasksDisabled`,
+`corsOrigins`,
 `llmEnabled`, `llmUrl`, `llmModel`, `llmJobs`, `llmIntervalMinutes`,
 `llmMaxPerRun`, `visionEnabled`, `visionModel`, `visionIntervalMinutes`,
 `visionMaxPerRun`, and the `density*` keys above.
@@ -287,6 +288,32 @@ applied, so a caller paging through knows when to stop.
 ```bash
 curl 'http://localhost:3001/api/events?place=Bathurst&from=2026-09-25&to=2026-09-27&minScore=60'
 ```
+
+#### Calling it from another site
+
+A browser will not let a page served from one address read an API on another
+unless the API says so. List the origins you want to allow in Settings → Access
+→ Other sites, one per line — scheme and host, no path. `*` allows any. Empty,
+the default, allows none.
+
+```
+https://dash.example.com
+http://localhost:5173
+```
+
+What a listed origin gets is narrower than the list suggests, and deliberately:
+
+- **Reads only.** Never a `POST`, `PUT` or `DELETE`, whatever is on the list.
+  Without a password every write is open to anyone who can reach the port, and
+  granting those across origins would let any page you happen to visit rewrite
+  your settings.
+- **Not `/api/settings` or `/api/auth/feed-token`**, which carry your API keys
+  and the calendar secret.
+- **No credentials.** The session cookie is `sameSite=lax` and is not sent
+  across sites, so a listed origin sees exactly what a signed-out visitor sees.
+
+`X-Total-Count` and `ETag` are exposed, so paging and conditional gets work
+cross-origin too.
 
 #### Polling it
 

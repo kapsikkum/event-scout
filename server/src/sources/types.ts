@@ -50,6 +50,15 @@ export interface Settings {
    */
   tasksDisabled: string[];
   /**
+   * Origins allowed to read the API from a page served elsewhere, e.g.
+   * "https://dash.example.com". Empty means none, which is a browser's default
+   * and what this behaved like before the setting existed. "*" means any.
+   *
+   * Only ever grants the reads that are already open to anyone who can reach
+   * the port — never a write, never the settings. See cors.ts.
+   */
+  corsOrigins: string[];
+  /**
    * Read scraped listings with a local model, as a background task. Off by
    * default, and nothing depends on it: every verdict is stored beside the
    * scraped value rather than over it.
@@ -137,6 +146,7 @@ export const DEFAULT_SETTINGS: Settings = {
   icalFeeds: [],
   midnightspecStates: [],
   tasksDisabled: [],
+  corsOrigins: [],
   llmEnabled: false,
   llmUrl: '',
   llmModel: '',

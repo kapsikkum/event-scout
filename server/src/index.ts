@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getKv, getSettings, saveSettings } from './db.js';
 import { needsAuth, readCookie, SESSION_COOKIE } from './auth.js';
+import { corsDecision, readOrigins } from './cors.js';
 import {
   checkPassword,
   feedToken,
@@ -48,6 +49,35 @@ app.use(express.json({ limit: '1mb' }));
  * With no password configured nothing is gated and the app behaves as it always
  * has — the Settings page says so plainly rather than leaving it to be found.
  */
+/**
+ * Cross-origin reads, for the origins the operator named.
+ *
+ * Ahead of the gate below because a preflight carries no cookie by definition,
+ * and answering it with "sign in" would tell a browser the wrong thing. Nothing
+ * is granted here that the gate would refuse — corsDecision applies the same
+ * `needsAuth` rule — so ordering them this way costs nothing.
+ */
+app.use('/api', (req, res, next) => {
+  const decision = corsDecision(
+    {
+      origin: req.headers.origin,
+      method: req.method,
+      path: req.baseUrl + req.path,
+      requestMethod: req.headers['access-control-request-method'] as string | undefined,
+    },
+    readOrigins(getSettings().corsOrigins)
+  );
+  if (decision) {
+    // vary() adds to what is already there; set() would replace it.
+    res.vary(decision.vary);
+    res.set(decision.headers);
+    // Answered here rather than passed on: there is no route for OPTIONS, and
+    // a preflight wants headers and a success status, nothing else.
+    if (decision.preflight) return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use('/api', (req, res, next) => {
   if (!passwordRequired()) return next();
   if (!needsAuth(req.method, req.baseUrl + req.path)) return next();
@@ -146,7 +176,7 @@ app.put('/api/settings', (req, res) => {
     enabledSources: { ...current.enabledSources, ...(body.enabledSources ?? {}) },
   };
   // Keep arrays sane if the client sends junk
-  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled', 'llmJobs'] as const) {
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
   saveSettings(next);
