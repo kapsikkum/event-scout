@@ -164,6 +164,11 @@ localhost.
 Optional, off by default, and separate from the text pass above — a different
 model, its own schedule, its own switch.
 
+The image address comes from the listing, so it is chosen by whoever published
+it. Flyers are only fetched over http(s) from addresses outside your network:
+anything resolving to a private, loopback or link-local address is refused, and
+each redirect is checked again rather than followed blindly.
+
 Most listings arrive with a promotional image, and for those scraped from
 organiser posts the practical detail is printed on it rather than written
 anywhere a parser can reach. The text pass cannot help: asked to fill blank
@@ -213,6 +218,12 @@ page per venue, so it takes minutes.
 | `densitySearches` | Map search terms. Blank uses the defaults. |
 | `densityCellMeters` / `densityKernelMeters` | Grid resolution, default 150 / 300. |
 
+Samples are the largest thing this app stores — roughly two thousand rows a day
+while sampling is on. They are kept for a year and then pruned by the `archive`
+task, which runs whether or not sampling is enabled. Nothing on screen reaches
+back further than a fortnight: the map defaults to 24 hours and the per-venue
+history to 14 days.
+
 ## Configuration
 
 ### Environment
@@ -253,9 +264,11 @@ permits — so treat it like one, and revoke it there when it is done with.
 curl -X POST -H 'Authorization: Bearer <token>' http://localhost:3001/api/refresh
 ```
 
-Errors are always `{ "error": "..." }` with a 4xx or 5xx status. A malformed
-query is a `400` rather than a silently unfiltered list — a filter that is
-ignored gives you a complete answer and no reason to doubt it.
+Errors are always `{ "error": "..." }` with a 4xx or 5xx status — including a
+malformed request body, which Express would otherwise answer with an HTML page.
+A bad query parameter is a `400` rather than a silently unfiltered list: a
+filter that is ignored gives you a complete answer and no reason to doubt it.
+A `5xx` says only that something went wrong; what it was goes to the log.
 
 ### Events
 
@@ -471,4 +484,11 @@ the sources needing a real browser.
 
 ```bash
 npm test --workspace server
+```
+
+The tests are run by `tsx`, which strips types without checking them, and the
+build config covers `src` only — so typecheck them separately:
+
+```bash
+npx tsc --noEmit -p server/tsconfig.test.json
 ```

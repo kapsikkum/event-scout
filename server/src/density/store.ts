@@ -281,6 +281,54 @@ export function selectObservations(opts: SelectOpts = {}): StoredObservation[] {
   return rows;
 }
 
+/**
+ * How long density samples are kept.
+ *
+ * Every other table here is pruned — events after two years, verdicts when
+ * they are forgotten — and this one never was, so it quietly became the
+ * largest thing in the database: 43,570 rows against 1,310 events after three
+ * weeks, and it grows at roughly two thousand a day for as long as the sampler
+ * runs. A year is far more than anything reads: the map asks for 24 hours by
+ * default and the per-venue history for 14 days, so nothing on screen reaches
+ * past a fortnight.
+ */
+export const OBSERVATION_RETENTION_DAYS = 365;
+
+/**
+ * The oldest `ts` worth keeping, in the seconds this table stores.
+ *
+ * Its own function because the units are the easy thing to get wrong here:
+ * `Date.now()` is milliseconds and every timestamp in these tables is seconds,
+ * and a cutoff a thousand times too large would delete the entire table.
+ */
+export function retentionCutoff(now: number, days = OBSERVATION_RETENTION_DAYS): number {
+  return Math.floor(now / 1000) - days * 86400;
+}
+
+/**
+ * Drop samples older than the retention window, and any run left with none.
+ *
+ * Runs go too because an empty one is a row describing nothing; the foreign key
+ * is ON DELETE CASCADE, so this order matters — deleting the runs first would
+ * take their observations with them regardless of age.
+ */
+export function pruneObservations(now = Date.now()): { observations: number; runs: number } {
+  const before = retentionCutoff(now);
+  const observations = Number(
+    db.prepare('DELETE FROM density_observations WHERE ts < ?').run(before).changes
+  );
+  const runs = Number(
+    db
+      .prepare(
+        `DELETE FROM density_runs
+          WHERE ts < ?
+            AND id NOT IN (SELECT DISTINCT run_id FROM density_observations)`
+      )
+      .run(before).changes
+  );
+  return { observations, runs };
+}
+
 export function lastRunFor(area: string): { ts: number; summary: unknown } | null {
   const row = db
     .prepare('SELECT ts, summary FROM density_runs WHERE area = ? ORDER BY ts DESC LIMIT 1')

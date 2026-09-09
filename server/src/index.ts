@@ -487,6 +487,36 @@ app.get('/api/export.ics', (req, res) => {
   calendarFeed(req, res, true);
 });
 
+/**
+ * An unknown /api path is a 404 in JSON, not Express's HTML page.
+ *
+ * Placed after every route and before the handler below. Without it a client
+ * that misspelled a path — or called one this version does not have — got a
+ * page of markup where the API had promised an object.
+ */
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `Unknown endpoint: ${req.method} ${req.baseUrl}${req.path}` });
+});
+
+/**
+ * Every failure under /api answers in the shape the rest of the API uses.
+ *
+ * Without this, Express's own handler replies with an HTML page — so a client
+ * that sent a malformed JSON body got `<!DOCTYPE html>` where it was promised
+ * `{ "error": ... }`, which is reachable today and not hypothetical. Mounted on
+ * /api alone so the static frontend below keeps Express's behaviour.
+ *
+ * The message is only passed on for the 4xx range, where it describes what the
+ * caller did. A 500 is this app's fault, and what went wrong inside it is for
+ * the log rather than the response.
+ */
+app.use('/api', (err: Error & { status?: number; statusCode?: number }, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(err);
+  const status = err.status ?? err.statusCode ?? 500;
+  if (status >= 500) console.error(`[api] ${req.method} ${req.originalUrl}:`, err);
+  res.status(status).json({ error: status >= 500 ? 'Something went wrong' : err.message || 'Bad request' });
+});
+
 // Serve the built frontend in production (`npm run build` then `npm start`).
 const webDist = path.resolve(__dirname, '../../web/dist');
 if (fs.existsSync(webDist)) {

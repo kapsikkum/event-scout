@@ -22,7 +22,10 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: |
-          npx tsc --noEmit -p server
+          # tsconfig.test.json, not tsconfig.json: the build config includes only
+          # src, so a type error in a test file would otherwise reach nobody —
+          # tsx strips types to run them without checking any of it.
+          npx tsc --noEmit -p server/tsconfig.test.json
           npx tsc --noEmit -p web
       - name: Unit tests
         run: npm test --workspace server

@@ -1,6 +1,7 @@
 import { getKv, getSettings, saveSettings, setKv } from '../db.js';
 import { archivePastEvents, getProgress, refreshAll } from '../refresh.js';
 import { runDensityScrape, runVenueDiscovery } from '../densityRefresh.js';
+import { pruneObservations } from '../density/store.js';
 import { runEnrichment } from '../enrich/pipeline.js';
 import { runVisionPass } from '../enrich/visionPipeline.js';
 import { createRegistry } from './registry.js';
@@ -106,12 +107,18 @@ tasks.register({
   run: async (log) => {
     const { archived, purged } = archivePastEvents();
     if (purged > 0) log(`purged ${purged} long-archived row${purged === 1 ? '' : 's'}`);
+    // Density samples are pruned here rather than in the density task, so they
+    // are tidied even while sampling is switched off — which is exactly when
+    // nothing else would be looking at that table.
+    const stale = pruneObservations();
+    if (stale.observations > 0) log(`pruned ${stale.observations} density observations`);
     return {
       ok: true,
       message:
-        archived === 0 && purged === 0
+        archived === 0 && purged === 0 && stale.observations === 0
           ? 'nothing to archive'
-          : `archived ${archived}${purged > 0 ? `, purged ${purged}` : ''}`,
+          : `archived ${archived}${purged > 0 ? `, purged ${purged}` : ''}` +
+            (stale.observations > 0 ? `, pruned ${stale.observations} samples` : ''),
     };
   },
 });

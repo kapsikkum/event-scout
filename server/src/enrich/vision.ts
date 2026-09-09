@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { BROWSER_HEADERS } from '../useragent.js';
+import { assertPublicUrl } from '../nethost.js';
 
 /**
  * Reading the flyer.
@@ -107,12 +108,36 @@ export function thumbnailFor(imageUrl: string): string {
 
 export class ImageError extends Error {}
 
-/** Fetch a flyer as base64, refusing anything that is not a believable image. */
+/** How many hops to follow. Enough for a CDN; short enough to end. */
+const MAX_REDIRECTS = 4;
+
+/**
+ * Fetch a flyer as base64, refusing anything that is not a believable image.
+ *
+ * The address comes from a scraped listing, so it is chosen by whoever wrote
+ * that listing rather than by anyone here — see nethost.ts. Redirects are
+ * followed by hand instead of by fetch, because a URL that passes the check can
+ * still redirect to one that would not, and `redirect: 'follow'` would take it
+ * without asking.
+ */
 export async function fetchImage(url: string): Promise<string> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), IMAGE_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { headers: BROWSER_HEADERS, redirect: 'follow', signal: ctrl.signal });
+    let target = url;
+    let res: Response;
+    for (let hop = 0; ; hop++) {
+      try {
+        await assertPublicUrl(target);
+      } catch (err) {
+        throw new ImageError((err as Error).message);
+      }
+      res = await fetch(target, { headers: BROWSER_HEADERS, redirect: 'manual', signal: ctrl.signal });
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+      if (!location) break;
+      if (hop >= MAX_REDIRECTS) throw new ImageError('too many redirects');
+      target = new URL(location, target).toString();
+    }
     if (!res.ok) throw new ImageError(`HTTP ${res.status}`);
     const type = res.headers.get('content-type') ?? '';
     if (!/^image\/(jpeg|png|webp)/i.test(type)) throw new ImageError(`not an image (${type || 'no type'})`);
