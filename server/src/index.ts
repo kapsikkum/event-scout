@@ -3,6 +3,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getKv, getSettings, saveSettings } from './db.js';
+import {
+  checkPassword,
+  feedToken,
+  feedTokenValid,
+  loginBlockedFor,
+  needsAuth,
+  newSessionToken,
+  noteLoginFailure,
+  noteLoginSuccess,
+  passwordIsFromEnv,
+  passwordRequired,
+  readCookie,
+  regenerateFeedToken,
+  sessionValid,
+  setPassword,
+  SESSION_COOKIE,
+} from './auth.js';
 import { getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
@@ -19,6 +36,99 @@ import { EVENT_TOPICS } from './sources/topics.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+
+/**
+ * Reading is open; changing anything is not.
+ *
+ * One rule applied to every route rather than a check inside each of them, so
+ * that a route added later is covered by default instead of by remembering.
+ * With no password configured nothing is gated and the app behaves as it always
+ * has — the Settings page says so plainly rather than leaving it to be found.
+ */
+app.use('/api', (req, res, next) => {
+  if (!passwordRequired()) return next();
+  if (!needsAuth(req.method, req.baseUrl + req.path)) return next();
+  if (sessionValid(readCookie(req.headers.cookie, SESSION_COOKIE))) return next();
+  res.status(401).json({ error: 'Sign in to change this' });
+});
+
+app.get('/api/auth/status', (req, res) => {
+  res.json({
+    required: passwordRequired(),
+    authed:
+      !passwordRequired() || sessionValid(readCookie(req.headers.cookie, SESSION_COOKIE)),
+    fromEnv: passwordIsFromEnv(),
+  });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const ip = req.ip ?? 'unknown';
+  const blocked = loginBlockedFor(ip);
+  if (blocked > 0) {
+    return res.status(429).json({ error: `Too many attempts — try again in ${Math.ceil(blocked / 1000)}s` });
+  }
+  const { password } = req.body as { password?: string };
+  if (typeof password !== 'string' || !checkPassword(password)) {
+    noteLoginFailure(ip);
+    return res.status(401).json({ error: 'Wrong password' });
+  }
+  noteLoginSuccess(ip);
+  const { token, maxAgeMs } = newSessionToken();
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    // Only over HTTPS when the request arrived that way; forcing it would make
+    // the cookie silently useless on a plain-http LAN address, which is how
+    // this is usually reached.
+    secure: req.protocol === 'https',
+    maxAge: maxAgeMs,
+  });
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/logout', (_req, res) => {
+  res.clearCookie(SESSION_COOKIE);
+  res.json({ ok: true });
+});
+
+/**
+ * Set or clear the password.
+ *
+ * Reachable without a session only while none is set — that is the first-run
+ * case. Once one exists the middleware above requires a session to get here,
+ * and the current password is asked for as well, so a borrowed browser cannot
+ * be used to lock the owner out.
+ */
+app.post('/api/auth/password', (req, res) => {
+  if (passwordIsFromEnv()) {
+    return res.status(400).json({ error: 'The password is set by AUTH_PASSWORD and cannot be changed here' });
+  }
+  const { current, next } = req.body as { current?: string; next?: string };
+  if (passwordRequired() && !checkPassword(String(current ?? ''))) {
+    return res.status(401).json({ error: 'Current password is wrong' });
+  }
+  if (typeof next !== 'string') return res.status(400).json({ error: 'next is required' });
+  if (next && next.length < 8) return res.status(400).json({ error: 'Use at least 8 characters' });
+  setPassword(next);
+  if (next) {
+    const { token, maxAgeMs } = newSessionToken();
+    res.cookie(SESSION_COOKIE, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: req.protocol === 'https',
+      maxAge: maxAgeMs,
+    });
+  }
+  res.json({ ok: true, required: passwordRequired() });
+});
+
+app.get('/api/auth/feed-token', (_req, res) => {
+  res.json({ token: feedToken() });
+});
+
+app.post('/api/auth/feed-token', (_req, res) => {
+  res.json({ token: regenerateFeedToken() });
+});
 
 app.get('/api/settings', (_req, res) => {
   res.json(getSettings());
@@ -220,6 +330,16 @@ app.post('/api/tasks/:name/enable', (req, res) => {
  * a download prompt is not what a calendar client wants.
  */
 function calendarFeed(req: express.Request, res: express.Response, download: boolean): void {
+  // A calendar client cannot sign in, so the feed carries its secret in the URL
+  // instead. Only enforced once a password exists, which is what lets an
+  // already-subscribed URL keep working right up until authentication is on.
+  // A signed-in browser is let through without one, so the Calendar page works.
+  const authed = sessionValid(readCookie(req.headers.cookie, SESSION_COOKIE));
+  if (!authed && !feedTokenValid(req.query.token)) {
+    res.status(401).type('text/plain').send('This calendar feed needs its token. Copy the subscribe URL from Settings.');
+    return;
+  }
+
   const starredOnly = req.query.starred === '1';
   const category = String(req.query.category ?? '').trim();
   const days = Number(req.query.days);

@@ -101,6 +101,37 @@ narrows it further, saving one request each.
 
 npm workspaces: `server/` (Express + TypeScript, SQLite via Node's built-in `node:sqlite`, one adapter per source in `server/src/sources/`) and `web/` (React + Vite). The dev server proxies `/api` to the backend; the production server serves the built UI itself. Set `API_PORT` to change the backend port (default 3001).
 
+## Access
+
+By default there is no password and everything is open — fine on a machine only
+you can reach, and worth knowing about, because `docker-compose.yml` publishes
+3001 on every interface.
+
+Setting one (Settings → **Access**, or the `AUTH_PASSWORD` environment variable)
+leaves reading open and puts everything else behind it:
+
+| Open to anyone | Needs the password |
+|---|---|
+| Events, map, places, calendar, tasks list, source status | Saving settings, running tasks, refreshing |
+| The `.ics` feed, with its token | Starring, hiding, merging and unmerging |
+| | **Reading `/api/settings`** — it returns every API key, the Facebook cookie and the Waze cookie in plaintext |
+
+The split is decided in one place by method (`needsAuth` in `server/src/auth.ts`)
+rather than route by route, so a route added later is covered by default. The two
+reads named above are the exceptions that make it more than "GET is open", and
+they are listed explicitly.
+
+Sessions are a signed cookie over `node:crypto` — no session library, no JWTs.
+The secret is generated once and kept in the database, so signing in survives a
+restart. Passwords are stored scrypt-hashed with a random salt; `AUTH_PASSWORD`
+takes precedence when set and then cannot be changed from the UI. Six wrong
+guesses in a row locks that address out for thirty seconds.
+
+**The calendar feed** is a `GET` and calendar clients cannot sign in, so it stays
+reachable but carries a secret token in its URL once a password is set — copy the
+subscribe URL from Settings. URLs you subscribed to before turning authentication
+on keep working until you do.
+
 ## Tasks
 
 Everything that happens on a timer is a **task**, listed on the Tasks page with

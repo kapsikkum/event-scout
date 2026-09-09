@@ -1,11 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
-import { api, MergedEvent, Settings, StatusResponse } from './api';
+import { api, AuthStatus, MergedEvent, Settings, StatusResponse, Unauthorized } from './api';
 
 interface Store {
   events: MergedEvent[];
   settings: Settings | null;
   status: StatusResponse | null;
   refreshing: boolean;
+  /** Null until the first answer comes back. */
+  auth: AuthStatus | null;
+  /** Set when something was refused for want of a sign-in; drives the prompt. */
+  authPrompt: string | null;
+  dismissAuthPrompt: () => void;
+  /** Raise the prompt without waiting for something to be refused. */
+  requestSignIn: () => void;
+  loadAuth: () => Promise<void>;
+  signIn: (password: string) => Promise<void>;
+  signOut: () => Promise<void>;
   loadEvents: () => Promise<void>;
   loadStatus: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -28,7 +38,52 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [authPrompt, setAuthPrompt] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
+
+  const loadAuth = useCallback(async () => {
+    setAuth(await api.authStatus());
+  }, []);
+
+  /**
+   * Everything that changes something goes through here.
+   *
+   * A refusal for want of a sign-in is not an error to report but a question to
+   * ask, and funnelling it through one place is the whole reason `Unauthorized`
+   * is its own type: any action anywhere raises the same prompt.
+   */
+  const guard = useCallback(
+    async <T,>(action: () => Promise<T>): Promise<T> => {
+      try {
+        return await action();
+      } catch (err) {
+        if (err instanceof Unauthorized) {
+          setAuthPrompt(err.message);
+          void loadAuth();
+        }
+        throw err;
+      }
+    },
+    [loadAuth]
+  );
+
+  const signIn = useCallback(
+    async (password: string) => {
+      await api.login(password);
+      setAuthPrompt(null);
+      await loadAuth();
+      // Settings are gated, so they arrive only now.
+      await api.settings().then(setSettings).catch(() => undefined);
+    },
+    [loadAuth]
+  );
+
+  const signOut = useCallback(async () => {
+    await api.logout();
+    setSettings(null);
+    await loadAuth();
+  }, [loadAuth]);
 
   const loadEvents = useCallback(async () => {
     setEvents(await api.events());
@@ -59,23 +114,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await api.refresh();
+      await guard(() => api.refresh());
       await Promise.all([loadEvents(), loadStatus()]);
     } finally {
       setRefreshing(false);
     }
-  }, [loadEvents, loadStatus]);
+  }, [loadEvents, loadStatus, guard]);
 
-  const updateSettings = useCallback(async (patch: Partial<Settings>) => {
-    setSettings(await api.saveSettings(patch));
-  }, []);
+  const updateSettings = useCallback(
+    async (patch: Partial<Settings>) => {
+      setSettings(await guard(() => api.saveSettings(patch)));
+    },
+    [guard]
+  );
 
   const setGroupFlag = useCallback(
     async (group: string, flags: { starred?: boolean; hidden?: boolean }) => {
       setEvents((prev) => prev.map((ev) => (ev.group === group ? { ...ev, ...flags } : ev)));
-      await api.setGroupFlag(group, flags);
+      try {
+        await guard(() => api.setGroupFlag(group, flags));
+      } catch {
+        // The optimistic paint was a guess and the server said no; put it back.
+        await loadEvents();
+      }
     },
-    []
+    [guard, loadEvents]
   );
 
   /**
@@ -84,22 +147,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    */
   const mergeGroups = useCallback(
     async (groups: string[]) => {
-      const { group } = await api.merge(groups);
+      const { group } = await guard(() => api.merge(groups));
       await loadEvents();
       return group;
     },
-    [loadEvents]
+    [loadEvents, guard]
   );
 
   const unmergeGroup = useCallback(
     async (group: string) => {
-      await api.unmerge(group);
+      await guard(() => api.unmerge(group));
       await loadEvents();
     },
-    [loadEvents]
+    [loadEvents, guard]
   );
 
   useEffect(() => {
+    loadAuth().catch(() => undefined);
+    // Settings are one of the two gated reads, so a signed-out visitor simply
+    // has none; the pages that need them say so rather than erroring.
     api.settings().then(setSettings).catch(() => setSettings(null));
     loadEvents().catch(() => undefined);
     loadStatus().catch(() => undefined);
@@ -110,7 +176,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
-  }, [loadEvents, loadStatus]);
+  }, [loadEvents, loadStatus, loadAuth]);
 
   /**
    * While a refresh runs, ask more often.
@@ -133,6 +199,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value={{
         events, settings, status, refreshing, loadEvents, loadStatus, refresh,
         updateSettings, setGroupFlag, mergeGroups, unmergeGroup,
+        auth, authPrompt, dismissAuthPrompt: () => setAuthPrompt(null),
+        requestSignIn: () => setAuthPrompt('Settings and changes need the password.'),
+        loadAuth, signIn, signOut,
       }}
     >
       {children}

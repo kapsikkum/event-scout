@@ -61,6 +61,123 @@ function ListArea({
   );
 }
 
+/**
+ * The password, and the calendar feed's secret.
+ *
+ * Its own component because it neither reads nor writes the settings draft:
+ * the password never travels through `/api/settings`, so it has nothing to do
+ * with Save.
+ *
+ * The unprotected case is stated rather than left blank. Compose publishes 3001
+ * on every interface, so "no password set" means anyone who can reach the
+ * address can change things and read every API key — which is worth saying on
+ * the page rather than leaving to be discovered.
+ */
+function SecuritySection() {
+  const { auth, loadAuth } = useStore();
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [msg, setMsg] = useState('');
+  const [feed, setFeed] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!auth?.required || !auth.authed) return;
+    api.feedToken().then((r) => setFeed(r.token)).catch(() => setFeed(null));
+  }, [auth?.required, auth?.authed]);
+
+  async function save(clear: boolean): Promise<void> {
+    setMsg('Saving…');
+    try {
+      await api.setPassword(current, clear ? '' : next);
+      setCurrent('');
+      setNext('');
+      setMsg(clear ? 'Password removed — everything is open again.' : 'Password set.');
+      await loadAuth();
+    } catch (err) {
+      setMsg((err as Error).message);
+    }
+  }
+
+  const feedUrl = feed ? `${window.location.origin}/api/calendar.ics?token=${feed}` : '';
+
+  return (
+    <section>
+      <h2>🔒 Access</h2>
+      {auth?.fromEnv ? (
+        <p className="hint">
+          The password comes from the <code>AUTH_PASSWORD</code> environment variable,
+          so it cannot be changed here. Reading stays open to anyone who can reach
+          this address; changing anything needs the password.
+        </p>
+      ) : auth?.required ? (
+        <p className="hint">
+          Browsing, the map and the calendar are open to anyone who can reach this
+          address. Changing settings, running tasks, starring and merging need the
+          password — as does reading this page, since it carries your API keys.
+        </p>
+      ) : (
+        <p className="hint" style={{ color: 'var(--red)' }}>
+          No password is set, so anyone who can reach this address can change your
+          settings and read every API key and cookie stored in them. That is fine on
+          a machine only you can reach, and worth fixing if the port is exposed.
+        </p>
+      )}
+
+      {!auth?.fromEnv && (
+        <>
+          {auth?.required && (
+            <div className="formrow">
+              <label>Current password</label>
+              <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+            </div>
+          )}
+          <div className="formrow">
+            <label>{auth?.required ? 'New password' : 'Set a password'}</label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              placeholder="at least 8 characters"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => void save(false)} disabled={next.length < 8}>
+              {auth?.required ? 'Change password' : 'Set password'}
+            </button>
+            {auth?.required && (
+              <button className="ghost" onClick={() => void save(true)} disabled={!current}>
+                Remove password
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {auth?.required && feedUrl && (
+        <>
+          <p className="hint" style={{ marginTop: 14, marginBottom: 4 }}>
+            Calendar clients cannot sign in, so the feed carries its own secret.
+            Subscribe to this URL; regenerating it breaks existing subscriptions.
+          </p>
+          <div className="feedrow">
+            <input readOnly value={feedUrl} onFocus={(e) => e.target.select()} />
+            <button onClick={() => void navigator.clipboard?.writeText(feedUrl)}>Copy</button>
+            <button
+              className="ghost"
+              onClick={() => void api.regenerateFeedToken().then((r) => setFeed(r.token))}
+            >
+              Regenerate
+            </button>
+          </div>
+        </>
+      )}
+
+      {msg && <p className="hint" style={{ marginBottom: 0 }}>{msg}</p>}
+    </section>
+  );
+}
+
 function StatusLine({ status }: { status: SourceStatus | undefined }) {
   if (!status) return null;
   const icon =
@@ -74,7 +191,7 @@ function StatusLine({ status }: { status: SourceStatus | undefined }) {
 }
 
 export default function Settings() {
-  const { settings, status, updateSettings, refresh, refreshing } = useStore();
+  const { settings, status, updateSettings, refresh, refreshing, auth, requestSignIn } = useStore();
   // Only once it has finished: while it runs the feed is at the top of the
   // page, and showing the same lines twice helps nobody.
   const lastSearch = refreshing ? [] : status?.progress?.lines ?? [];
@@ -123,7 +240,30 @@ export default function Settings() {
     }
   }, [settings, draft]);
 
-  if (!draft) return <p>Loading…</p>;
+  if (!draft) {
+    // Settings are one of the two gated reads, so a signed-out browser gets
+    // nothing back. Without this it sat on "Loading…" for ever with no way in.
+    if (auth?.required && !auth.authed) {
+      return (
+        <div>
+          <h1 style={{ marginTop: 0 }}>Settings</h1>
+          <section>
+            <h2>🔒 Sign in</h2>
+            <p className="hint">
+              This page carries your API keys and saved cookies, so it is only shown
+              to a signed-in browser. Everything else — events, the map, the
+              calendar — stays open.
+            </p>
+            <button className="primary" onClick={requestSignIn}>
+              Sign in
+            </button>
+          </section>
+        </div>
+      );
+    }
+    return <p>Loading…</p>;
+  }
+
 
   const set = (patch: Partial<SettingsType>) => {
     setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -178,6 +318,8 @@ export default function Settings() {
           (each is optional), then hit <em>Save</em> and <em>Refresh</em>.
         </div>
       )}
+
+      <SecuritySection />
 
       <section>
         <h2>📍 Location</h2>

@@ -240,12 +240,36 @@ export interface GeocodeResult {
   lng: number;
 }
 
+/**
+ * A request refused for want of a sign-in.
+ *
+ * Its own type because it is the one failure the UI answers rather than
+ * reports: everything mutating funnels through here, so this is the single
+ * place a login prompt needs to be triggered from.
+ */
+export class Unauthorized extends Error {
+  constructor(message = 'Sign in to change this') {
+    super(message);
+    this.name = 'Unauthorized';
+  }
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+    const message = (body as { error?: string }).error ?? `HTTP ${res.status}`;
+    if (res.status === 401) throw new Unauthorized(message);
+    throw new Error(message);
   }
   return res.json() as Promise<T>;
+}
+
+export interface AuthStatus {
+  /** Whether a password is configured at all. False means nothing is gated. */
+  required: boolean;
+  authed: boolean;
+  /** Set from AUTH_PASSWORD, so it cannot be changed from the UI. */
+  fromEnv: boolean;
 }
 
 export const api = {
@@ -261,6 +285,23 @@ export const api = {
   topics: () => fetch('/api/topics').then((r) => json<{ topics: EventTopic[] }>(r)),
   geocode: (q: string) => fetch(`/api/geocode?q=${encodeURIComponent(q)}`).then((r) => json<GeocodeResult[]>(r)),
   refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => json<StatusResponse>(r)),
+  authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
+  login: (password: string) =>
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    }).then((r) => json<{ ok: boolean }>(r)),
+  logout: () => fetch('/api/auth/logout', { method: 'POST' }).then((r) => json<{ ok: boolean }>(r)),
+  setPassword: (current: string, next: string) =>
+    fetch('/api/auth/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current, next }),
+    }).then((r) => json<{ ok: boolean; required: boolean }>(r)),
+  feedToken: () => fetch('/api/auth/feed-token').then((r) => json<{ token: string }>(r)),
+  regenerateFeedToken: () =>
+    fetch('/api/auth/feed-token', { method: 'POST' }).then((r) => json<{ token: string }>(r)),
   tasks: () => fetch('/api/tasks').then((r) => json<{ tasks: TaskStatus[] }>(r)),
   // A refused run — already going, or sharing a busy browser — answers 409 with
   // a reason worth showing, so the body is read either way rather than thrown.

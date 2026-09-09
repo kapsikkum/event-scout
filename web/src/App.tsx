@@ -9,6 +9,7 @@ import Settings from './pages/Settings';
 import Tasks from './pages/Tasks';
 import { StoreProvider, useStore } from './store';
 import RefreshActivity from './components/RefreshActivity';
+import SignIn from './components/SignIn';
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'never';
@@ -21,7 +22,7 @@ function relativeTime(iso: string | null): string {
 }
 
 function Shell() {
-  const { status, refreshing, refresh, settings } = useStore();
+  const { status, refreshing, refresh, settings, auth, signOut } = useStore();
   const location = useLocation();
   const needsSetup = settings !== null && (settings.lat == null || settings.lng == null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -80,6 +81,13 @@ function Shell() {
           <span className="topbar__nav-meta">{updated}</span>
         </nav>
         <span className="meta">{updated}</span>
+        {/* Only worth a place in the bar once a password exists; with none set
+            there is nothing to be signed in or out of. */}
+        {auth?.required && auth.authed && (
+          <button onClick={() => void signOut()} title="Sign out">
+            Sign out
+          </button>
+        )}
         <button className="primary" onClick={() => void refresh()} disabled={refreshing || needsSetup}>
           {refreshing ? <span className="spin">⟳</span> : '⟳'} Refresh
         </button>
@@ -87,6 +95,7 @@ function Shell() {
       {menuOpen && (
         <div className="topbar__scrim" onClick={() => setMenuOpen(false)} aria-hidden="true" />
       )}
+      <SignIn />
       <main className="page">
         <RefreshActivity />
         {needsSetup && location.pathname !== '/settings' && <Navigate to="/settings" replace />}

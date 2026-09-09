@@ -748,3 +748,19 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   }
   .map-panel__list--all { max-height: none; }
 }
+
+/* The sign-in prompt. Sits over the page rather than replacing it: browsing
+   stays open, and the password is only asked for when something is refused. */
+.signin {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 60;
+  width: min(360px, calc(100vw - 32px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px 20px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}

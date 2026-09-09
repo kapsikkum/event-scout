@@ -34,9 +34,17 @@ services:
       # which is what happens outside Docker. See openBrowser() in cdp.ts.
       BROWSER_CDP_URL: http://chromium:9222
       API_PORT: "3001"
+      # Optional. Set it and reading stays open while changing anything — and
+      # reading Settings, which carries every API key — needs the password.
+      # Leave it unset to set one from the Settings page instead, or to run
+      # wide open, which is what the port below is by default.
+      AUTH_PASSWORD: 
       # Affects when an event counts as past. Override in a .env file
       # alongside this one, e.g. TZ=America/Denver.
       TZ: ${TZ:-Australia/Sydney}
+    # Published on every interface, so anything that can reach this machine can
+    # reach the app. Set AUTH_PASSWORD above before exposing it beyond a network
+    # you trust, or bind it to localhost with "127.0.0.1:3001:3001".
     ports:
       - "3001:3001"
     volumes:
