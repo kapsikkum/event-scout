@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, DensityStatus, EventTopic, GeocodeResult, LlmStatus, Settings as SettingsType, SourceStatus } from '../api';
+import { api, DensityStatus, EventTopic, GeocodeResult, LlmStatus, Settings as SettingsType, SourceStatus, VersionInfo } from '../api';
 import { useStore } from '../store';
 
 /** Newline, as a constant so the textarea handlers stay readable. */
@@ -334,6 +334,36 @@ function LocalModelSection({
   );
 }
 
+/**
+ * What this instance is running.
+ *
+ * The question you want answered before any other when something looks wrong,
+ * and until there were releases there was no way to ask it. A build that is not
+ * itself a release says so by carrying the commit, because showing a bare
+ * version number for a build several commits past the tag would be a lie.
+ */
+function VersionLine() {
+  const [info, setInfo] = useState<VersionInfo | null>(null);
+  useEffect(() => {
+    api.version().then(setInfo).catch(() => setInfo(null));
+  }, []);
+  if (!info) return null;
+  return (
+    <p className="hint" style={{ textAlign: 'center', marginTop: 18 }}>
+      Event Scout {info.display}
+      {info.builtAt && ` · built ${new Date(info.builtAt).toLocaleDateString()}`}
+      {' · '}
+      <a
+        href="https://github.com/kapsikkum/event-scout/blob/main/CHANGELOG.md"
+        target="_blank"
+        rel="noreferrer"
+      >
+        changelog
+      </a>
+    </p>
+  );
+}
+
 function StatusLine({ status }: { status: SourceStatus | undefined }) {
   if (!status) return null;
   const icon =
@@ -419,7 +449,6 @@ export default function Settings() {
     }
     return <p>Loading…</p>;
   }
-
 
   const set = (patch: Partial<SettingsType>) => {
     setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -972,6 +1001,8 @@ export default function Settings() {
         </button>
         <span className="note">{saved ? '✓ Saved' : 'Unsaved changes are lost on reload'}</span>
       </div>
+
+      <VersionLine />
     </div>
   );
 }

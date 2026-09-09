@@ -34,6 +34,7 @@ import { tasks } from './tasks/tasks.js';
 import { runDueTasksOnStartup, startScheduler } from './tasks/scheduler.js';
 import { DEFAULT_SETTINGS, Settings } from './sources/types.js';
 import { EVENT_TOPICS } from './sources/topics.js';
+import { versionInfo } from './version.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -150,6 +151,13 @@ app.put('/api/settings', (req, res) => {
   }
   saveSettings(next);
   res.json(next);
+});
+
+// Open, and deliberately so: "what is this instance running" is the first
+// question when something looks wrong, and needing to sign in to ask it would
+// be the wrong way round.
+app.get('/api/version', (_req, res) => {
+  res.json(versionInfo());
 });
 
 app.get('/api/topics', (_req, res) => {

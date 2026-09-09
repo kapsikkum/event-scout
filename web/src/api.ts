@@ -95,6 +95,16 @@ export interface DensityStatus {
   log: string[];
 }
 
+/** What this build is. See server/src/version.ts. */
+export interface VersionInfo {
+  version: string;
+  /** Short commit sha, '' when the build did not name one. */
+  commit: string;
+  builtAt: string;
+  /** Ready to show: the number, with the commit appended off a release. */
+  display: string;
+}
+
 /** What the local model can be asked to do, and how the pass is getting on. */
 export interface LlmStatus {
   enabled: boolean;
@@ -307,6 +317,7 @@ export const api = {
   topics: () => fetch('/api/topics').then((r) => json<{ topics: EventTopic[] }>(r)),
   geocode: (q: string) => fetch(`/api/geocode?q=${encodeURIComponent(q)}`).then((r) => json<GeocodeResult[]>(r)),
   refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => json<StatusResponse>(r)),
+  version: () => fetch('/api/version').then((r) => json<VersionInfo>(r)),
   authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
   login: (password: string) =>
     fetch('/api/auth/login', {

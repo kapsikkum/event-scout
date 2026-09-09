@@ -29,11 +29,68 @@ jobs:
       - name: Build
         run: npm run build
 
-  images:
-    # Only publish what the tests already passed on.
+  # Keeps a release pull request up to date with whatever has landed on main
+  # since the last release, bumping the version and writing the changelog from
+  # the commit subjects. Merging that PR is what cuts a release; nothing is
+  # released by simply pushing here.
+  release:
     needs: test
-    # A pull request from a fork cannot be trusted with a package write token.
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.release.outputs.releases_created }}
+      version: ${{ steps.semver.outputs.version }}
+      minor: ${{ steps.semver.outputs.minor }}
+      major: ${{ steps.semver.outputs.major }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # The moving tags to publish alongside the exact one. Derived from
+      # tag_name rather than the action's separate major/minor outputs, which
+      # are the parts of its interface most likely to shift.
+      - name: Work out the image tags
+        id: semver
+        if: steps.release.outputs.releases_created == 'true'
+        run: |
+          # Loudly, rather than tagging an image with an empty string: this is
+          # the one place that depends on the shape of the action's output, and
+          # a silent wrong answer here is published to a registry.
+          if [ -z "$TAG" ]; then
+            echo "release-please reported a release but named no tag" >&2
+            exit 1
+          fi
+          version="${TAG#v}"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "minor=$major.$minor" >> "$GITHUB_OUTPUT"
+          # No floating :0 tag while the major is 0. Under semver a 0.x bump
+          # may break things, so a tag spanning every 0.x would quietly move
+          # across breaking changes — which is exactly what pinning avoids.
+          if [ "$major" != "0" ]; then echo "major=$major" >> "$GITHUB_OUTPUT"; fi
+        env:
+          TAG: ${{ steps.release.outputs.tag_name }}
+
+  images:
+    # Runs whether or not a release happened: an ordinary push still refreshes
+    # :latest, and a push that released also gets the version tags. Building
+    # here rather than on the tag is deliberate — a tag pushed by the built-in
+    # token does not start another workflow run, so a separate tag-triggered
+    # job would never fire.
+    needs: [test, release]
+    if: |
+      always()
+      && needs.test.result == 'success'
+      && needs.release.result != 'failure'
+      && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -67,6 +124,9 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long
             type=ref,event=branch
+            type=raw,value=${{ needs.release.outputs.version }},enable=${{ needs.release.outputs.released == 'true' }}
+            type=raw,value=${{ needs.release.outputs.minor }},enable=${{ needs.release.outputs.released == 'true' }}
+            type=raw,value=${{ needs.release.outputs.major }},enable=${{ needs.release.outputs.major != '' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -80,5 +140,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # /api/version reports these. .git is not in the build context, so
+          # the commit cannot be read from inside the build.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.repository.updated_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

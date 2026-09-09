@@ -36,6 +36,15 @@ COPY --from=build /app/web/dist ./web/dist
 RUN mkdir -p /app/data && chown -R node:node /app/data
 VOLUME /app/data
 
+# What this build is, for /api/version. The repo's .git is deliberately not in
+# the build context, so the commit has to be handed in; the release number
+# comes from the package.json copied above. Last, so a rebuild at a new commit
+# does not invalidate any layer but this one.
+ARG GIT_SHA=""
+ARG BUILD_TIME=""
+ENV GIT_SHA=$GIT_SHA
+ENV BUILD_TIME=$BUILD_TIME
+
 USER node
 EXPOSE 3001
 ENV API_PORT=3001

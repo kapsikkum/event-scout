@@ -27,6 +27,10 @@ services:
     restart: unless-stopped
 
   app:
+    # `:latest` follows main. Pin a release instead — `:0.3` for the newest
+    # 0.3.x, or `:0.3.1` for exactly that one — if you would rather choose when
+    # to move. See "Releasing" in the README; the running version is at the foot
+    # of Settings and at /api/version.
     image: ghcr.io/kapsikkum/event-scout:latest
     build: .
     environment:
@@ -38,7 +42,7 @@ services:
       # reading Settings, which carries every API key — needs the password.
       # Leave it unset to set one from the Settings page instead, or to run
       # wide open, which is what the port below is by default.
-      AUTH_PASSWORD: 
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
       # An Ollama for the optional "read listings with a local model" task.
       # From inside a container the host's own Ollama is host.docker.internal,
       # never localhost — localhost here is this container. Only a default; the

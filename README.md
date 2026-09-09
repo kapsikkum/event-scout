@@ -97,6 +97,57 @@ narrows it further, saving one request each.
 - **Dedupe** — the same event found by multiple sources is merged into one card (normalized title + date + venues within 300 m), with all source links shown.
 - **Auto-refresh** — refreshes on launch when the cache is older than 6 h, and hourly in the background; manual Refresh button in the header.
 
+## Releasing
+
+Versions are derived from the commits, not decided by hand.
+[release-please](https://github.com/googleapis/release-please) reads what has
+landed on `main`, keeps a **release pull request** open with the next version
+number and the changelog entry it would write, and merging that PR is what cuts
+the release — bumping every `package.json`, updating
+[CHANGELOG.md](CHANGELOG.md), and tagging.
+
+That means commit subjects have to say what kind of change they are
+([Conventional Commits](https://www.conventionalcommits.org/)):
+
+```
+feat: filter events by town
+fix: stop the calendar feed claiming to be a scheduling message
+feat!: rename the settings key for search areas
+```
+
+| Prefix | Effect |
+|---|---|
+| `fix:` | patch bump — 0.2.0 → 0.2.1 |
+| `feat:` | minor bump — 0.2.0 → 0.3.0 |
+| `!` after the type, or a `BREAKING CHANGE:` footer | major bump, and while the major is 0, a minor one |
+| `docs:`, `refactor:`, `perf:`, `build:`, `ci:` | listed in the changelog, no bump on their own |
+| `chore:`, `test:`, `style:` | no bump, not listed |
+
+A commit that fits none of these releases nothing and appears nowhere, which is
+the one failure mode worth knowing about. There is no commit linter — the
+release PR is the feedback: if nothing you would expect to ship shows up in it,
+a subject is the reason.
+
+**Images.** Each release publishes `:0.3.0` and `:0.3` alongside `:latest`, so
+compose can pin one:
+
+```yaml
+image: ghcr.io/kapsikkum/event-scout:0.3
+```
+
+No floating `:0` tag is published while the major is 0 — under semver a 0.x bump
+may break things, and a tag spanning every 0.x would quietly move across exactly
+the changes pinning is meant to avoid. Once 1.0 lands, `:1` appears.
+
+Images are built in the same workflow run that creates the release rather than
+by a tag-triggered job, because a tag pushed with the built-in `GITHUB_TOKEN`
+does not start another workflow run — a separate job listening for the tag would
+simply never fire.
+
+**What is running.** `GET /api/version` answers, and the foot of Settings shows
+it. A build that is not itself a release carries the commit — `0.3.0+a1b2c3d` —
+since a bare number on a build four commits past the tag would be a lie.
+
 ## Architecture
 
 npm workspaces: `server/` (Express + TypeScript, SQLite via Node's built-in `node:sqlite`, one adapter per source in `server/src/sources/`) and `web/` (React + Vite). The dev server proxies `/api` to the backend; the production server serves the built UI itself. Set `API_PORT` to change the backend port (default 3001).
@@ -162,73 +213,6 @@ Ticks are deliberately more frequent than the intervals they gate, which is what
 lets a changed interval take effect without a restart.
 
 Routes: `GET /api/tasks`, `POST /api/tasks/:name/run`, `POST /api/tasks/:name/enable`.
-
-## Reading listings with a local model
-
-Optional, off by default, and nothing else depends on it. Point Settings →
-**Local model** at an [Ollama](https://ollama.com) and it runs as a task,
-reading scraped listings and offering four things:
-
-| Job | What it does |
-|---|---|
-| Tidy descriptions | Rewrite a CMS-soup blurb into two or three plain sentences, dropping hashtags, emoji, ticket boilerplate and "link in bio". |
-| Categorise | Pick a category, for the listings the keyword classifier files under the catch-all. |
-| Fill in blanks | Read a venue, address or price out of the description **when the stored field is empty**. |
-| Judge photo appeal | Rate how worth shooting an event is, averaged with the keyword score rather than replacing it. |
-
-Each is switched on and off separately, and only the ones you ask for are put
-to the model — the JSON Schema is built from them, so a job that is off cannot
-produce a field at all.
-
-### What keeps this safe to turn on
-
-**Verdicts are stored beside the scraped values, never over them.** They live in
-their own `llm_*` columns, and `events.ts` is the only place the two are chosen
-between. Switch the task off and everything reverts exactly, because the scraped
-value was never touched. It also has to work this way: `reclassifyAll` and
-`repairAddresses` rewrite category, address and description on every refresh, so
-anything written in place would be overwritten within the hour.
-
-**Extraction fills blanks only.** Venue, address and price are facts the source
-stated, not opinions to improve on — and a model asked to look at one will find
-something to say. Given a listing whose venue was "Nelsonville, Ohio" and whose
-address was "International", qwen3 decided they were the wrong way round and
-swapped them; both were then wrong. The prompt asks it to leave populated fields
-alone, and `events.ts` does not consult it about them regardless.
-
-**The category is pinned to an `enum`** of the categories the UI filter knows
-about, so the model cannot invent a new heading. Scores are clamped, summaries
-truncated, and the several prose ways of saying "I don't know" ("N/A", "none",
-"not specified") are treated as no answer rather than stored as a venue name.
-
-**The listing is fenced and labelled as untrusted data** in the prompt, since
-these descriptions are scraped from pages anyone can publish.
-
-### Cost, and why it is affordable
-
-An event is read **once, ever**. A content hash over the text that was read —
-plus the model name, the job set and a prompt version — is stored per event, so
-a run only picks up what is new, edited, or affected by a settings change.
-Without that, every pass would re-process the whole database.
-
-A pass takes `llmMaxPerRun` events (default 40) oldest-first, so a backlog
-drains over several runs rather than one very long one. Expect roughly 15–20
-seconds an event on an 8B model on CPU — which is exactly why this is its own
-task rather than part of a refresh, where a slow model would be
-indistinguishable from a hung source.
-
-The cost of that separation, stated plainly: a venue the model reads out of a
-description is picked up by the *next* refresh's geocoding pass, not the same
-one. One cycle of latency, not a loss.
-
-### Configuration
-
-Blank `llmUrl` uses `OLLAMA_URL`, then `http://localhost:11434`. In Docker the
-host's Ollama is `http://host.docker.internal:11434` — localhost inside a
-container is the container. **Forget what it decided** in Settings clears every
-verdict so the next pass reconsiders from scratch; it never touches scraped data.
-
-Routes: `GET /api/llm/status`, `POST /api/llm/reset`.
 
 ## Reading listings with a local model
 
