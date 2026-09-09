@@ -517,147 +517,16 @@ export default function Settings() {
       <button onClick={() => onChange([...values, ''])}>+ Add {label}</button>
     </>
   );
-  return (
-    <div className="settings">
-      {firstRun && (
-        <div className="banner">
-          <strong>Welcome to Event Scout!</strong> Set your location under General, add
-          API keys for the sources you want (each is optional), then hit <em>Save</em>
-          and <em>Refresh</em>.
-        </div>
-      )}
-
-      <nav className="subtabs" aria-label="Settings sections">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            className={t.key === active ? 'active' : ''}
-            aria-current={t.key === active ? 'page' : undefined}
-            onClick={() => navigate(t.key === 'general' ? '/settings' : `/settings/${t.key}`)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-
-      {active === 'general' && (
-        <>
-      <section>
-        <h2>📍 Location</h2>
-        <p className="hint">Events are searched around this point. Powered by OpenStreetMap geocoding.</p>
-        <div className="formrow">
-          <label>City / area</label>
-          <input
-            value={geoQuery}
-            placeholder="e.g. Portland, OR"
-            onChange={(e) => setGeoQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void searchCity()}
-          />
-          <button onClick={() => void searchCity()} disabled={geoBusy}>
-            {geoBusy ? 'Searching…' : 'Search'}
-          </button>
-        </div>
-        {geoResults && (
-          <div className="geocode-results">
-            {geoResults.length === 0 && <span className="hint">No matches found.</span>}
-            {geoResults.map((r) => (
-              <button
-                key={`${r.lat},${r.lng}`}
-                onClick={() => {
-                  set({ city: r.displayName.split(',')[0], lat: r.lat, lng: r.lng });
-                  setGeoResults(null);
-                }}
-              >
-                📍 {r.displayName}
-              </button>
-            ))}
-          </div>
-        )}
-        {draft.lat != null && (
-          <div className="status-line ok">
-            ● Location set: {draft.city} ({draft.lat.toFixed(4)}, {draft.lng?.toFixed(4)})
-          </div>
-        )}
-        <div className="formrow" style={{ marginTop: 12 }}>
-          <label>Radius: {draft.radiusKm} km</label>
-          <input
-            type="range"
-            min={5}
-            max={300}
-            step={5}
-            value={draft.radiusKm}
-            onChange={(e) => set({ radiusKm: Number(e.target.value) })}
-          />
-        </div>
-
-        <label className="hint" style={{ display: 'block', marginTop: 14 }}>
-          Also look here — one per line. A name is enough (<code>Penrith</code>); add
-          <code> , radiusKm</code> to give it its own reach. Every source runs once per
-          area, so a place worth the drive can be watched without widening the radius
-          above and dragging in everything in between.
-        </label>
-        <ListArea
-          text={(draft.eventAreas ?? [])
-            .map((a) => [a.name, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
-            .join(LINE_BREAK)}
-          placeholder={'Penrith, 25' + LINE_BREAK + 'Orange'}
-          onText={(raw) =>
-            set({
-              eventAreas: raw
-                .split(LINE_BREAK)
-                .map((line) => line.split(',').map((p) => p.trim()))
-                .filter((parts) => parts[0])
-                .map((parts) => ({
-                  name: parts[0],
-                  radiusKm: parts[1] ? Number(parts[1]) : undefined,
-                })),
-            })
-          }
-        />
-
-        <h4 style={{ margin: '16px 0 4px', fontSize: 13 }}>What to look for</h4>
-        <p className="hint" style={{ margin: '0 0 8px' }}>
-          Each topic expands to a set of search phrases, run against every area. Pick a
-          few rather than all: they rotate across refreshes, so everything gets covered
-          either way, and fewer at once means faster passes. Your own terms further
-          down still apply on top.
-        </p>
-        <div className="chiprow">
-          {topics.map((t) => {
-            const on = (draft.eventTopics ?? []).includes(t.key);
-            return (
-              <button
-                key={t.key}
-                className={`chip ${on ? 'active' : ''}`}
-                title={t.terms.join(' · ')}
-                onClick={() =>
-                  set({
-                    eventTopics: on
-                      ? (draft.eventTopics ?? []).filter((k) => k !== t.key)
-                      : [...(draft.eventTopics ?? []), t.key],
-                  })
-                }
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-        {(draft.eventTopics ?? []).length > 0 && (
-          <p className="hint" style={{ marginTop: 8 }}>
-            {(draft.eventTopics ?? []).reduce(
-              (n, k) => n + (topics.find((t) => t.key === k)?.terms.length ?? 0), 0
-            )}{' '}
-            phrases across {Math.max(1, (draft.eventAreas ?? []).length + (draft.lat != null ? 1 : 0))} area(s)
-          </p>
-        )}
-      </section>
-
-        </>
-      )}
-
-      {active === 'sources' && (
-        <>
+  /**
+   * The source panels, rendered on the Sources tab and — until a location is
+   * set — stacked under it on General as well.
+   *
+   * Setup is one pass down a single page: pick a place, fill in the sources you
+   * want, save. Hiding the sources behind a tab on a first run would leave the
+   * welcome banner telling you to add API keys with none on screen.
+   */
+  const sourcePanels = (
+    <>
       <section>
         <h2>
           🎫 Ticketmaster
@@ -918,8 +787,149 @@ export default function Settings() {
         </section>
       )}
 
+    </>
+  );
+
+  return (
+    <div className="settings">
+      {firstRun && (
+        <div className="banner">
+          <strong>Welcome to Event Scout!</strong> Set your location below, add API keys
+          for the sources you want (each is optional), then hit <em>Save &amp; refresh now</em>.
+        </div>
+      )}
+
+      <nav className="subtabs" aria-label="Settings sections">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className={t.key === active ? 'active' : ''}
+            aria-current={t.key === active ? 'page' : undefined}
+            onClick={() => navigate(t.key === 'general' ? '/settings' : `/settings/${t.key}`)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {active === 'general' && (
+        <>
+      <section>
+        <h2>📍 Location</h2>
+        <p className="hint">Events are searched around this point. Powered by OpenStreetMap geocoding.</p>
+        <div className="formrow">
+          <label>City / area</label>
+          <input
+            value={geoQuery}
+            placeholder="e.g. Portland, OR"
+            onChange={(e) => setGeoQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void searchCity()}
+          />
+          <button onClick={() => void searchCity()} disabled={geoBusy}>
+            {geoBusy ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+        {geoResults && (
+          <div className="geocode-results">
+            {geoResults.length === 0 && <span className="hint">No matches found.</span>}
+            {geoResults.map((r) => (
+              <button
+                key={`${r.lat},${r.lng}`}
+                onClick={() => {
+                  set({ city: r.displayName.split(',')[0], lat: r.lat, lng: r.lng });
+                  setGeoResults(null);
+                }}
+              >
+                📍 {r.displayName}
+              </button>
+            ))}
+          </div>
+        )}
+        {draft.lat != null && (
+          <div className="status-line ok">
+            ● Location set: {draft.city} ({draft.lat.toFixed(4)}, {draft.lng?.toFixed(4)})
+          </div>
+        )}
+        <div className="formrow" style={{ marginTop: 12 }}>
+          <label>Radius: {draft.radiusKm} km</label>
+          <input
+            type="range"
+            min={5}
+            max={300}
+            step={5}
+            value={draft.radiusKm}
+            onChange={(e) => set({ radiusKm: Number(e.target.value) })}
+          />
+        </div>
+
+        <label className="hint" style={{ display: 'block', marginTop: 14 }}>
+          Also look here — one per line. A name is enough (<code>Penrith</code>); add
+          <code> , radiusKm</code> to give it its own reach. Every source runs once per
+          area, so a place worth the drive can be watched without widening the radius
+          above and dragging in everything in between.
+        </label>
+        <ListArea
+          text={(draft.eventAreas ?? [])
+            .map((a) => [a.name, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
+            .join(LINE_BREAK)}
+          placeholder={'Penrith, 25' + LINE_BREAK + 'Orange'}
+          onText={(raw) =>
+            set({
+              eventAreas: raw
+                .split(LINE_BREAK)
+                .map((line) => line.split(',').map((p) => p.trim()))
+                .filter((parts) => parts[0])
+                .map((parts) => ({
+                  name: parts[0],
+                  radiusKm: parts[1] ? Number(parts[1]) : undefined,
+                })),
+            })
+          }
+        />
+
+        <h4 style={{ margin: '16px 0 4px', fontSize: 13 }}>What to look for</h4>
+        <p className="hint" style={{ margin: '0 0 8px' }}>
+          Each topic expands to a set of search phrases, run against every area. Pick a
+          few rather than all: they rotate across refreshes, so everything gets covered
+          either way, and fewer at once means faster passes. Your own terms further
+          down still apply on top.
+        </p>
+        <div className="chiprow">
+          {topics.map((t) => {
+            const on = (draft.eventTopics ?? []).includes(t.key);
+            return (
+              <button
+                key={t.key}
+                className={`chip ${on ? 'active' : ''}`}
+                title={t.terms.join(' · ')}
+                onClick={() =>
+                  set({
+                    eventTopics: on
+                      ? (draft.eventTopics ?? []).filter((k) => k !== t.key)
+                      : [...(draft.eventTopics ?? []), t.key],
+                  })
+                }
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+        {(draft.eventTopics ?? []).length > 0 && (
+          <p className="hint" style={{ marginTop: 8 }}>
+            {(draft.eventTopics ?? []).reduce(
+              (n, k) => n + (topics.find((t) => t.key === k)?.terms.length ?? 0), 0
+            )}{' '}
+            phrases across {Math.max(1, (draft.eventAreas ?? []).length + (draft.lat != null ? 1 : 0))} area(s)
+          </p>
+        )}
+      </section>
+
+          {firstRun && sourcePanels}
         </>
       )}
+
+      {active === 'sources' && <>{sourcePanels}</>}
 
       {active === 'tasks' && <Tasks />}
 
