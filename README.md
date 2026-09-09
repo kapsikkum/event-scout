@@ -1,403 +1,324 @@
-# 📸 Event Scout
+# Event Scout
 
-A local web app that aggregates upcoming events in your area from multiple sources, scored and filterable for photography scouting. Everything runs and stays on your machine — API keys and the event cache live in a local SQLite database.
+Aggregates upcoming local events from several sources into one list, scored and
+filtered for photography scouting. Everything runs on your machine; API keys and
+the event cache live in a local SQLite file.
 
-## TL;DR — run it with Docker
+## Requirements
+
+- **Docker**, or **Node 24+** — the database layer uses `node:sqlite` and older
+  Node will not run it.
+- Nothing else. Every source is optional; the app works with any subset.
+
+## Run it
+
+### Docker
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-Then open <http://localhost:3001>. That pulls the images CI publishes to GHCR,
-so nothing is built locally. Set your timezone — it decides when an event
-counts as past — in a `.env` file beside `docker-compose.yml`:
+Open <http://localhost:3001>.
+
+Put settings in a `.env` beside `docker-compose.yml`:
 
 ```
 TZ=Australia/Sydney
+AUTH_PASSWORD=
+OLLAMA_URL=http://host.docker.internal:11434
 ```
 
-To update later, `docker compose pull && docker compose up -d` again; your
-database and browser profile live in named volumes and survive it. To run a
-change you have not pushed, `docker compose up --build` instead. More detail,
-including how the Chromium container is wired up, is in
-[Running in Docker](#running-in-docker).
+Update with `docker compose pull && docker compose up -d`. The database and
+browser profile are named volumes and survive it. To run local changes:
+`docker compose up --build`.
 
-## Quick start
+### From source
 
-```powershell
+```bash
 npm install
-npm run dev        # dev mode: server on :3001, UI on http://localhost:5173
+npm run dev
 ```
 
-or for a single production process:
+API on :3001, UI on <http://localhost:5173>. Or one production process:
 
-```powershell
+```bash
 npm run build
-npm start          # serves the UI + API on http://localhost:3001
+npm start
 ```
 
-On first launch you'll land on **Settings**: search for your city (OpenStreetMap geocoding), pick a radius, configure whichever sources you want, then **Save & refresh now**. Every source is optional — the app works with any subset.
+UI and API together on <http://localhost:3001>.
+
+## First run
+
+You land on **Settings**. Search for your city, pick a radius, enable the
+sources you want, then **Save & refresh now**. A refresh refuses to run until a
+location is set.
 
 ## Event sources
 
-| Source | What you need | Notes |
+| Source | Needs | Notes |
 |---|---|---|
-| **Ticketmaster** | Free API key from [developer.ticketmaster.com](https://developer.ticketmaster.com/) | Concerts, sports, theater. 5,000 calls/day free. |
-| **SeatGeek** | Free client ID from [seatgeek.com/account/develop](https://seatgeek.com/account/develop) | Complements Ticketmaster. |
-| **Eventbrite** | Private token from [eventbrite.com/platform/api-keys](https://www.eventbrite.com/platform/api-keys) + organizer IDs | Eventbrite removed public search; you follow specific organizers (the number in `eventbrite.com/o/name-1234567890`). |
-| **Facebook** | Optional logged-in cookie | **Unofficial scraper** — see warning below. |
-| **Web search** | Nothing (search terms optional) | **Unofficial scraper** — queries DuckDuckGo/Bing and extracts `schema.org/Event` data from result pages. See note below. |
-| **iCal feeds** | Feed URLs | Many city tourism sites, parks departments, and venues publish `.ics` calendars — great for festivals and free events. |
-| **MIDNIGHT_SPEC** | Nothing | Australian car meets, track days and Cars & Coffee. Reads `schema.org/Event` markup, not an API — see note below. |
+| Ticketmaster | Free API key from [developer.ticketmaster.com](https://developer.ticketmaster.com/) | Concerts, sport, theatre. 5,000 calls/day. |
+| SeatGeek | Free client ID from [seatgeek.com/account/develop](https://seatgeek.com/account/develop) | Complements Ticketmaster. |
+| Eventbrite | Private token + organizer IDs | Public search was removed from their API, so you follow specific organizers — the number in `eventbrite.com/o/name-1234567890`. |
+| Facebook | Nothing, or a logged-in cookie | Scraper. Much better with a cookie: log in → F12 → Application → Cookies → paste `c_user=…; xs=…` into Settings. |
+| Web search | Nothing | Queries DuckDuckGo/Mojeek/Bing, follows results, extracts `schema.org/Event` JSON-LD. Structured data only. |
+| iCal feeds | Feed URLs | Council, tourism, venue and university `.ics` calendars. |
+| MIDNIGHT_SPEC | Nothing | Australian car meets, track days, Cars & Coffee. Reads JSON-LD from six state pages. |
 
-### ⚠️ The Facebook source
+**Facebook:** scraping facebook.com violates Meta's terms, breaks when their
+markup changes, and could get the account restricted — use a throwaway. A failed
+Facebook fetch never affects the other sources.
 
-Meta removed public event search from its official API in 2018, so this source scrapes facebook.com instead (event search + the event tabs of Pages you list). **This violates Meta's Terms of Service**, can break whenever Facebook changes its markup, and could in principle get the logged-in account restricted — consider a throwaway account. It works far better with a session cookie: log in to facebook.com → F12 → Application → Cookies → copy `c_user` and `xs` into Settings as `c_user=…; xs=…`. A failed Facebook fetch never affects the other sources; its status is shown per-source in Settings.
+**MIDNIGHT_SPEC** is a national feed whose listings carry no coordinates, so
+events are kept only where the town matches one of your areas. Ticking states in
+Settings saves a request each; it does not change what is kept.
 
-### 🔎 The Web search source
+## Tasks
 
-This source needs no API key. For each search term it queries DuckDuckGo (falling back to Bing), follows the top results, and extracts structured `schema.org/Event` JSON-LD embedded in those pages — the same metadata Google uses for event rich-results. It's most valuable for the long tail that the ticketing APIs miss: individual venues, civic/tourism calendars, university and library event pages. Notes:
+Background jobs, on the **Tasks** page with schedule, last run, next due, last
+result and a Run button.
 
-- It reads **structured data only**, not free-text snippets, so results are clean (real title, time, venue, coordinates) — but only pages that publish that markup contribute.
-- Large aggregators that block scrapers or omit JSON-LD (Facebook, Songkick, Bandsintown, Ticketmaster, etc.) are skipped automatically; blocked/empty pages are counted and reported in the source status, never fatal.
-- Search engines may rate-limit heavy scraping. Leave the terms empty to auto-search your city, or add specific terms like `live music this weekend <city>` or a venue name.
+| Task | Runs | Does |
+|---|---|---|
+| `events` | every 6 h, ticked hourly | Fetch every enabled source across every area, then tidy, place and de-duplicate. |
+| `archive` | every 10 min | Move finished events to the archive; purge archived rows over 730 days old. |
+| `density` | your interval (default 60 min), ticked every 5 min | One page load per venue, recording how busy each is. |
+| `enrich` | your interval (default 60 min) | Read listings with a local model. Off by default. |
+| `densityDiscover` | when asked | Rebuild the venue list. Slow, rarely needed. |
 
-### 🏁 The MIDNIGHT_SPEC source
+- A task refuses to start a second copy of itself rather than queueing.
+- `density` and `densityDiscover` share one lock — they drive the same browser
+  and profile directory. The other shows "waiting on …" rather than failing.
+- Ticks are more frequent than the intervals they gate, so changing an interval
+  takes effect without a restart.
 
-[meets.midnightspec.com](https://meets.midnightspec.com) aggregates public
-organiser posts into one national calendar of Australian car meets, track days,
-drift nights and Cars & Coffee. It needs no key and no configuration.
+## Access
 
-Each of its six state pages (`/au/nsw`, `/au/vic`, …) publishes that state's
-entire list as a `schema.org/ItemList` in the page's JSON-LD, so six requests
-cover the whole feed — no browser, no pagination, and none of the client-side
-Supabase querying the front page does for its own list. The same JSON-LD
-extractor the Web search source uses parses it.
+No password by default: everything is open, and compose publishes port 3001 on
+every interface.
 
-Unlike the Facebook source, this one carries no terms-of-service caveat: the
-site's `robots.txt` allows every crawler by name, including the AI ones, and it
-ships `/llms.txt`, `/sitemap.md` and an Atom feed alongside. Every event keeps
-its own `/event/<id>` URL, so cards link back to the listing.
+Set one (Settings → Access, or `AUTH_PASSWORD`) and reading stays open while
+everything else needs it.
 
-It is a **national** feed and its listings carry no coordinates, so they are
-filtered against the towns you actually search before being stored — otherwise a
-50 km radius would pull in several hundred events from the other side of the
-country and spend months trying to geocode them. Ticking states in Settings
-narrows it further, saving one request each.
+| Open | Needs the password |
+|---|---|
+| Events, map, places, calendar, tasks, status, version | Saving settings, refreshing, running tasks |
+| The `.ics` feed, with its token | Starring, hiding, merging, unmerging |
+| | `GET /api/settings` — it returns every API key and the Facebook cookie in plaintext |
 
-## Features
+Sessions are a signed cookie (`node:crypto`; the secret is kept in the database
+so sign-in survives a restart). Passwords are scrypt-hashed. `AUTH_PASSWORD`
+wins when set and cannot then be changed from the UI. Six wrong guesses locks
+that address out for 30 seconds.
 
-- **Events** — card grid with date chips (today / weekend / 7 days / month), category/source filters, text search, and sorts: soonest, **best for photos**, nearest. Online-only events are hidden by default, and events that have been and gone drop off on their own.
-- **Location filter** — every event is rounded to the nearest of the towns you actually search (your home city plus each configured area), so a suburb address is filed under the town it belongs to and anything out of reach lands in **Elsewhere**. Anywhere with enough listings of its own gets its own entry rather than being swallowed by it.
-- **Photo score** — a keyword/category heuristic that ranks events by photographic appeal (festivals, parades, air shows, markets, fireworks rank high; webinars rank zero).
-- **Shortlist** — star events, then export the shortlist as `.ics` to drop onto your real calendar.
-- **Map** — dark Leaflet map with pins colored by category; starred events ringed in amber.
-- **Calendar** — month grid; click a day to see its events.
-- **Dedupe** — the same event found by multiple sources is merged into one card (normalized title + date + venues within 300 m), with all source links shown.
-- **Auto-refresh** — refreshes on launch when the cache is older than 6 h, and hourly in the background; manual Refresh button in the header.
+Calendar clients cannot sign in, so once a password is set the `.ics` feed needs
+a token in its URL — copy the subscribe URL from Settings. URLs subscribed
+before you set a password keep working until you do.
+
+## Reading listings with a local model
+
+Optional, off by default. Point Settings → Local model at an
+[Ollama](https://ollama.com) and it runs as the `enrich` task.
+
+| Job | Does |
+|---|---|
+| Tidy descriptions | Rewrite a scraped blurb into two or three plain sentences. |
+| Categorise | Pick a category for listings the keyword classifier cannot place. |
+| Fill in blanks | Read venue, address or price out of the description, **only where the stored field is empty**. |
+| Judge photo appeal | Rate how worth shooting an event is, averaged with the keyword score. |
+
+Each toggles separately; the JSON schema is built from the ones you enable, so a
+job that is off cannot produce a field.
+
+Verdicts go in separate `llm_*` columns, never over the scraped values — turn
+the task off and everything reverts. The category is pinned to an enum of known
+categories, scores are clamped, and extraction is ignored for fields the source
+already filled.
+
+An event is read once. A content hash of the text, model and prompt version is
+stored, so a run only picks up what is new or changed. Each pass takes
+`llmMaxPerRun` events (default 40); expect roughly 15–20 s per event on an 8B
+model on CPU. **Forget what it decided** clears every verdict.
+
+Blank `llmUrl` falls back to `OLLAMA_URL`, then `http://localhost:11434`. From a
+container the host's Ollama is `http://host.docker.internal:11434`, not
+localhost.
+
+## Venue density
+
+Off by default. Samples how busy venues are on its own schedule, feeding the
+density overlay on Map and the per-venue history on Places. Each pass opens one
+page per venue, so it takes minutes.
+
+| Setting | Meaning |
+|---|---|
+| `densityEnabled` | Off by default. |
+| `densityIntervalMinutes` | 15–240, default 60. |
+| `densityCities` | Blank means every configured area. |
+| `densityMaxVenues` | Cap per area, default 30. 0 means no cap. |
+| `densityPlaces` | Venues pinned by name. |
+| `densitySearches` | Map search terms. Blank uses the defaults. |
+| `densityCellMeters` / `densityKernelMeters` | Grid resolution, default 150 / 300. |
+
+## Configuration
+
+### Environment
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `API_PORT` | `3001` | Backend port. |
+| `TZ` | `Australia/Sydney` | Decides when an event counts as past. |
+| `AUTH_PASSWORD` | unset | Sets a password. Unset means open. |
+| `OLLAMA_URL` | `http://localhost:11434` | Default Ollama; the setting overrides it. |
+| `BROWSER_CDP_URL` | unset | Attach to an existing Chromium. Set in compose; unset starts one locally. |
+
+`GIT_SHA` and `BUILD_TIME` are build arguments, reported by `/api/version`.
+
+### Settings
+
+Everything else is stored in the database and edited in the UI or through
+`PUT /api/settings`: `city`, `lat`, `lng`, `radiusKm`, `eventAreas`,
+`eventTopics`, `enabledSources`, `ticketmasterKey`, `seatgeekClientId`,
+`eventbriteToken`, `eventbriteOrganizerIds`, `fbCookie`, `fbSearchTerms`,
+`fbPages`, `webSearchTerms`, `icalFeeds`, `midnightspecStates`, `tasksDisabled`,
+`llmEnabled`, `llmUrl`, `llmModel`, `llmJobs`, `llmIntervalMinutes`,
+`llmMaxPerRun`, and the `density*` keys above.
+
+## API
+
+JSON unless stated. With a password set, every non-`GET` needs the session
+cookie, as do `GET /api/settings` and `GET /api/auth/feed-token`.
+
+### Events
+
+| Route | Meaning |
+|---|---|
+| `GET /api/events` | Upcoming events, merged and de-duplicated. |
+| `GET /api/events?archived=1` | Past events, newest first. |
+| `POST /api/refresh` | Refresh now. `409` if one is already running. |
+| `POST /api/archive` | Archive finished events now. |
+| `POST /api/merge` | Body `{ groups: string[] }`, at least two. |
+| `POST /api/unmerge/:group` | Split a merged group. |
+| `POST /api/groups/:group` | Body `{ starred?: boolean, hidden?: boolean }`. |
+
+### Status
+
+| Route | Meaning |
+|---|---|
+| `GET /api/status` | `{ sources, lastRefresh, refreshing, progress, density }`. |
+| `GET /api/version` | `{ version, commit, builtAt, display }`. |
+| `GET /api/topics` | The preset event topics. |
+| `GET /api/geocode?q=` | Geocode a place name via OpenStreetMap. |
+| `GET /api/photo` | Sun, moon and weather for the configured location. `?force=1` skips the cache. |
+
+### Tasks
+
+| Route | Meaning |
+|---|---|
+| `GET /api/tasks` | `{ tasks: [...] }` — schedule, last run, next due, result, log. |
+| `POST /api/tasks/:name/run` | Run now, ignoring schedule and enabled state. `409` if blocked. |
+| `POST /api/tasks/:name/enable` | Body `{ enabled: boolean }`. |
+
+Names: `events`, `archive`, `density`, `enrich`, `densityDiscover`.
+
+### Settings and auth
+
+| Route | Meaning |
+|---|---|
+| `GET /api/settings` | All settings. **Gated** — contains keys and cookies. |
+| `PUT /api/settings` | Partial update, merged over the current settings. |
+| `GET /api/auth/status` | `{ required, authed, fromEnv }`. |
+| `POST /api/auth/login` | Body `{ password }`. Sets the session cookie. |
+| `POST /api/auth/logout` | Clears it. |
+| `POST /api/auth/password` | Body `{ current, next }`. An empty `next` removes the password. |
+| `GET /api/auth/feed-token` | The calendar feed token. **Gated.** |
+| `POST /api/auth/feed-token` | Regenerate it, breaking existing subscriptions. |
+
+### Density
+
+| Route | Meaning |
+|---|---|
+| `GET /api/density/status` | Enabled, running, interval, last run, areas, log. |
+| `GET /api/density/areas` | Configured areas with venue counts. |
+| `GET /api/density/:area` | Density grid as GeoJSON. `?hours=` (default 24), `?all=1`, `?hour=`, `?days=0,6`. |
+| `GET /api/density/:area/venues` | Per-venue readings and shoot verdicts. |
+| `GET /api/density/:area/history?venue=` | One venue's history. `?days=` default 14. |
+| `POST /api/density/refresh` | Sample now. |
+| `POST /api/density/discover` | Rebuild the venue list. |
+
+### Local model
+
+| Route | Meaning |
+|---|---|
+| `GET /api/llm/status` | Reachability, installed models, chosen model, backlog, available jobs. |
+| `POST /api/llm/reset` | Forget every verdict. Scraped values untouched. |
+
+### Calendar
+
+| Route | Meaning |
+|---|---|
+| `GET /api/calendar.ics` | Subscribable feed. `?starred=1`, `?category=`, `?days=`, `?token=`. |
+| `GET /api/export.ics` | Same as a download; defaults to starred only. |
 
 ## Releasing
 
-Versions are derived from the commits, not decided by hand.
-[release-please](https://github.com/googleapis/release-please) reads what has
-landed on `main`, keeps a **release pull request** open with the next version
-number and the changelog entry it would write, and merging that PR is what cuts
-the release — bumping every `package.json`, updating
-[CHANGELOG.md](CHANGELOG.md), and tagging.
+Versions come from the commits.
+[release-please](https://github.com/googleapis/release-please) keeps a release
+pull request open with the next version and changelog entry; merging it bumps
+the manifests, writes [CHANGELOG.md](CHANGELOG.md) and tags.
 
-That means commit subjects have to say what kind of change they are
-([Conventional Commits](https://www.conventionalcommits.org/)):
-
-```
-feat: filter events by town
-fix: stop the calendar feed claiming to be a scheduling message
-feat!: rename the settings key for search areas
-```
+Commit subjects follow
+[Conventional Commits](https://www.conventionalcommits.org/):
 
 | Prefix | Effect |
 |---|---|
-| `fix:` | patch bump — 0.2.0 → 0.2.1 |
-| `feat:` | minor bump — 0.2.0 → 0.3.0 |
-| `!` after the type, or a `BREAKING CHANGE:` footer | major bump, and while the major is 0, a minor one |
-| `docs:`, `refactor:`, `perf:`, `build:`, `ci:` | listed in the changelog, no bump on their own |
-| `chore:`, `test:`, `style:` | no bump, not listed |
+| `fix:` | patch — 0.2.0 → 0.2.1 |
+| `feat:` | minor — 0.2.0 → 0.3.0 |
+| `feat!:` or a `BREAKING CHANGE:` footer | major; minor while the major is 0 |
+| `docs:` `refactor:` `perf:` `build:` `ci:` | in the changelog, no bump |
+| `chore:` `test:` `style:` | neither |
 
-A commit that fits none of these releases nothing and appears nowhere, which is
-the one failure mode worth knowing about. There is no commit linter — the
-release PR is the feedback: if nothing you would expect to ship shows up in it,
-a subject is the reason.
+A commit fitting none of these releases nothing and appears nowhere. There is no
+commit linter — if the release PR is missing something you expected, a subject is
+why.
 
-**Images.** Each release publishes `:0.3.0` and `:0.3` alongside `:latest`, so
-compose can pin one:
+Each release publishes `:0.3.0` and `:0.3` alongside `:latest`. No floating `:0`
+tag while the major is 0. Pin one in compose:
 
 ```yaml
 image: ghcr.io/kapsikkum/event-scout:0.3
 ```
 
-No floating `:0` tag is published while the major is 0 — under semver a 0.x bump
-may break things, and a tag spanning every 0.x would quietly move across exactly
-the changes pinning is meant to avoid. Once 1.0 lands, `:1` appears.
-
-Images are built in the same workflow run that creates the release rather than
-by a tag-triggered job, because a tag pushed with the built-in `GITHUB_TOKEN`
-does not start another workflow run — a separate job listening for the tag would
-simply never fire.
-
-**What is running.** `GET /api/version` answers, and the foot of Settings shows
-it. A build that is not itself a release carries the commit — `0.3.0+a1b2c3d` —
-since a bare number on a build four commits past the tag would be a lie.
-
 ## Architecture
 
-npm workspaces: `server/` (Express + TypeScript, SQLite via Node's built-in `node:sqlite`, one adapter per source in `server/src/sources/`) and `web/` (React + Vite). The dev server proxies `/api` to the backend; the production server serves the built UI itself. Set `API_PORT` to change the backend port (default 3001).
+npm workspaces. `server/` is Express + TypeScript on SQLite via `node:sqlite`,
+one adapter per source in `server/src/sources/`. `web/` is React + Vite. The dev
+server proxies `/api` to the backend; the production server serves the built UI.
 
-## Access
+Past events are archived rather than deleted, which is what makes "where was
+busy during last year's race" answerable. Starred events are never purged.
 
-By default there is no password and everything is open — fine on a machine only
-you can reach, and worth knowing about, because `docker-compose.yml` publishes
-3001 on every interface.
+### Docker
 
-Setting one (Settings → **Access**, or the `AUTH_PASSWORD` environment variable)
-leaves reading open and puts everything else behind it:
+Two containers: the app, and a Chromium it drives over the DevTools protocol for
+the sources needing a real browser.
 
-| Open to anyone | Needs the password |
-|---|---|
-| Events, map, places, calendar, tasks list, source status | Saving settings, running tasks, refreshing |
-| The `.ics` feed, with its token | Starring, hiding, merging and unmerging |
-| | **Reading `/api/settings`** — it returns every API key and the Facebook cookie in plaintext |
+- Chromium runs in new-headless mode from `Dockerfile.chromium`, with
+  `shm_size: 512mb` — the default 64 MB kills the renderer on any page worth
+  scraping.
+- Its CDP port is **not** published to the host. An open CDP port is remote code
+  execution for anything that can reach it; the app reaches it over the compose
+  network.
+- `BROWSER_CDP_URL` set means "attach to that browser", unset means "start one
+  locally", which is what happens outside Docker.
+- The user agent and anti-detection settings are applied per page over the
+  protocol and kept consistent with the client hints sent alongside — see
+  `server/src/useragent.ts`.
 
-The split is decided in one place by method (`needsAuth` in `server/src/auth.ts`)
-rather than route by route, so a route added later is covered by default. The two
-reads named above are the exceptions that make it more than "GET is open", and
-they are listed explicitly.
-
-Sessions are a signed cookie over `node:crypto` — no session library, no JWTs.
-The secret is generated once and kept in the database, so signing in survives a
-restart. Passwords are stored scrypt-hashed with a random salt; `AUTH_PASSWORD`
-takes precedence when set and then cannot be changed from the UI. Six wrong
-guesses in a row locks that address out for thirty seconds.
-
-**The calendar feed** is a `GET` and calendar clients cannot sign in, so it stays
-reachable but carries a secret token in its URL once a password is set — copy the
-subscribe URL from Settings. URLs you subscribed to before turning authentication
-on keep working until you do.
-
-## Tasks
-
-Everything that happens on a timer is a **task**, listed on the Tasks page with
-its schedule, when it last ran, what it said, when it is next due, and a **Run
-now** button. Jobs that had been invisible — the only sign one had been failing
-for a week was events quietly going stale — say so there instead.
-
-| Task | Runs | What it does |
-|---|---|---|
-| Event refresh | every 6 h, ticked hourly | Fetch every enabled source across every area, then tidy, place and de-duplicate. |
-| Archive past events | every 10 min | Move events that have been and gone into the archive; purge very old archived rows. |
-| Venue density sampling | your density interval, ticked every 5 min | One page load per venue, recording how busy each is. |
-| Rebuild venue list | when asked | Re-run venue discovery. Slow, rarely needed. |
-
-Two rules that matter:
-
-- **A task refuses to start a second copy of itself** rather than queueing —
-  for jobs where the next run supersedes the last, queueing only builds a pile
-  behind whatever is stuck.
-- **The two browser jobs share one lock.** Density sampling and venue discovery
-  drive the same browser and the same profile directory, whose lock is
-  exclusive, so only one of them runs at a time. The other reports
-  "waiting on …" rather than failing.
-
-Ticks are deliberately more frequent than the intervals they gate, which is what
-lets a changed interval take effect without a restart.
-
-Routes: `GET /api/tasks`, `POST /api/tasks/:name/run`, `POST /api/tasks/:name/enable`.
-
-## Reading listings with a local model
-
-Optional, off by default, and nothing else depends on it. Point Settings →
-**Local model** at an [Ollama](https://ollama.com) and it runs as a task,
-reading scraped listings and offering four things:
-
-| Job | What it does |
-|---|---|
-| Tidy descriptions | Rewrite a CMS-soup blurb into two or three plain sentences, dropping hashtags, emoji, ticket boilerplate and "link in bio". |
-| Categorise | Pick a category, for the listings the keyword classifier files under the catch-all. |
-| Fill in blanks | Read a venue, address or price out of the description **when the stored field is empty**. |
-| Judge photo appeal | Rate how worth shooting an event is, averaged with the keyword score rather than replacing it. |
-
-Each is switched on and off separately, and only the ones you ask for are put
-to the model — the JSON Schema is built from them, so a job that is off cannot
-produce a field at all.
-
-### What keeps this safe to turn on
-
-**Verdicts are stored beside the scraped values, never over them.** They live in
-their own `llm_*` columns, and `events.ts` is the only place the two are chosen
-between. Switch the task off and everything reverts exactly, because the scraped
-value was never touched. It also has to work this way: `reclassifyAll` and
-`repairAddresses` rewrite category, address and description on every refresh, so
-anything written in place would be overwritten within the hour.
-
-**Extraction fills blanks only.** Venue, address and price are facts the source
-stated, not opinions to improve on — and a model asked to look at one will find
-something to say. Given a listing whose venue was "Nelsonville, Ohio" and whose
-address was "International", qwen3 decided they were the wrong way round and
-swapped them; both were then wrong. The prompt asks it to leave populated fields
-alone, and `events.ts` does not consult it about them regardless.
-
-**The category is pinned to an `enum`** of the categories the UI filter knows
-about, so the model cannot invent a new heading. Scores are clamped, summaries
-truncated, and the several prose ways of saying "I don't know" ("N/A", "none",
-"not specified") are treated as no answer rather than stored as a venue name.
-
-**The listing is fenced and labelled as untrusted data** in the prompt, since
-these descriptions are scraped from pages anyone can publish.
-
-### Cost, and why it is affordable
-
-An event is read **once, ever**. A content hash over the text that was read —
-plus the model name, the job set and a prompt version — is stored per event, so
-a run only picks up what is new, edited, or affected by a settings change.
-Without that, every pass would re-process the whole database.
-
-A pass takes `llmMaxPerRun` events (default 40) oldest-first, so a backlog
-drains over several runs rather than one very long one. Expect roughly 15–20
-seconds an event on an 8B model on CPU — which is exactly why this is its own
-task rather than part of a refresh, where a slow model would be
-indistinguishable from a hung source.
-
-The cost of that separation, stated plainly: a venue the model reads out of a
-description is picked up by the *next* refresh's geocoding pass, not the same
-one. One cycle of latency, not a loss.
-
-### Configuration
-
-Blank `llmUrl` uses `OLLAMA_URL`, then `http://localhost:11434`. In Docker the
-host's Ollama is `http://host.docker.internal:11434` — localhost inside a
-container is the container. **Forget what it decided** in Settings clears every
-verdict so the next pass reconsiders from scratch; it never touches scraped data.
-
-Routes: `GET /api/llm/status`, `POST /api/llm/reset`.
-
-## Venue density
-
-Density sampling runs as one of event-scout's background tasks, on its own
-schedule alongside the event sources. Enable it under **Settings → Venue
-density**.
-
-It is deliberately a separate schedule from the event refresh: events change a
-few times a day, but venue busyness is only meaningful sampled every 30-60
-minutes. A timer ticks every 5 minutes and the job decides whether the
-configured interval has elapsed, so changing the interval takes effect
-immediately without a restart.
-
-| Setting | Meaning |
-|---|---|
-| `densityEnabled` | Off by default. Each pass opens one page per venue. |
-| `densityIntervalMinutes` | 15–240, default 60. |
-| `densityCities` | Blank means every city traffic-density has configured. |
-
-Two manual actions are available: **Sample now** forces a pass, and **Rebuild
-venue list** re-runs discovery (slow, and rarely needed — the venue list barely
-changes, unlike its busyness). Both are tasks (see [Tasks](#tasks)), so they
-also appear there, take the shared browser lock, and refuse to run concurrently.
-
-Routes: `/api/density/status`, `POST /api/density/refresh`, `POST /api/density/discover`.
-
-If `TRAFFIC_DENSITY_URL` is set, scheduling is skipped entirely — that remote
-instance is responsible for its own scraping.
-
-## Density map (traffic-density)
-
-The Map view can overlay live venue busyness and a density grid from the
-sibling [traffic-density](../traffic-density) project: density heat underneath,
-venue markers scaled by how full each place is, and your event pins on top, each
-toggleable.
-
-It resolves in two ways, and needs no configuration in the common case:
-
-- **Local (default)** — reads the co-located `../traffic-density` directly.
-- **Remote** — set `TRAFFIC_DENSITY_URL=http://host:8787` to use that project's
-  JSON API instead, so the two can run on separate machines.
-
-If the remote is unreachable it falls back to the local copy, and if neither is
-present the map simply shows events as before. The density layer enhances
-event-scout; it is never a dependency.
-
-Routes: `/api/density/cities`, `/api/density/:city`, `/api/density/:city/venues`.
-
-To share one location between the tools, set `eventScout.enabled` in
-traffic-density's `config.json` and it will read the city configured here.
-
-## Event archiving
-
-Past events are archived rather than deleted. `refreshAll()` archives anything
-that finished more than a day ago, stamping `archived_at`. Starred events are
-kept indefinitely; unstarred archived events are purged after 730 days so the
-database stays bounded.
-
-- `GET /api/events` — upcoming (the default)
-- `GET /api/events?archived=1` — history, newest first
-- `POST /api/archive` — run archiving on demand
-
-## Running in Docker
-
-Two containers: the app, and a Chromium the app drives over the DevTools
-protocol for the parts of the density layer that need a real browser.
+### Tests
 
 ```bash
-docker compose pull      # ghcr.io/kapsikkum/event-scout{,-chromium}:latest
-docker compose up -d
+npm test --workspace server
 ```
-
-Both are published by CI on every push to `main` and both are public, so no
-registry login is needed. Building them yourself is still one flag:
-
-```bash
-docker compose up --build
-```
-
-Then open <http://localhost:3001>. The database lives in the `event-scout-data`
-volume and the browser profile in `chromium-profile`, so both survive a pull or
-a rebuild.
-
-Set the timezone — it decides when an event counts as past — in a `.env` file
-next to `docker-compose.yml`:
-
-```
-TZ=Australia/Sydney
-```
-
-### How the browser is wired up
-
-`BROWSER_CDP_URL` is the whole switch. Set, `openBrowser()` attaches to a
-browser already running at that address; unset, it launches one locally, which
-is what happens when you run outside Docker. Nothing else changes.
-
-The CDP port is not published to the host. Anything that can reach an open
-DevTools port can drive the browser, read its cookies, and fetch local files
-through it, so it stays on the compose network.
-
-### Not looking like a bot
-
-Google answers a client it suspects with a Maps view that omits popular times
-entirely, which reads as "this venue has no data" — the failure is silent, so
-it is worth getting right.
-
-- `server/src/useragent.ts` is the single source of truth for the user agent.
-  Every scraper and every page share it, along with matching `sec-ch-ua` client
-  hints; a request whose UA string and client hints disagree is a clearer
-  signal than either would be alone. It claims Edge on Windows 11. Bump `MAJOR`
-  when it starts to look old — being a few versions behind is ordinary, being
-  ahead of what exists is not.
-- `server/src/density/stealth.ts` closes the rest: `navigator.webdriver`, the
-  software-renderer WebGL strings, the missing `window.chrome`, an empty plugin
-  list, and a viewport no real window has. It is applied to every page
-  automatically by `Browser.newPage()`, so no caller can forget it.
-- The browser container runs a full Chromium in `--headless=new` rather than
-  the smaller `headless-shell` image, which has the browser parts compiled out
-  and is correspondingly easy to spot. See `Dockerfile.chromium`.
-
-None of this makes detection impossible — anything running in the page can be
-checked against something that is not. If scrapes start coming back empty,
-assume the arms race moved rather than that something here broke.
