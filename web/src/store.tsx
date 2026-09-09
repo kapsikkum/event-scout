@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
-import { api, AuthStatus, MergedEvent, Settings, StatusResponse, Unauthorized } from './api';
+import { api, AuthStatus, EventEdit, MergedEvent, Settings, StatusResponse, Unauthorized } from './api';
 
 interface Store {
   events: MergedEvent[];
@@ -23,6 +23,16 @@ interface Store {
   setGroupFlag: (group: string, flags: { starred?: boolean; hidden?: boolean }) => Promise<void>;
   mergeGroups: (groups: string[]) => Promise<string>;
   unmergeGroup: (group: string) => Promise<void>;
+  /**
+   * Whether the page is showing its edit affordances.
+   *
+   * Deliberately not remembered between visits: it is a mode that makes every
+   * card writable, and having it still on from yesterday is how a stray click
+   * becomes a stray edit.
+   */
+  editMode: boolean;
+  setEditMode: (on: boolean) => void;
+  editEvent: (group: string, patch: EventEdit) => Promise<void>;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -39,6 +49,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [editMode, setEditMode] = useState(false);
   const [authPrompt, setAuthPrompt] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -162,6 +173,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [loadEvents, guard]
   );
 
+  const editEvent = useCallback(
+    async (group: string, patch: EventEdit) => {
+      await guard(() => api.editEvent(group, patch));
+      // Reloaded rather than patched in place: an edit to the title or the date
+      // can move an event into a different group, and the list has to be read
+      // back to see where it landed.
+      await loadEvents();
+    },
+    [guard, loadEvents]
+  );
+
   useEffect(() => {
     loadAuth().catch(() => undefined);
     // Settings are one of the two gated reads, so a signed-out visitor simply
@@ -199,6 +221,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value={{
         events, settings, status, refreshing, loadEvents, loadStatus, refresh,
         updateSettings, setGroupFlag, mergeGroups, unmergeGroup,
+        editMode, setEditMode, editEvent,
         auth, authPrompt, dismissAuthPrompt: () => setAuthPrompt(null),
         requestSignIn: () => setAuthPrompt('Settings and changes need the password.'),
         loadAuth, signIn, signOut,

@@ -21,7 +21,7 @@ function relativeTime(iso: string | null): string {
 }
 
 function Shell() {
-  const { status, refreshing, refresh, settings, auth, signOut } = useStore();
+  const { status, refreshing, refresh, settings, auth, signOut, editMode, setEditMode } = useStore();
   const location = useLocation();
   const needsSetup = settings !== null && (settings.lat == null || settings.lng == null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -77,6 +77,19 @@ function Shell() {
           <span className="topbar__nav-meta">{updated}</span>
         </nav>
         <span className="meta">{updated}</span>
+        {/* Shown to anyone who could actually save: with a password set that
+            means signed in, and with none set it means anybody who can reach
+            the page — which is already true of every other change here. */}
+        {auth?.authed && (
+          <button
+            className={`topbar__edit${editMode ? ' is-on' : ''}`}
+            onClick={() => setEditMode(!editMode)}
+            aria-pressed={editMode}
+            title={editMode ? 'Stop editing' : 'Edit events by hand'}
+          >
+            {editMode ? '✎ Editing' : '✎ Edit'}
+          </button>
+        )}
         {/* Only worth a place in the bar once a password exists; with none set
             there is nothing to be signed in or out of. */}
         {auth?.required && auth.authed && (

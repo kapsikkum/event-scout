@@ -4,7 +4,10 @@ import { consensusStart, isOver } from './validate.js';
 import { localityOf } from './regions.js';
 import { assignPlaces, hubsFromSettings } from './places.js';
 import { cachedGeocode } from './geocode.js';
-import { chooseFields, firstNonEmpty } from './merge.js';
+import { chooseFields, EditError, parseEditPatch } from './merge.js';
+import type { EditableField } from './merge.js';
+
+export { EditError } from './merge.js';
 import type { EnrichedBy, EventRow } from './merge.js';
 
 // Re-exported so an event's shape stays importable from one place.
@@ -68,6 +71,18 @@ export interface MergedEvent {
    * Absent fields are as the source published them.
    */
   enriched: Record<string, EnrichedBy>;
+  /**
+   * The fields a person changed by hand, in edit mode. These beat the scraped
+   * value, the flyer and the model alike, and clearing one puts back whatever
+   * would have been shown.
+   */
+  edited: string[];
+  /**
+   * The blurb as published, when what is shown is not it — a model rewrote it,
+   * or someone edited it. '' when the two are the same. The page offers it as a
+   * toggle, so a rewrite that lost something can be read as it was written.
+   */
+  rawDescription: string;
 }
 
 /**
@@ -100,8 +115,8 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
 
   const merged: MergedEvent[] = [];
   for (const [group, members] of byGroup) {
-    const str = (get: (r: EventRow) => string) => firstNonEmpty(members, get);
     const chosen = chooseFields(members);
+    const bestDescription = chosen.description;
     const { venueName, address, note, enriched } = chosen;
     // A merge is worth doing partly for this: a listing with no picture
     // inherits one from its twin. Distinct images are kept so nothing is lost.
@@ -109,12 +124,12 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
 
     merged.push({
       group,
-      title: str((r) => r.title),
-      description: chosen.description,
+      title: chosen.title,
+      description: bestDescription,
       // Not members[0]: rows arrive sorted by start, so a lone listing with a
       // date a day early would set the whole group's day. The date most
       // members agree on is the one to show.
-      startTime: consensusStart(members.map((m) => m.start_time)),
+      startTime: chosen.startTime || consensusStart(members.map((m) => m.start_time)),
       endTime: members.find((m) => m.end_time)?.end_time ?? null,
       venueName,
       address,
@@ -130,7 +145,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       place: '',
       lat: members.find((m) => m.lat != null)?.lat ?? null,
       lng: members.find((m) => m.lng != null)?.lng ?? null,
-      imageUrl: images[0] ?? '',
+      imageUrl: chosen.imageUrl ?? images[0] ?? '',
       images,
       category: chosen.category,
       priceText: chosen.priceText,
@@ -151,6 +166,8 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       manual: Boolean(members[0].manual_group),
       note,
       enriched,
+      edited: chosen.edited,
+      rawDescription: chosen.rawDescription === bestDescription ? '' : chosen.rawDescription,
     });
   }
   // Events that have been and gone are dropped here as well as archived on a
@@ -202,6 +219,58 @@ function memberRows(group: string): EventRow[] {
       "SELECT * FROM events WHERE manual_group = ? OR (manual_group = '' AND dedupe_group = ?)"
     )
     .all(group, group) as unknown as EventRow[];
+}
+
+/** Wire field name -> the column its override lives in. */
+const EDIT_COLUMNS: Record<EditableField, string> = {
+  title: 'edit_title',
+  description: 'edit_description',
+  startTime: 'edit_start_time',
+  venueName: 'edit_venue_name',
+  address: 'edit_address',
+  category: 'edit_category',
+  priceText: 'edit_price_text',
+  imageUrl: 'edit_image_url',
+  photoScore: 'edit_photo_score',
+};
+
+/**
+ * Save hand edits onto every listing behind an event.
+ *
+ * Written to all the members rather than against the group, because a group id
+ * is derived from the title and the date — edit either and the id changes, and
+ * an override stored against the old one would be orphaned by the very edit
+ * that made it. The rows outlive that, which is why starred and hidden live
+ * there too.
+ */
+export function editGroup(group: string, patch: Record<string, unknown>): { updated: EditableField[] } {
+  const ids = memberRows(group).map((r) => r.id);
+  if (ids.length === 0) throw new EditError(`Unknown event: ${group}`);
+
+  const edits = parseEditPatch(patch);
+  const sets: string[] = [];
+  const values: (string | number)[] = [];
+  for (const { field, value } of edits) {
+    // The column name comes from this table, never from the request.
+    const column = EDIT_COLUMNS[field];
+    if (value === null) {
+      sets.push(`${column} = NULL`);
+    } else {
+      sets.push(`${column} = ?`);
+      values.push(value);
+    }
+  }
+
+  const stmt = db.prepare(`UPDATE events SET ${sets.join(', ')} WHERE id = ?`);
+  db.exec('BEGIN');
+  try {
+    for (const id of ids) stmt.run(...values, id);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return { updated: edits.map((e) => e.field) };
 }
 
 export function setGroupFlag(group: string, flag: 'starred' | 'hidden', value: boolean): void {

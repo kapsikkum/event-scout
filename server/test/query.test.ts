@@ -30,6 +30,8 @@ function event(over: Partial<MergedEvent> = {}): MergedEvent {
     manual: false,
     note: '',
     enriched: {},
+    edited: [],
+    rawDescription: '',
     ...over,
   };
 }

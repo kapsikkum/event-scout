@@ -116,6 +116,28 @@ function migrate(): void {
    * to force a re-run — cannot touch the events.
    */
   /**
+   * What a person changed by hand, from edit mode on the Events page.
+   *
+   * The fourth opinion about a listing, and the only one that is always right:
+   * these beat the scraped value, the flyer and the model alike. Their own
+   * columns for the same reason as the other two — the refresh rewrites the
+   * scraped columns on every pass, so anything written over the top would last
+   * until the next refresh and no longer. Empty means "not edited", which is
+   * what makes clearing a field the way to go back to what was scraped.
+   */
+  for (const col of [
+    'edit_title', 'edit_description', 'edit_start_time', 'edit_venue_name',
+    'edit_address', 'edit_category', 'edit_price_text', 'edit_image_url',
+  ]) {
+    if (!cols.includes(col)) db.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+  }
+  // Nullable rather than '' because 0 is a meaningful score, so "unset" needs
+  // to be a different value from "set to nothing".
+  if (!cols.includes('edit_photo_score')) {
+    db.exec('ALTER TABLE events ADD COLUMN edit_photo_score REAL');
+  }
+
+  /**
    * What a vision model read off the event's flyer. Its own columns, kept apart
    * from both the scraped values and the text model's, so the three can be
    * chosen between rather than overwriting one another.

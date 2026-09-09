@@ -1,9 +1,14 @@
+import { useState } from 'react';
+
+/** A line break, so the tooltip below stays one readable expression. */
+const NEWLINE = String.fromCharCode(10);
 import { MergedEvent, haversineKm } from '../api';
 import { useStore } from '../store';
 import { formatWhen } from './EventCard';
 import { decodeEntities } from '../text';
 import EventImage, { OptionalImage } from './EventImage';
-import { enrichedGroups } from '../enriched';
+import { enrichedTooltip } from '../enriched';
+import EventEditor from './EventEditor';
 
 /**
  * Full event view, so a listing can be read without leaving the app.
@@ -88,7 +93,8 @@ export function findSocials(ev: MergedEvent): Social[] {
 }
 
 export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose: () => void }) {
-  const { settings, setGroupFlag, unmergeGroup } = useStore();
+  const { settings, setGroupFlag, unmergeGroup, editMode } = useStore();
+  const [editing, setEditing] = useState(false);
   const socials = findSocials(ev);
   // Links already shown as a source row would just be duplicates.
   const sourceUrls = new Set(ev.sources.map((s) => s.url).filter(Boolean));
@@ -106,7 +112,16 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
         : null;
 
   const description = decodeEntities(ev.description ?? '').trim();
-  const groups = enrichedGroups(ev);
+  const raw = decodeEntities(ev.rawDescription ?? '').trim();
+  const rawAvailable = Boolean(raw) && raw !== description;
+  const [showRaw, setShowRaw] = useState(false);
+  const shownDescription = showRaw && rawAvailable ? raw : description;
+
+  // One line rather than a panel: what a machine had a hand in, if anything.
+  const aiMark = enrichedTooltip(ev) || (rawAvailable ? 'The description was rewritten from the listing.' : '');
+  const aiTitle = rawAvailable
+    ? [aiMark, '', 'Click to read it as the source published it.'].join(NEWLINE)
+    : aiMark;
 
   return (
     <div className="detail__backdrop" onClick={onClose} role="presentation">
@@ -165,10 +180,28 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
           </div>
         )}
 
-        {description && (
+        {shownDescription && (
           <div className="detail__block">
             <h4>Details</h4>
-            <p className="detail__description">{description}</p>
+            <p className="detail__description">
+              {shownDescription}
+              {/* The whole AI note, reduced to one mark against the paragraph it
+                  is actually about. It is also the switch: the rewrite is
+                  usually an improvement and sometimes a loss, and reading what
+                  the source wrote should not mean opening the source. */}
+              {aiMark && (
+                <button
+                  className={`aimark${showRaw ? ' is-off' : ''}`}
+                  onClick={() => rawAvailable && setShowRaw(!showRaw)}
+                  disabled={!rawAvailable}
+                  aria-pressed={!showRaw}
+                  title={aiTitle}
+                >
+                  {showRaw ? '✧' : '✨'}
+                </button>
+              )}
+            </p>
+            {showRaw && <p className="detail__sub">As the source published it.</p>}
           </div>
         )}
 
@@ -220,23 +253,19 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
           </div>
         </div>
 
-        {groups.length > 0 && (
-          /* Placed after Sources deliberately: the point of comparison for
-             "who wrote this" is where the listing came from. Named per pass
-             rather than as one blanket "AI", because reading a flyer and
-             rewriting a blurb are different claims with different failure
-             modes. */
-          <div className="detail__block detail__block--ai">
-            <h4>✨ AI-assisted</h4>
-            <ul className="detail__ai">
-              {groups.map((g) => (
-                <li key={g.by}>{g.label}: {g.fields}.</li>
-              ))}
-            </ul>
-            <p className="detail__sub">
-              Everything else is as the source published it.
-            </p>
-          </div>
+        {editMode && (
+          editing ? (
+            <EventEditor ev={ev} onDone={() => setEditing(false)} />
+          ) : (
+            <div className="detail__block">
+              <button className="ghost" onClick={() => setEditing(true)}>&#9998; Edit this event</button>
+              {ev.edited.length > 0 && (
+                <p className="hint" style={{ marginTop: 6 }}>
+                  Edited by hand: {ev.edited.join(', ')}.
+                </p>
+              )}
+            </div>
+          )
         )}
 
         {links.length > 0 && (

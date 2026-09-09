@@ -174,9 +174,12 @@ the task off and everything reverts. The category is pinned to an enum of known
 categories, scores are clamped, and extraction is ignored for fields the source
 already filled.
 
-Anything a model wrote is marked as such: an ✨ AI badge on the card, and a
-footnote in the detail view naming the fields and which pass supplied them. The
-API says the same thing in the `enriched` object on every event.
+Anything a model wrote is marked as such: an ✨ AI badge on the card, and a ✨
+against the description in the detail view whose tooltip names every field a
+model supplied. That mark is also a switch — press it to read the blurb as the
+source published it, since a tidy-up is usually an improvement and occasionally
+drops something worth keeping. The API says the same in `enriched`, and carries
+the original text as `rawDescription`.
 
 An event is read once. A content hash of the text, model and prompt version is
 stored, so a run only picks up what is new or changed. Each pass takes
@@ -304,6 +307,7 @@ A `5xx` says only that something went wrong; what it was goes to the log.
 |---|---|
 | `GET /api/events` | Upcoming events, merged and de-duplicated. An array. |
 | `GET /api/events/:group` | One event by its `group`, upcoming or past. `404` if there is no such group. |
+| `PATCH /api/events/:group` | Change an event by hand. Body carries only the fields you are changing; `""` or `null` drops the override. |
 | `POST /api/refresh` | Refresh now. `409` if one is already running. |
 | `POST /api/archive` | Archive finished events now. |
 | `POST /api/merge` | Body `{ groups: string[] }`, at least two. |
@@ -338,6 +342,26 @@ applied, so a caller paging through knows when to stop.
 ```bash
 curl 'http://localhost:3001/api/events?place=Bathurst&from=2026-09-25&to=2026-09-27&minScore=60'
 ```
+
+#### Editing an event by hand
+
+Press **✎ Edit** in the top bar, open an event and change what is wrong. What
+you type beats the listing, the flyer and the model alike, and survives every
+refresh — the overrides live in their own columns, so nothing overwrites them
+and clearing a field puts back whatever would otherwise have shown.
+
+Editable: `title`, `startTime`, `venueName`, `address`, `category`, `priceText`,
+`photoScore`, `imageUrl` and `description`. The picture is worth naming: a
+listing's image is whatever the organiser posted, which for the Bathurst 1000 is
+a series graphic advertising two rounds at two different circuits.
+
+```bash
+curl -X PATCH -H 'Content-Type: application/json' -H 'Authorization: Bearer <token>'   -d '{"venueName": "Mount Panorama", "imageUrl": null}'   http://localhost:3001/api/events/<group>
+```
+
+Each event reports which fields were changed this way in `edited`, and a hand
+edit clears that field's entry in `enriched` — what you typed is not what a
+model wrote.
 
 #### Calling it from another site
 

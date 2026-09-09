@@ -24,7 +24,7 @@ import {
   sessionValid,
   setPassword,
 } from './authStore.js';
-import { getMergedEvent, getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
+import { editGroup, EditError, getMergedEvent, getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
 import { filterEvents, paginate, parseEventQuery, QueryError } from './query.js';
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
@@ -264,6 +264,25 @@ app.get('/api/events', (req, res) => {
   const { page, total } = paginate(found, query);
   res.set('X-Total-Count', String(total));
   res.json(page);
+});
+
+/**
+ * Change an event by hand, from edit mode on the Events page.
+ *
+ * A write, so the password gates it like any other. Send only the fields you
+ * are changing; send a field as "" or null to drop the override and put back
+ * whatever the sources, the flyer or the model would have shown.
+ */
+app.patch('/api/events/:group', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    res.json({ ...editGroup(req.params.group, body), event: getMergedEvent(req.params.group) });
+  } catch (err) {
+    if (err instanceof EditError) {
+      return res.status(/^Unknown event/.test(err.message) ? 404 : 400).json({ error: err.message });
+    }
+    throw err;
+  }
 });
 
 app.get('/api/events/:group', (req, res) => {

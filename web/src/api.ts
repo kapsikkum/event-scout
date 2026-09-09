@@ -36,6 +36,29 @@ export interface MergedEvent {
    * Absent fields are as published. Empty whenever the tasks have not run.
    */
   enriched: Record<string, 'model' | 'flyer'>;
+  /**
+   * Fields changed by hand in edit mode. These beat the scraped value, the
+   * flyer and the model alike; clearing one puts back what would have shown.
+   */
+  edited: string[];
+  /**
+   * The blurb as published, when what is shown is not it. '' when they match.
+   * The detail view offers it behind the mark beside the paragraph.
+   */
+  rawDescription: string;
+}
+
+/** What edit mode may change. Send '' or null to drop an override. */
+export interface EventEdit {
+  title?: string | null;
+  description?: string | null;
+  startTime?: string | null;
+  venueName?: string | null;
+  address?: string | null;
+  category?: string | null;
+  priceText?: string | null;
+  imageUrl?: string | null;
+  photoScore?: number | null;
 }
 
 export interface EventMember {
@@ -346,6 +369,12 @@ export interface AuthStatus {
 
 export const api = {
   events: () => fetch('/api/events').then((r) => json<MergedEvent[]>(r)),
+  editEvent: (group: string, patch: EventEdit) =>
+    fetch(`/api/events/${encodeURIComponent(group)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).then((r) => json<{ updated: string[]; event: MergedEvent }>(r)),
   status: () => fetch('/api/status').then((r) => json<StatusResponse>(r)),
   settings: () => fetch('/api/settings').then((r) => json<Settings>(r)),
   saveSettings: (s: Partial<Settings>) =>

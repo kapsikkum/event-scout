@@ -48,6 +48,15 @@ function row(over: Partial<EventRow> = {}): EventRow {
     vision_address: '',
     vision_price_text: '',
     vision_note: '',
+    edit_title: '',
+    edit_description: '',
+    edit_start_time: '',
+    edit_venue_name: '',
+    edit_address: '',
+    edit_category: '',
+    edit_price_text: '',
+    edit_image_url: '',
+    edit_photo_score: null,
     ...over,
   };
 }
