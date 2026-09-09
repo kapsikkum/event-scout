@@ -4,6 +4,7 @@ import { consensusStart, isOver } from './validate.js';
 import { localityOf } from './regions.js';
 import { assignPlaces, hubsFromSettings } from './places.js';
 import { cachedGeocode } from './geocode.js';
+import { blendPhotoScore } from './enrich/schema.js';
 
 export interface EventRow {
   id: number;
@@ -29,6 +30,18 @@ export interface EventRow {
   hidden: number;
   dedupe_group: string;
   manual_group: string;
+  /**
+   * What a local model made of the row, kept apart from the scraped values so
+   * the refresh's own repair passes cannot fight it and switching the task off
+   * restores exactly what was there before. Empty when it has not looked, or
+   * when it declined to answer for that field. See enrich/pipeline.ts.
+   */
+  llm_description: string;
+  llm_category: string;
+  llm_venue_name: string;
+  llm_address: string;
+  llm_price_text: string;
+  llm_photo_score: number | null;
 }
 
 export interface EventMember {
@@ -112,7 +125,36 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       return get(members[0]);
     };
     const str = (get: (r: EventRow) => string) => pick(get, (v) => Boolean(v && v.length));
+    /**
+     * The model's answer instead of the scraped one.
+     *
+     * For the two fields where replacing is the entire point: a rewritten blurb
+     * is meant to supplant the CMS soup it was made from, and a category is
+     * meant to supplant the keyword classifier's guess.
+     *
+     * This is the only place the two are chosen between, which is what keeps
+     * enrichment from being load-bearing: with the task off, or before it has
+     * run, every one of these falls straight through to what was scraped.
+     */
+    const preferLlm = (llm: (r: EventRow) => string, scraped: (r: EventRow) => string): string =>
+      str(llm) || str(scraped);
+
+    /**
+     * The model's answer only where there was nothing.
+     *
+     * Venue, address and price are facts the source stated, not opinions to be
+     * improved on, and a model asked to look at one will find something to say
+     * about it: given a listing whose venue was "Nelsonville, Ohio" and whose
+     * address was "International", qwen3 decided they were the wrong way round
+     * and swapped them. Both were then wrong. Asking it to leave populated
+     * fields alone helps; not consulting it about them cannot fail.
+     */
+    const fillBlank = (llm: (r: EventRow) => string, scraped: (r: EventRow) => string): string =>
+      str(scraped) || str(llm);
     const longestDesc = members.reduce((best, m) => (m.description.length > best.length ? m.description : best), '');
+    // A tidied blurb is preferred over the longest raw one: length was only
+    // ever a stand-in for "most complete", and a rewritten one beats it.
+    const bestDesc = str((r) => r.llm_description) || longestDesc;
     // A merge is worth doing partly for this: a listing with no picture
     // inherits one from its twin. Distinct images are kept so nothing is lost.
     const images = [...new Set(members.map((m) => m.image_url).filter(Boolean))];
@@ -120,21 +162,23 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
     merged.push({
       group,
       title: str((r) => r.title),
-      description: longestDesc,
+      description: bestDesc,
       // Not members[0]: rows arrive sorted by start, so a lone listing with a
       // date a day early would set the whole group's day. The date most
       // members agree on is the one to show.
       startTime: consensusStart(members.map((m) => m.start_time)),
       endTime: members.find((m) => m.end_time)?.end_time ?? null,
-      venueName: str((r) => r.venue_name),
-      address: str((r) => r.address),
+      venueName: fillBlank((r) => r.llm_venue_name, (r) => r.venue_name),
+      address: fillBlank((r) => r.llm_address, (r) => r.address),
       // Derived here rather than in the browser: reading a locality out of an
       // address means knowing every country's postal tail, and that table
       // belongs in one place. See regions.ts. The venue field is tried too,
       // because a good few sources put the street address in it and leave the
       // address empty — those are exactly the rows that need a locality most,
       // since without one they head their own group by street number.
-      locality: localityOf(str((r) => r.address)) || localityOf(str((r) => r.venue_name)),
+      locality:
+        localityOf(fillBlank((r) => r.llm_address, (r) => r.address)) ||
+        localityOf(fillBlank((r) => r.llm_venue_name, (r) => r.venue_name)),
       // Filled in below, once every event is known: which town an event
       // rounds to depends on what the others taught about its suburb.
       place: '',
@@ -142,10 +186,15 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       lng: members.find((m) => m.lng != null)?.lng ?? null,
       imageUrl: images[0] ?? '',
       images,
-      category: str((r) => r.category),
-      priceText: str((r) => r.price_text),
+      category: preferLlm((r) => r.llm_category, (r) => r.category),
+      priceText: fillBlank((r) => r.llm_price_text, (r) => r.price_text),
       isOnline: members.every((m) => m.is_online === 1),
-      photoScore: Math.max(...members.map((m) => m.photo_score)),
+      // Blended rather than replaced: the keyword heuristic is deterministic
+      // and tuned on listings that have actually turned up here, and the model
+      // has judgement about the ones its regexes never see. See schema.ts.
+      photoScore: Math.max(
+        ...members.map((m) => blendPhotoScore(m.photo_score, m.llm_photo_score))
+      ),
       starred: members.some((m) => m.starred === 1),
       hidden: members.some((m) => m.hidden === 1),
       sources: members.map((m) => ({ source: m.source, url: m.url })),

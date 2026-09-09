@@ -6,6 +6,7 @@ import {
   runWazePass,
   runWazeSignInPass,
 } from '../densityRefresh.js';
+import { runEnrichment } from '../enrich/pipeline.js';
 import { createRegistry } from './registry.js';
 
 /**
@@ -131,6 +132,19 @@ tasks.register({
   setEnabled: (on) => saveSettings({ ...getSettings(), densityEnabled: on }),
   lockGroup: BROWSER,
   run: (log) => runDensityScrape(log),
+});
+
+tasks.register({
+  name: 'enrich',
+  label: 'Read listings with a local model',
+  description: 'Ask a local Ollama to tidy descriptions, categorise, fill in blank venue and price fields, and judge photo appeal. Everything it says is stored beside the scraped values, never over them.',
+  // Same arrangement as density: a frequent tick over a slower interval, so the
+  // interval can be changed without a restart.
+  schedule: '*/5 * * * *',
+  intervalMinutes: () => Math.max(5, getSettings().llmIntervalMinutes ?? 60),
+  enabled: () => Boolean(getSettings().llmEnabled),
+  setEnabled: (on) => saveSettings({ ...getSettings(), llmEnabled: on }),
+  run: (log) => runEnrichment(log),
 });
 
 tasks.register({

@@ -28,6 +28,8 @@ import { getPhotoConditions } from './photo.js';
 import { listAreas, renderArea, venueHistory, venueReadings, wazeSnapshot } from './density/pipeline.js';
 import { pickAreas } from './density/areas.js';
 import { getDensityStatus } from './densityRefresh.js';
+import { clearEnrichment, getLlmStatus } from './enrich/pipeline.js';
+import { ENRICH_JOBS } from './enrich/schema.js';
 import { tasks } from './tasks/tasks.js';
 import { runDueTasksOnStartup, startScheduler } from './tasks/scheduler.js';
 import { DEFAULT_SETTINGS, Settings } from './sources/types.js';
@@ -143,7 +145,7 @@ app.put('/api/settings', (req, res) => {
     enabledSources: { ...current.enabledSources, ...(body.enabledSources ?? {}) },
   };
   // Keep arrays sane if the client sends junk
-  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled'] as const) {
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled', 'llmJobs'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
   saveSettings(next);
@@ -298,6 +300,18 @@ app.post('/api/refresh', async (_req, res) => {
   const result = await tasks.run('events', { force: true });
   if (!result.ok) return res.status(409).json({ error: result.message });
   res.json({ sources: getStatuses(), lastRefresh: getKv('lastRefresh') });
+});
+
+// --- local model ------------------------------------------------------------
+
+app.get('/api/llm/status', async (_req, res) => {
+  res.json({ ...(await getLlmStatus()), availableJobs: ENRICH_JOBS });
+});
+
+// Forget every verdict so the next pass reconsiders everything. What you reach
+// for after changing model or prompt; the scraped values are untouched.
+app.post('/api/llm/reset', (_req, res) => {
+  res.json({ ok: true, cleared: clearEnrichment() });
 });
 
 // --- tasks ------------------------------------------------------------------

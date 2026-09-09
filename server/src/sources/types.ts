@@ -49,6 +49,24 @@ export interface Settings {
    * settings that already exist for them, so there is one answer rather than two.
    */
   tasksDisabled: string[];
+  /**
+   * Read scraped listings with a local model, as a background task. Off by
+   * default, and nothing depends on it: every verdict is stored beside the
+   * scraped value rather than over it.
+   */
+  llmEnabled: boolean;
+  /**
+   * An Ollama. Blank uses `OLLAMA_URL`, then `http://localhost:11434`. In
+   * Docker the host's is `http://host.docker.internal:11434` — localhost inside
+   * a container is the container.
+   */
+  llmUrl: string;
+  llmModel: string;
+  /** Which of 'describe' | 'classify' | 'extract' | 'score' to ask for. */
+  llmJobs: string[];
+  llmIntervalMinutes: number;
+  /** Events per pass. A backlog drains over several runs rather than one long one. */
+  llmMaxPerRun: number;
   enabledSources: Record<string, boolean>;
   /** Scrape venue density on a timer, alongside the event sources. */
   densityEnabled: boolean;
@@ -126,6 +144,12 @@ export const DEFAULT_SETTINGS: Settings = {
   icalFeeds: [],
   midnightspecStates: [],
   tasksDisabled: [],
+  llmEnabled: false,
+  llmUrl: '',
+  llmModel: '',
+  llmJobs: ['describe', 'classify', 'extract', 'score'],
+  llmIntervalMinutes: 60,
+  llmMaxPerRun: 40,
   densityEnabled: false,
   densityIntervalMinutes: 60,
   densityAreas: [],

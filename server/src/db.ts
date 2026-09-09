@@ -78,6 +78,44 @@ function migrate(): void {
   if (!cols.includes('geocode_tried')) {
     db.exec('ALTER TABLE events ADD COLUMN geocode_tried INTEGER NOT NULL DEFAULT 0');
   }
+
+  /**
+   * What a local model made of a listing, kept beside the scraped values
+   * rather than on top of them.
+   *
+   * This is the whole safety of the enrichment pass. `reclassifyAll` and
+   * `repairAddresses` rewrite category, address and description on every
+   * refresh, so anything written in place would be overwritten within the hour
+   * and the two would fight. Apart, the model only ever offers an alternative:
+   * turning the task off restores exactly the previous behaviour, and a bad run
+   * cannot damage anything that was scraped.
+   */
+  for (const col of ['llm_description', 'llm_category', 'llm_venue_name', 'llm_address', 'llm_price_text']) {
+    if (!cols.includes(col)) db.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!cols.includes('llm_photo_score')) {
+    db.exec('ALTER TABLE events ADD COLUMN llm_photo_score REAL');
+  }
+
+  /**
+   * One row per event already looked at, keyed by a hash of the text that was
+   * looked at plus the model and prompt version.
+   *
+   * Without this every run would re-process the whole database; with it an
+   * event costs one inference ever, and is reconsidered only when its own text
+   * changes or the model does. Kept in its own table so clearing it — the way
+   * to force a re-run — cannot touch the events.
+   */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS event_enrichment (
+      event_id INTEGER PRIMARY KEY,
+      content_hash TEXT NOT NULL,
+      model TEXT NOT NULL,
+      ok INTEGER NOT NULL DEFAULT 1,
+      note TEXT DEFAULT '',
+      enriched_at TEXT NOT NULL
+    )
+  `);
 }
 migrate();
 

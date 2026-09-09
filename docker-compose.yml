@@ -39,9 +39,18 @@ services:
       # Leave it unset to set one from the Settings page instead, or to run
       # wide open, which is what the port below is by default.
       AUTH_PASSWORD: 
+      # An Ollama for the optional "read listings with a local model" task.
+      # From inside a container the host's own Ollama is host.docker.internal,
+      # never localhost — localhost here is this container. Only a default; the
+      # Settings page can point it anywhere.
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       # Affects when an event counts as past. Override in a .env file
       # alongside this one, e.g. TZ=America/Denver.
       TZ: ${TZ:-Australia/Sydney}
+    # Makes host.docker.internal resolve on Linux, where it otherwise does not.
+    # Harmless on Docker Desktop, which provides it anyway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Published on every interface, so anything that can reach this machine can
     # reach the app. Set AUTH_PASSWORD above before exposing it beyond a network
     # you trust, or bind it to localhost with "127.0.0.1:3001:3001".

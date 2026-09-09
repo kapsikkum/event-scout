@@ -68,6 +68,12 @@ export interface Settings {
   icalFeeds: { name: string; url: string }[];
   midnightspecStates: string[];
   tasksDisabled: string[];
+  llmEnabled: boolean;
+  llmUrl: string;
+  llmModel: string;
+  llmJobs: string[];
+  llmIntervalMinutes: number;
+  llmMaxPerRun: number;
   enabledSources: Record<string, boolean>;
   densityEnabled: boolean;
   densityIntervalMinutes: number;
@@ -87,6 +93,22 @@ export interface DensityStatus {
   nextDue: string | null;
   areas: DensityArea[];
   log: string[];
+}
+
+/** What the local model can be asked to do, and how the pass is getting on. */
+export interface LlmStatus {
+  enabled: boolean;
+  url: string;
+  model: string;
+  jobs: string[];
+  reachable: boolean;
+  /** Why not, when unreachable. */
+  problem: string;
+  models: { name: string; size: number }[];
+  modelInstalled: boolean;
+  /** Events still waiting to be read. */
+  backlog: number;
+  availableJobs: { key: string; label: string; hint: string }[];
 }
 
 /** One background job, as the Tasks page shows it. */
@@ -302,6 +324,8 @@ export const api = {
   feedToken: () => fetch('/api/auth/feed-token').then((r) => json<{ token: string }>(r)),
   regenerateFeedToken: () =>
     fetch('/api/auth/feed-token', { method: 'POST' }).then((r) => json<{ token: string }>(r)),
+  llmStatus: () => fetch('/api/llm/status').then((r) => json<LlmStatus>(r)),
+  llmReset: () => fetch('/api/llm/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),
   tasks: () => fetch('/api/tasks').then((r) => json<{ tasks: TaskStatus[] }>(r)),
   // A refused run — already going, or sharing a busy browser — answers 409 with
   // a reason worth showing, so the body is read either way rather than thrown.

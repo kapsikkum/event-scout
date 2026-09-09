@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, DensityStatus, EventTopic, GeocodeResult, Settings as SettingsType, SourceStatus } from '../api';
+import { api, DensityStatus, EventTopic, GeocodeResult, LlmStatus, Settings as SettingsType, SourceStatus } from '../api';
 import { useStore } from '../store';
 
 /** Newline, as a constant so the textarea handlers stay readable. */
@@ -173,6 +173,162 @@ function SecuritySection() {
         </>
       )}
 
+      {msg && <p className="hint" style={{ marginBottom: 0 }}>{msg}</p>}
+    </section>
+  );
+}
+
+/**
+ * The local model.
+ *
+ * Off by default and nothing depends on it: every verdict is stored beside the
+ * scraped value, so switching it off restores exactly the previous behaviour.
+ * That is worth saying on the page, because "let a model rewrite my data" is a
+ * reasonable thing to be wary of.
+ */
+function LocalModelSection({
+  draft,
+  set,
+}: {
+  draft: SettingsType;
+  set: (patch: Partial<SettingsType>) => void;
+}) {
+  const [llm, setLlm] = useState<LlmStatus | null>(null);
+  const [msg, setMsg] = useState('');
+
+  const reload = () => api.llmStatus().then(setLlm).catch(() => setLlm(null));
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  const jobs = llm?.availableJobs ?? [];
+
+  return (
+    <section>
+      <h2>
+        🧠 Local model
+        <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <input
+            type="checkbox"
+            checked={draft.llmEnabled === true}
+            onChange={(e) => set({ llmEnabled: e.target.checked })}
+          />{' '}
+          enabled
+        </label>
+      </h2>
+      <p className="hint">
+        Reads scraped listings with a local{' '}
+        <a href="https://ollama.com" target="_blank" rel="noreferrer">
+          Ollama
+        </a>{' '}
+        and stores what it makes of them <em>beside</em> the scraped values, never
+        over them — so turning this off puts everything back exactly as it was.
+        It runs as its own task, not inside a refresh, because a pass is minutes
+        of local inference.
+      </p>
+
+      <div className="formrow">
+        <label>Ollama URL</label>
+        <input
+          value={draft.llmUrl}
+          placeholder="http://localhost:11434"
+          onChange={(e) => set({ llmUrl: e.target.value })}
+        />
+        <button onClick={() => void reload()}>Check</button>
+      </div>
+
+      {llm && !llm.reachable && (
+        <p className="hint" style={{ color: 'var(--red)' }}>
+          {llm.problem}. In Docker the host&apos;s Ollama is{' '}
+          <code>http://host.docker.internal:11434</code>, not localhost.
+        </p>
+      )}
+
+      <div className="formrow">
+        <label>Model</label>
+        {llm?.reachable && llm.models.length > 0 ? (
+          <select value={draft.llmModel} onChange={(e) => set({ llmModel: e.target.value })}>
+            <option value="">Choose a model…</option>
+            {llm.models.map((m) => (
+              <option key={m.name} value={m.name}>
+                {m.name} ({Math.round(m.size / 1e9)} GB)
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input value={draft.llmModel} onChange={(e) => set({ llmModel: e.target.value })} />
+        )}
+      </div>
+      <p className="hint" style={{ marginTop: -4 }}>
+        A small instruct model is plenty — the answers are short and the schema is
+        enforced. Bigger models are slower per event, not obviously better at this.
+      </p>
+
+      <div className="formrow">
+        <label>Jobs</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {jobs.map((job) => (
+            <label className="toggle" key={job.key} style={{ fontWeight: 400 }}>
+              <input
+                type="checkbox"
+                checked={draft.llmJobs.includes(job.key)}
+                onChange={(e) =>
+                  set({
+                    llmJobs: e.target.checked
+                      ? [...draft.llmJobs, job.key]
+                      : draft.llmJobs.filter((j) => j !== job.key),
+                  })
+                }
+              />{' '}
+              <strong>{job.label}</strong> — <span className="hint" style={{ margin: 0 }}>{job.hint}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="formrow">
+        <label>Every</label>
+        <input
+          type="number"
+          min={5}
+          max={1440}
+          style={{ maxWidth: 90 }}
+          value={draft.llmIntervalMinutes}
+          onChange={(e) => set({ llmIntervalMinutes: Number(e.target.value) })}
+        />
+        <span className="hint" style={{ margin: 0 }}>minutes,</span>
+        <input
+          type="number"
+          min={1}
+          max={500}
+          style={{ maxWidth: 90 }}
+          value={draft.llmMaxPerRun}
+          onChange={(e) => set({ llmMaxPerRun: Number(e.target.value) })}
+        />
+        <span className="hint" style={{ margin: 0 }}>events per pass</span>
+      </div>
+
+      {llm && (
+        <p className="hint" style={{ marginBottom: 6 }}>
+          {llm.reachable ? `Reachable — ${llm.models.length} models installed. ` : ''}
+          {llm.backlog > 0
+            ? `${llm.backlog} event${llm.backlog === 1 ? '' : 's'} waiting to be read.`
+            : 'Nothing waiting.'}{' '}
+          Run it from the Tasks page.
+        </p>
+      )}
+
+      <button
+        className="ghost"
+        onClick={() =>
+          void api.llmReset().then((r) => {
+            setMsg(`Forgot ${r.cleared} verdict${r.cleared === 1 ? '' : 's'}; the next pass reconsiders everything.`);
+            void reload();
+          })
+        }
+      >
+        Forget what it decided
+      </button>
       {msg && <p className="hint" style={{ marginBottom: 0 }}>{msg}</p>}
     </section>
   );
@@ -544,6 +700,8 @@ export default function Settings() {
         </div>
         {densityMsg && <p className="hint" style={{ marginTop: 8 }}>{densityMsg}</p>}
       </section>
+
+      <LocalModelSection draft={draft} set={set} />
 
       {lastSearch.length > 0 && (
         <section>

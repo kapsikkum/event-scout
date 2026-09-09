@@ -230,6 +230,73 @@ verdict so the next pass reconsiders from scratch; it never touches scraped data
 
 Routes: `GET /api/llm/status`, `POST /api/llm/reset`.
 
+## Reading listings with a local model
+
+Optional, off by default, and nothing else depends on it. Point Settings →
+**Local model** at an [Ollama](https://ollama.com) and it runs as a task,
+reading scraped listings and offering four things:
+
+| Job | What it does |
+|---|---|
+| Tidy descriptions | Rewrite a CMS-soup blurb into two or three plain sentences, dropping hashtags, emoji, ticket boilerplate and "link in bio". |
+| Categorise | Pick a category, for the listings the keyword classifier files under the catch-all. |
+| Fill in blanks | Read a venue, address or price out of the description **when the stored field is empty**. |
+| Judge photo appeal | Rate how worth shooting an event is, averaged with the keyword score rather than replacing it. |
+
+Each is switched on and off separately, and only the ones you ask for are put
+to the model — the JSON Schema is built from them, so a job that is off cannot
+produce a field at all.
+
+### What keeps this safe to turn on
+
+**Verdicts are stored beside the scraped values, never over them.** They live in
+their own `llm_*` columns, and `events.ts` is the only place the two are chosen
+between. Switch the task off and everything reverts exactly, because the scraped
+value was never touched. It also has to work this way: `reclassifyAll` and
+`repairAddresses` rewrite category, address and description on every refresh, so
+anything written in place would be overwritten within the hour.
+
+**Extraction fills blanks only.** Venue, address and price are facts the source
+stated, not opinions to improve on — and a model asked to look at one will find
+something to say. Given a listing whose venue was "Nelsonville, Ohio" and whose
+address was "International", qwen3 decided they were the wrong way round and
+swapped them; both were then wrong. The prompt asks it to leave populated fields
+alone, and `events.ts` does not consult it about them regardless.
+
+**The category is pinned to an `enum`** of the categories the UI filter knows
+about, so the model cannot invent a new heading. Scores are clamped, summaries
+truncated, and the several prose ways of saying "I don't know" ("N/A", "none",
+"not specified") are treated as no answer rather than stored as a venue name.
+
+**The listing is fenced and labelled as untrusted data** in the prompt, since
+these descriptions are scraped from pages anyone can publish.
+
+### Cost, and why it is affordable
+
+An event is read **once, ever**. A content hash over the text that was read —
+plus the model name, the job set and a prompt version — is stored per event, so
+a run only picks up what is new, edited, or affected by a settings change.
+Without that, every pass would re-process the whole database.
+
+A pass takes `llmMaxPerRun` events (default 40) oldest-first, so a backlog
+drains over several runs rather than one very long one. Expect roughly 15–20
+seconds an event on an 8B model on CPU — which is exactly why this is its own
+task rather than part of a refresh, where a slow model would be
+indistinguishable from a hung source.
+
+The cost of that separation, stated plainly: a venue the model reads out of a
+description is picked up by the *next* refresh's geocoding pass, not the same
+one. One cycle of latency, not a loss.
+
+### Configuration
+
+Blank `llmUrl` uses `OLLAMA_URL`, then `http://localhost:11434`. In Docker the
+host's Ollama is `http://host.docker.internal:11434` — localhost inside a
+container is the container. **Forget what it decided** in Settings clears every
+verdict so the next pass reconsiders from scratch; it never touches scraped data.
+
+Routes: `GET /api/llm/status`, `POST /api/llm/reset`.
+
 ## Venue density
 
 Density sampling runs as one of event-scout's background tasks, on its own
