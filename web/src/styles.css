@@ -764,3 +764,38 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   padding: 18px 20px 20px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
 }
+
+/* Settings sub-tabs. Same pill as the top bar's nav, so the two read as the
+   same kind of control at two levels rather than as two different widgets. */
+.subtabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.subtabs button {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 6px 13px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+.subtabs button:hover { color: var(--text); background: var(--panel-2); border-color: transparent; }
+.subtabs button.active { color: var(--accent); background: var(--accent-soft); }
+
+/* The tasks list reuses the settings panel, so a row only needs its own
+   internal layout: the name and controls on one line, details beneath. */
+.taskrow { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.taskrow__actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.taskmeta { margin: 0; display: flex; gap: 16px; flex-wrap: wrap; }
+.taskmeta button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font-size: inherit;
+}
+.taskmeta button:hover { background: none; border-color: transparent; text-decoration: underline; }

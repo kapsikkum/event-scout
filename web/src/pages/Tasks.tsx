@@ -99,9 +99,8 @@ export default function Tasks() {
   if (!tasks) return <p>Loading…</p>;
 
   return (
-    <div>
-      <h1 style={{ marginTop: 0 }}>Tasks</h1>
-      <p className="hint" style={{ marginTop: -8 }}>
+    <>
+      <p className="hint" style={{ margin: '0 0 14px' }}>
         The jobs that run in the background. Each one refuses to start a second
         copy of itself, and the four that drive a browser take it in turns.
       </p>
@@ -112,16 +111,15 @@ export default function Tasks() {
         </p>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {tasks.map((task) => (
-          <section key={task.name} style={{ margin: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+      {tasks.map((task) => (
+        <section key={task.name}>
+            <div className="taskrow">
               <strong style={{ fontSize: 15.5 }}>{task.label}</strong>
               <State task={task} />
               <span className="hint" style={{ margin: 0 }}>
                 {every(task)}
               </span>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div className="taskrow__actions">
                 {task.canDisable && (
                   <label className="toggle" style={{ fontWeight: 400 }}>
                     <input type="checkbox" checked={task.enabled} onChange={() => void toggle(task)} /> enabled
@@ -140,7 +138,7 @@ export default function Tasks() {
               {task.description}
             </p>
 
-            <div className="hint" style={{ margin: 0, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <div className="hint taskmeta">
               <span>Last run {relative(task.lastRun)}</span>
               {/* A next-due already in the past means the tick has not come
                   round yet, not that something is wrong — say "due" rather than
@@ -158,11 +156,7 @@ export default function Tasks() {
                 </span>
               )}
               {task.log.length > 0 && (
-                <button
-                  className="linkish"
-                  style={{ padding: 0, border: 0, background: 'none', color: 'var(--blue)' }}
-                  onClick={() => setOpen(open === task.name ? null : task.name)}
-                >
+                <button onClick={() => setOpen(open === task.name ? null : task.name)}>
                   {open === task.name ? 'hide log' : `log (${task.log.length})`}
                 </button>
               )}
@@ -177,9 +171,8 @@ export default function Tasks() {
                 ))}
               </div>
             )}
-          </section>
-        ))}
-      </div>
-    </div>
+        </section>
+      ))}
+    </>
   );
 }
