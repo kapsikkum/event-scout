@@ -325,7 +325,7 @@ Commit subjects follow
 |---|---|
 | `fix:` | patch — 0.2.0 → 0.2.1 |
 | `feat:` | minor — 0.2.0 → 0.3.0 |
-| `feat!:` or a `BREAKING CHANGE:` footer | major; minor while the major is 0 |
+| `feat!:` or a `BREAKING CHANGE:` footer | minor while the major is 0, major after 1.0 (`bump-minor-pre-major`) |
 | `docs:` `refactor:` `perf:` `build:` `ci:` | in the changelog, no bump |
 | `chore:` `test:` `style:` | neither |
 

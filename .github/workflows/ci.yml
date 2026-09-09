@@ -85,11 +85,14 @@ jobs:
     # here rather than on the tag is deliberate — a tag pushed by the built-in
     # token does not start another workflow run, so a separate tag-triggered
     # job would never fire.
+    #
+    # Deliberately not gated on the release job succeeding. Publishing :latest
+    # is what a deploy needs; whether a release pull request could be opened is
+    # a separate concern, and letting it block the image left nothing to deploy.
     needs: [test, release]
     if: |
       always()
       && needs.test.result == 'success'
-      && needs.release.result != 'failure'
       && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
