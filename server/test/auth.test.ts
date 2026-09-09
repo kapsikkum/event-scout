@@ -2,9 +2,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
-import { needsAuth, readCookie, secureEqual, signSession, verifySession } from '../src/auth.js';
+import { needsAuth, readBearer, readCookie, secureEqual, signSession, verifySession } from '../src/auth.js';
 
 const SECRET = crypto.randomBytes(32);
+
+/**
+ * The reads that hand back a secret, which is the whole reason the rule is not
+ * simply "GET is open". Each of these was, or would have been, readable by
+ * anyone who could reach the port.
+ */
+test('a read that returns a secret is gated like a write', () => {
+  for (const path of ['/api/settings', '/api/auth/feed-token', '/api/auth/token']) {
+    assert.equal(needsAuth('GET', path), true, `${path} must not be readable`);
+    assert.equal(needsAuth('HEAD', path), true, `${path} must not be readable by HEAD either`);
+  }
+});
 
 test('reading is open and changing is not', () => {
   for (const path of ['/api/events', '/api/status', '/api/photo', '/api/topics', '/api/density/bathurst', '/api/tasks']) {
@@ -91,4 +103,25 @@ test('one cookie is picked out of the header, and a missing one is undefined', (
   assert.equal(readCookie(undefined, 'es_session'), undefined);
   // Values are stored url-encoded.
   assert.equal(readCookie('es_session=a%20b', 'es_session'), 'a b');
+});
+
+/**
+ * The bearer header, which stands in for the password where a cookie cannot go.
+ *
+ * The empty cases matter more than the happy one: a header with no credentials
+ * must read as nothing, because an empty token would otherwise compare equal to
+ * an instance that has never been given one.
+ */
+test('a bearer header yields the token, or nothing at all', () => {
+  assert.equal(readBearer('Bearer abc123'), 'abc123');
+  assert.equal(readBearer('bearer abc123'), 'abc123', 'the scheme is case-insensitive');
+  assert.equal(readBearer('BEARER   abc123  '), 'abc123', 'and the spacing is forgiving');
+  assert.equal(readBearer('Bearer\tabc123'), 'abc123', 'a tab separates as well as a space');
+  for (const header of [
+    undefined, '', '   ',
+    'Bearer', 'Bearer ', 'Bearer   ', 'Bearer\t',
+    'Basic abc123', 'abc123', 'Bearerabc123',
+  ]) {
+    assert.equal(readBearer(header), undefined, `${JSON.stringify(header)} should yield nothing`);
+  }
 });

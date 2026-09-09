@@ -241,8 +241,17 @@ Everything else is stored in the database and edited in the UI or through
 
 ## API
 
-JSON unless stated. With a password set, every non-`GET` needs the session
-cookie, as do `GET /api/settings` and `GET /api/auth/feed-token`.
+JSON unless stated. With a password set, every non-`GET` needs either the
+session cookie or an API token, as do `GET /api/settings`,
+`GET /api/auth/feed-token` and `GET /api/auth/token`.
+
+For scripts, make a token in Settings → Access → API token and send it as a
+bearer. It is the password in another form — anything the password permits, it
+permits — so treat it like one, and revoke it there when it is done with.
+
+```bash
+curl -X POST -H 'Authorization: Bearer <token>' http://localhost:3001/api/refresh
+```
 
 Errors are always `{ "error": "..." }` with a 4xx or 5xx status. A malformed
 query is a `400` rather than a silently unfiltered list — a filter that is
@@ -372,6 +381,9 @@ Names: `events`, `archive`, `density`, `enrich`, `vision`, `densityDiscover`.
 | `POST /api/auth/password` | Body `{ current, next }`. An empty `next` removes the password. |
 | `GET /api/auth/feed-token` | The calendar feed token. **Gated.** |
 | `POST /api/auth/feed-token` | Regenerate it, breaking existing subscriptions. |
+| `GET /api/auth/token` | The API token, or `""` if there is none. **Gated.** |
+| `POST /api/auth/token` | Create one, or replace the existing one. |
+| `DELETE /api/auth/token` | Revoke it without making a new one. |
 
 ### Density
 

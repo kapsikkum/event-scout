@@ -185,10 +185,12 @@ function SecuritySection({
   const [next, setNext] = useState('');
   const [msg, setMsg] = useState('');
   const [feed, setFeed] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth?.required || !auth.authed) return;
     api.feedToken().then((r) => setFeed(r.token)).catch(() => setFeed(null));
+    api.apiToken().then((r) => setToken(r.token)).catch(() => setToken(null));
   }, [auth?.required, auth?.authed]);
 
   async function save(clear: boolean): Promise<void> {
@@ -276,6 +278,46 @@ function SecuritySection({
               Regenerate
             </button>
           </div>
+        </>
+      )}
+
+      {auth?.required && (
+        <>
+          <h3 style={{ marginTop: 22 }}>API token</h3>
+          <p className="hint">
+            A script cannot sign in and keep a cookie, so it can send this
+            instead: <code>Authorization: Bearer …</code>. There is none until
+            you make one.
+          </p>
+          {token ? (
+            <>
+              <div className="feedrow">
+                <input readOnly value={token} onFocus={(e) => e.target.select()} />
+                <button onClick={() => void navigator.clipboard?.writeText(token)}>Copy</button>
+                <button
+                  className="ghost"
+                  onClick={() => void api.regenerateApiToken().then((r) => setToken(r.token))}
+                >
+                  Regenerate
+                </button>
+                <button
+                  className="ghost"
+                  onClick={() => void api.revokeApiToken().then((r) => setToken(r.token))}
+                >
+                  Revoke
+                </button>
+              </div>
+              <p className="hint" style={{ color: 'var(--red)' }}>
+                This is the password in another form: it can change settings and
+                read your keys. Treat it that way. Regenerating or revoking it
+                stops anything already using it.
+              </p>
+            </>
+          ) : (
+            <button onClick={() => void api.regenerateApiToken().then((r) => setToken(r.token))}>
+              Create a token
+            </button>
+          )}
         </>
       )}
 

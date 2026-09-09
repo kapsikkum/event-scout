@@ -134,3 +134,16 @@ test('the setting is read into origins, and junk is dropped', () => {
   assert.deepEqual(readOrigins('https://a.test'), [], 'not an array at all');
   assert.deepEqual(readOrigins(undefined), []);
 });
+
+/**
+ * The bearer token must never be reachable from another site. It is gated, so
+ * corsDecision refuses it by the same rule — and `Authorization` is absent from
+ * the allowed request headers, so a browser could not send one anyway.
+ */
+test('the API token is not reachable across origins', () => {
+  assert.equal(corsDecision(get({ path: '/api/auth/token' }), ['*']), null);
+  assert.doesNotMatch(
+    corsDecision(get({ method: 'OPTIONS', requestMethod: 'GET' }), [DASH])!.headers['Access-Control-Allow-Headers'],
+    /authorization/i
+  );
+});

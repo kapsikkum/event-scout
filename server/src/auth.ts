@@ -29,11 +29,13 @@ const OPEN_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/s
 /**
  * Reads that hand back a secret, and so cannot ride on "GET is open".
  *
- * These two are the whole reason the rule is not simply about the method.
- * `/api/settings` returns the Facebook cookie and every API key in plaintext; `/api/auth/feed-token` returns the secret that guards the
- * calendar feed, so leaving it open would hand over the thing it protects.
+ * These are the whole reason the rule is not simply about the method.
+ * `/api/settings` returns the Facebook cookie and every API key in plaintext;
+ * `/api/auth/feed-token` returns the secret that guards the calendar feed, and
+ * `/api/auth/token` the bearer that stands in for the password itself. Leaving
+ * any of them open would hand over the thing it protects.
  */
-const GATED_READS = new Set(['/api/settings', '/api/auth/feed-token']);
+const GATED_READS = new Set(['/api/settings', '/api/auth/feed-token', '/api/auth/token']);
 
 /**
  * Whether a request needs a signed-in session.
@@ -101,4 +103,18 @@ export function readCookie(header: string | undefined, name: string): string | u
 }
 
 /** How long a sign-in lasts. Long, because this is a tool you leave open. */
+/**
+ * The token out of an `Authorization: Bearer ...` header.
+ *
+ * Parsing lives here with the other rules rather than beside the stored value,
+ * so what counts as a well-formed header can be checked without a database.
+ * The scheme is case-insensitive per RFC 7235, and a header with no credentials
+ * after it is nothing rather than an empty token — which would otherwise
+ * compare equal to an unset secret.
+ */
+export function readBearer(header: string | undefined): string | undefined {
+  const match = /^Bearer\s+(\S.*)$/i.exec((header ?? '').trim());
+  return match ? match[1].trim() || undefined : undefined;
+}
+
 export const SESSION_DAYS = 30;

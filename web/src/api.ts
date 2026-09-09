@@ -367,6 +367,11 @@ export const api = {
   feedToken: () => fetch('/api/auth/feed-token').then((r) => json<{ token: string }>(r)),
   regenerateFeedToken: () =>
     fetch('/api/auth/feed-token', { method: 'POST' }).then((r) => json<{ token: string }>(r)),
+  apiToken: () => fetch('/api/auth/token').then((r) => json<{ token: string }>(r)),
+  regenerateApiToken: () =>
+    fetch('/api/auth/token', { method: 'POST' }).then((r) => json<{ token: string }>(r)),
+  revokeApiToken: () =>
+    fetch('/api/auth/token', { method: 'DELETE' }).then((r) => json<{ token: string }>(r)),
   llmStatus: () => fetch('/api/llm/status').then((r) => json<LlmStatus>(r)),
   llmReset: () => fetch('/api/llm/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),
   visionReset: () => fetch('/api/vision/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),

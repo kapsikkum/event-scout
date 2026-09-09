@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { getKv, setKv } from './db.js';
-import { scryptHash, secureEqual, signSession, verifySession, SESSION_DAYS } from './auth.js';
+import { readBearer, scryptHash, secureEqual, signSession, verifySession, SESSION_DAYS } from './auth.js';
 
 /**
  * The half of authentication that reaches the database.
@@ -98,6 +98,54 @@ export function regenerateFeedToken(): string {
 export function feedTokenValid(supplied: unknown): boolean {
   if (!passwordRequired()) return true;
   return typeof supplied === 'string' && supplied.length > 0 && secureEqual(supplied, feedToken());
+}
+
+// --- the API token ----------------------------------------------------------
+
+/**
+ * A bearer token, because a script cannot hold a cookie.
+ *
+ * Signing in is a form post that sets an httpOnly cookie, which is right for a
+ * browser and awkward for everything else: a cron job that stars an event or
+ * kicks off a refresh would have to log in, keep a cookie jar, and renew it.
+ * The token is the same authority in a form `curl -H` can send.
+ *
+ * The same authority is the point and the risk. It is not a read-only key:
+ * anything the password permits, this permits, settings included. So it is
+ * treated like the password — never returned without a session, compared
+ * without leaking how far the comparison got, and revocable on its own.
+ *
+ * Absent until asked for, so an instance that never needs one never has one.
+ */
+export function apiToken(): string {
+  return getKv('apiToken') ?? '';
+}
+
+export function regenerateApiToken(): string {
+  const token = crypto.randomBytes(32).toString('base64url');
+  setKv('apiToken', token);
+  return token;
+}
+
+/** Forget it, so a leaked token can be revoked without setting a new one. */
+export function clearApiToken(): void {
+  setKv('apiToken', '');
+}
+
+/**
+ * Whether this request carries the token.
+ *
+ * Only ever true while a password is required: with none set everything is open
+ * anyway, and answering "yes" to a bearer nobody configured would be a lie the
+ * rest of the code could come to depend on.
+ */
+export function apiTokenValid(header: string | undefined): boolean {
+  if (!passwordRequired()) return false;
+  const stored = apiToken();
+  if (!stored) return false;
+  const supplied = readBearer(header);
+  if (!supplied) return false;
+  return secureEqual(supplied, stored);
 }
 
 // --- brute force ------------------------------------------------------------

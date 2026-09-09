@@ -7,6 +7,9 @@ import { needsAuth, readCookie, SESSION_COOKIE } from './auth.js';
 import { corsDecision, readOrigins } from './cors.js';
 import {
   checkPassword,
+  apiToken,
+  apiTokenValid,
+  clearApiToken,
   feedToken,
   feedTokenValid,
   loginBlockedFor,
@@ -15,6 +18,7 @@ import {
   noteLoginSuccess,
   passwordIsFromEnv,
   passwordRequired,
+  regenerateApiToken,
   regenerateFeedToken,
   sessionValid,
   setPassword,
@@ -82,6 +86,10 @@ app.use('/api', (req, res, next) => {
   if (!passwordRequired()) return next();
   if (!needsAuth(req.method, req.baseUrl + req.path)) return next();
   if (sessionValid(readCookie(req.headers.cookie, SESSION_COOKIE))) return next();
+  // A script cannot hold a cookie, so a bearer token is the same authority in a
+  // form curl can send. Never granted across origins: Authorization is not on
+  // the CORS allowed-headers list, so a browser on another site cannot send it.
+  if (apiTokenValid(req.headers.authorization)) return next();
   res.status(401).json({ error: 'Sign in to change this' });
 });
 
@@ -161,6 +169,23 @@ app.get('/api/auth/feed-token', (_req, res) => {
 
 app.post('/api/auth/feed-token', (_req, res) => {
   res.json({ token: regenerateFeedToken() });
+});
+
+/**
+ * The API token. Gated like the feed token, and for the same reason: handing it
+ * out is handing over the thing it protects.
+ */
+app.get('/api/auth/token', (_req, res) => {
+  res.json({ token: apiToken() });
+});
+
+app.post('/api/auth/token', (_req, res) => {
+  res.json({ token: regenerateApiToken() });
+});
+
+app.delete('/api/auth/token', (_req, res) => {
+  clearApiToken();
+  res.json({ token: '' });
 });
 
 app.get('/api/settings', (_req, res) => {
