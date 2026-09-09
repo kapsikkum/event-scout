@@ -66,6 +66,7 @@ export interface Settings {
   eventTopics: string[];
   eventAreas: { name: string; lat?: number; lng?: number; radiusKm?: number }[];
   icalFeeds: { name: string; url: string }[];
+  midnightspecStates: string[];
   enabledSources: Record<string, boolean>;
   densityEnabled: boolean;
   densityIntervalMinutes: number;

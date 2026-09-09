@@ -5,6 +5,9 @@ import { useStore } from '../store';
 /** Newline, as a constant so the textarea handlers stay readable. */
 const LINE_BREAK = String.fromCharCode(10);
 
+/** The states the car-meet feed covers, in the order its own sitemap lists them. */
+const MIDNIGHTSPEC_STATES = ['nsw', 'vic', 'qld', 'wa', 'sa', 'nt'];
+
 /**
  * A textarea for the fields that hold a list.
  *
@@ -606,6 +609,58 @@ export default function Settings() {
         ))}
         <button onClick={() => set({ icalFeeds: [...draft.icalFeeds, { name: '', url: '' }] })}>+ Add feed</button>
         <StatusLine status={statusFor('ical')} />
+      </section>
+
+      <section>
+        <h2>
+          🏁 MIDNIGHT_SPEC car meets
+          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+            <input
+              type="checkbox"
+              checked={draft.enabledSources.midnightspec !== false}
+              onChange={(e) =>
+                set({ enabledSources: { ...draft.enabledSources, midnightspec: e.target.checked } })
+              }
+            />{' '}
+            enabled
+          </label>
+        </h2>
+        <p className="hint">
+          Australian car meets, track days, drift nights and Cars &amp; Coffee, from{' '}
+          <a href="https://meets.midnightspec.com" target="_blank" rel="noreferrer">
+            meets.midnightspec.com
+          </a>
+          . Needs no key. It is a national feed, so listings are kept only where the
+          town matches one of your areas — leave the states below unticked unless
+          you want to skip fetching some of them.
+        </p>
+        <div className="formrow">
+          <label>States</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            {MIDNIGHTSPEC_STATES.map((state) => (
+              <label className="toggle" key={state} style={{ fontWeight: 400 }}>
+                <input
+                  type="checkbox"
+                  checked={draft.midnightspecStates.includes(state)}
+                  onChange={(e) =>
+                    set({
+                      midnightspecStates: e.target.checked
+                        ? [...draft.midnightspecStates, state]
+                        : draft.midnightspecStates.filter((s) => s !== state),
+                    })
+                  }
+                />{' '}
+                {state.toUpperCase()}
+              </label>
+            ))}
+          </div>
+        </div>
+        <p className="hint" style={{ marginTop: 0 }}>
+          {draft.midnightspecStates.length === 0
+            ? 'None ticked — all six states are read.'
+            : `Reading ${draft.midnightspecStates.length} of 6 states.`}
+        </p>
+        <StatusLine status={statusFor('midnightspec')} />
       </section>
 
       <div className="savebar">

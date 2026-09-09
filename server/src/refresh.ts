@@ -4,6 +4,7 @@ import { photoScore } from './photoScore.js';
 import { eventbrite } from './sources/eventbrite.js';
 import { facebook } from './sources/facebook.js';
 import { icalSource } from './sources/ical.js';
+import { midnightspec } from './sources/midnightspec.js';
 import { seatgeek } from './sources/seatgeek.js';
 import { ticketmaster } from './sources/ticketmaster.js';
 import { websearch } from './sources/websearch.js';
@@ -14,7 +15,7 @@ import { cleanAddress, cleanDescription, validateAddress, validateDates, validat
 import { localitiesFrom, unifyVenueNames } from './venues.js';
 import { defaultRegionFrom } from './regions.js';
 
-export const ADAPTERS: EventSourceAdapter[] = [ticketmaster, seatgeek, eventbrite, facebook, websearch, icalSource];
+export const ADAPTERS: EventSourceAdapter[] = [ticketmaster, seatgeek, eventbrite, facebook, websearch, icalSource, midnightspec];
 
 let refreshing = false;
 let refreshStartedAt = 0;

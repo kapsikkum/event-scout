@@ -49,6 +49,7 @@ On first launch you'll land on **Settings**: search for your city (OpenStreetMap
 | **Facebook** | Optional logged-in cookie | **Unofficial scraper** — see warning below. |
 | **Web search** | Nothing (search terms optional) | **Unofficial scraper** — queries DuckDuckGo/Bing and extracts `schema.org/Event` data from result pages. See note below. |
 | **iCal feeds** | Feed URLs | Many city tourism sites, parks departments, and venues publish `.ics` calendars — great for festivals and free events. |
+| **MIDNIGHT_SPEC** | Nothing | Australian car meets, track days and Cars & Coffee. Reads `schema.org/Event` markup, not an API — see note below. |
 
 ### ⚠️ The Facebook source
 
@@ -61,6 +62,29 @@ This source needs no API key. For each search term it queries DuckDuckGo (fallin
 - It reads **structured data only**, not free-text snippets, so results are clean (real title, time, venue, coordinates) — but only pages that publish that markup contribute.
 - Large aggregators that block scrapers or omit JSON-LD (Facebook, Songkick, Bandsintown, Ticketmaster, etc.) are skipped automatically; blocked/empty pages are counted and reported in the source status, never fatal.
 - Search engines may rate-limit heavy scraping. Leave the terms empty to auto-search your city, or add specific terms like `live music this weekend <city>` or a venue name.
+
+### 🏁 The MIDNIGHT_SPEC source
+
+[meets.midnightspec.com](https://meets.midnightspec.com) aggregates public
+organiser posts into one national calendar of Australian car meets, track days,
+drift nights and Cars & Coffee. It needs no key and no configuration.
+
+Each of its six state pages (`/au/nsw`, `/au/vic`, …) publishes that state's
+entire list as a `schema.org/ItemList` in the page's JSON-LD, so six requests
+cover the whole feed — no browser, no pagination, and none of the client-side
+Supabase querying the front page does for its own list. The same JSON-LD
+extractor the Web search source uses parses it.
+
+Unlike the Facebook source, this one carries no terms-of-service caveat: the
+site's `robots.txt` allows every crawler by name, including the AI ones, and it
+ships `/llms.txt`, `/sitemap.md` and an Atom feed alongside. Every event keeps
+its own `/event/<id>` URL, so cards link back to the listing.
+
+It is a **national** feed and its listings carry no coordinates, so they are
+filtered against the towns you actually search before being stored — otherwise a
+50 km radius would pull in several hundred events from the other side of the
+country and spend months trying to geocode them. Ticking states in Settings
+narrows it further, saving one request each.
 
 ## Features
 

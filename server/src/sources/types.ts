@@ -36,6 +36,13 @@ export interface Settings {
    */
   eventAreas: EventArea[];
   icalFeeds: { name: string; url: string }[];
+  /**
+   * States to read from the MIDNIGHT_SPEC car-meet feed, lowercase and
+   * abbreviated ('nsw', 'vic', …). Empty means all of them; naming the ones
+   * near you saves a request each and nothing else, since listings are filtered
+   * on locality regardless.
+   */
+  midnightspecStates: string[];
   enabledSources: Record<string, boolean>;
   /** Scrape venue density on a timer, alongside the event sources. */
   densityEnabled: boolean;
@@ -111,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
   eventTopics: [],
   eventAreas: [],
   icalFeeds: [],
+  midnightspecStates: [],
   densityEnabled: false,
   densityIntervalMinutes: 60,
   densityAreas: [],
@@ -132,6 +140,7 @@ export const DEFAULT_SETTINGS: Settings = {
     facebook: true,
     websearch: true,
     ical: true,
+    midnightspec: true,
   },
 };
 

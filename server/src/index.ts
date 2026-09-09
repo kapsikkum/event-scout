@@ -39,7 +39,7 @@ app.put('/api/settings', (req, res) => {
     enabledSources: { ...current.enabledSources, ...(body.enabledSources ?? {}) },
   };
   // Keep arrays sane if the client sends junk
-  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas'] as const) {
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
   saveSettings(next);
