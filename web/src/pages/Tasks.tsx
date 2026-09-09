@@ -102,7 +102,7 @@ export default function Tasks() {
     <>
       <p className="hint" style={{ margin: '0 0 14px' }}>
         The jobs that run in the background. Each one refuses to start a second
-        copy of itself, and the four that drive a browser take it in turns.
+        copy of itself, and the two that drive a browser take it in turns.
       </p>
 
       {message && (

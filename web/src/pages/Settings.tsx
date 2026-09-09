@@ -437,6 +437,14 @@ export default function Settings() {
   const [geoResults, setGeoResults] = useState<GeocodeResult[] | null>(null);
   const [geoBusy, setGeoBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  /**
+   * Whether anything has actually been edited.
+   *
+   * Distinct from `saved`, which starts false and so cannot tell "nothing has
+   * been touched" from "there are pending edits" — the Tasks tab was warning
+   * about unsaved changes on a page nobody had typed into.
+   */
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     api.topics().then((r) => setTopics(r.topics)).catch(() => setTopics([]));
@@ -476,6 +484,7 @@ export default function Settings() {
   const set = (patch: Partial<SettingsType>) => {
     setDraft((d) => (d ? { ...d, ...patch } : d));
     setSaved(false);
+    setDirty(true);
   };
   const statusFor = (name: string) => status?.sources.find((s) => s.name === name);
   const firstRun = settings?.lat == null;
@@ -495,6 +504,7 @@ export default function Settings() {
   const save = async () => {
     await updateSettings(draft);
     setSaved(true);
+    setDirty(false);
   };
 
   const listEditor = (
@@ -1063,7 +1073,7 @@ export default function Settings() {
       {/* Tasks is the one tab with nothing to save. Edits made elsewhere are
           still pending though, so say so rather than hiding the bar silently. */}
       {active === 'tasks' ? (
-        !saved && (
+        dirty && (
           <p className="hint" style={{ textAlign: 'center' }}>
             You have unsaved changes on another tab.
           </p>
