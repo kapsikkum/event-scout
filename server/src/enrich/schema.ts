@@ -132,13 +132,17 @@ export function buildSchema(jobs: EnrichJob[], input?: EnrichInput): Record<stri
  * "starts at 23:00 on 24th September". Formatting it in the server's own zone —
  * the same zone that decides when an event counts as past — is what makes the
  * date the model sees the date a reader would.
+ *
+ * The zone is a parameter only so that a test can name one; in the app it is
+ * always the ambient one, which docker-compose sets via TZ.
  */
-export function describeStart(iso: string): string {
+export function describeStart(iso: string, timeZone?: string): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return iso;
   return at.toLocaleString('en-AU', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     hour: 'numeric', minute: '2-digit',
+    ...(timeZone ? { timeZone } : {}),
   });
 }
 

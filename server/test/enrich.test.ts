@@ -184,9 +184,13 @@ test('the schema leaves out extract fields the listing already has', () => {
 /**
  * The stored time is UTC, and the model read it off literally: an event at 9am
  * on the 25th was summarised as "starts at 23:00 on 24th September".
+ *
+ * The zone is named here rather than left to the environment: this is exactly
+ * the difference the function exists to make, and a runner in UTC would show
+ * the bug rather than the fix.
  */
 test('the start time reaches the prompt as a local date, not a UTC stamp', () => {
-  const shown = describeStart('2026-09-25T09:00:00+10:00');
+  const shown = describeStart('2026-09-25T09:00:00+10:00', 'Australia/Sydney');
   assert.match(shown, /Friday/);
   assert.match(shown, /25 September 2026/);
   assert.ok(!shown.includes('T'), 'no ISO stamp should survive');
