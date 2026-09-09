@@ -524,6 +524,29 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .card__addr { color: var(--muted); font-size: 12px; margin-left: 18px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge--cat { color: var(--accent); border-color: rgba(245, 166, 35, 0.45); background: var(--accent-soft); }
+/* Deliberately quieter than the category and source badges: this is a note
+   about how the card was made, not another fact about the event. */
+.badge--ai {
+  color: #c4b5fd;
+  border-color: rgba(167, 139, 250, 0.4);
+  background: rgba(167, 139, 250, 0.12);
+  cursor: help;
+}
+
+/* Set apart from the blocks above it, which are the event itself. */
+.detail__block--ai {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.detail__block--ai h4 { color: #c4b5fd; }
+.detail__ai {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.detail__block--ai .detail__sub { font-size: 12.5px; }
 .hint--code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px; font-size: 11.5px; overflow-x: auto; white-space: pre; margin: 6px 0; }
 

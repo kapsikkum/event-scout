@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { formatWhen } from './EventCard';
 import { decodeEntities } from '../text';
 import EventImage, { OptionalImage } from './EventImage';
+import { enrichedGroups } from '../enriched';
 
 /**
  * Full event view, so a listing can be read without leaving the app.
@@ -105,6 +106,7 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
         : null;
 
   const description = decodeEntities(ev.description ?? '').trim();
+  const groups = enrichedGroups(ev);
 
   return (
     <div className="detail__backdrop" onClick={onClose} role="presentation">
@@ -217,6 +219,25 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
             )}
           </div>
         </div>
+
+        {groups.length > 0 && (
+          /* Placed after Sources deliberately: the point of comparison for
+             "who wrote this" is where the listing came from. Named per pass
+             rather than as one blanket "AI", because reading a flyer and
+             rewriting a blurb are different claims with different failure
+             modes. */
+          <div className="detail__block detail__block--ai">
+            <h4>✨ AI-assisted</h4>
+            <ul className="detail__ai">
+              {groups.map((g) => (
+                <li key={g.by}>{g.label}: {g.fields}.</li>
+              ))}
+            </ul>
+            <p className="detail__sub">
+              Everything else is as the source published it.
+            </p>
+          </div>
+        )}
 
         {links.length > 0 && (
           <div className="detail__block">

@@ -146,6 +146,10 @@ the task off and everything reverts. The category is pinned to an enum of known
 categories, scores are clamped, and extraction is ignored for fields the source
 already filled.
 
+Anything a model wrote is marked as such: an ✨ AI badge on the card, and a
+footnote in the detail view naming the fields and which pass supplied them. The
+API says the same thing in the `enriched` object on every event.
+
 An event is read once. A content hash of the text, model and prompt version is
 stored, so a run only picks up what is new or changed. Each pass takes
 `llmMaxPerRun` events (default 40); expect roughly 15–20 s per event on an 8B
@@ -239,17 +243,75 @@ Everything else is stored in the database and edited in the UI or through
 JSON unless stated. With a password set, every non-`GET` needs the session
 cookie, as do `GET /api/settings` and `GET /api/auth/feed-token`.
 
+Errors are always `{ "error": "..." }` with a 4xx or 5xx status. A malformed
+query is a `400` rather than a silently unfiltered list — a filter that is
+ignored gives you a complete answer and no reason to doubt it.
+
 ### Events
 
 | Route | Meaning |
 |---|---|
-| `GET /api/events` | Upcoming events, merged and de-duplicated. |
-| `GET /api/events?archived=1` | Past events, newest first. |
+| `GET /api/events` | Upcoming events, merged and de-duplicated. An array. |
+| `GET /api/events/:group` | One event by its `group`, upcoming or past. `404` if there is no such group. |
 | `POST /api/refresh` | Refresh now. `409` if one is already running. |
 | `POST /api/archive` | Archive finished events now. |
 | `POST /api/merge` | Body `{ groups: string[] }`, at least two. |
 | `POST /api/unmerge/:group` | Split a merged group. |
 | `POST /api/groups/:group` | Body `{ starred?: boolean, hidden?: boolean }`. |
+
+#### Filtering the list
+
+`GET /api/events` takes any combination of these. With none of them it returns
+every upcoming event, which is what the web app wants and is about a megabyte.
+
+| Parameter | Meaning |
+|---|---|
+| `archived` | `true` for past events, newest first. Default `false`. `1`/`0` and `yes`/`no` also work. |
+| `q` | Free text across the title, description, venue and address. |
+| `category` | One or more, comma-separated. Case-insensitive. |
+| `locality` | Suburb or town, comma-separated. |
+| `place` | The town an event rounds to, comma-separated. |
+| `source` | Source name, comma-separated — `MIDNIGHT_SPEC`, `eventbrite`, `ical`… |
+| `from`, `to` | Inclusive bounds on the start time. A plain `2026-09-25` covers that whole day; a full timestamp is taken exactly. |
+| `starred`, `hidden`, `online` | `true` or `false`. |
+| `minScore` | Lowest photo score to include, 0–100. |
+| `limit`, `offset` | One page of the matches. `limit` is 1 or more. |
+
+Repeat a value with a comma, not a repeated parameter: `?category=A,B`, not
+`?category=A&category=B`. An unknown parameter is a `400` naming the ones it
+knows.
+
+`X-Total-Count` carries how many matched before `limit` and `offset` were
+applied, so a caller paging through knows when to stop.
+
+```bash
+curl 'http://localhost:3001/api/events?place=Bathurst&from=2026-09-25&to=2026-09-27&minScore=60'
+```
+
+#### Polling it
+
+Responses carry an `ETag`. Send it back as `If-None-Match` and an unchanged
+list answers `304 Not Modified` with no body.
+
+```bash
+curl -H 'If-None-Match: W/"101864-XCTHabqighdqzKVFO42Fvry1gEU"' http://localhost:3001/api/events
+```
+
+#### What a model wrote
+
+Every event carries an `enriched` object naming the fields you are reading a
+model's answer for, so a generated sentence is never mistaken for the
+organiser's own. `model` is the text pass, `flyer` the vision one; fields not
+listed are as the source published them, and with the enrichment tasks off it
+is always `{}`.
+
+```json
+{ "description": "model", "category": "model", "note": "flyer" }
+```
+
+Scraped values are never overwritten — see [Reading listings with a local
+model](#reading-listings-with-a-local-model) for which fields a model may
+replace and which it may only fill in when blank.
 
 ### Status
 

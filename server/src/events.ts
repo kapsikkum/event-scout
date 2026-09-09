@@ -96,7 +96,20 @@ export interface MergedEvent {
    * the start time, which flyers and models between them get wrong.
    */
   note: string;
+  /**
+   * Which of the fields above you are reading a model's answer for.
+   *
+   * The columns have always been kept apart in the database, but everything
+   * above this line is the result of choosing between them, and by the time it
+   * reaches a reader a rewritten blurb looks exactly like a scraped one. This
+   * says which is which: `model` for the text pass, `flyer` for the vision one.
+   * Absent fields are as the source published them.
+   */
+  enriched: Record<string, EnrichedBy>;
 }
+
+/** Which pass supplied a field: the text model, or the one reading the flyer. */
+export type EnrichedBy = 'model' | 'flyer';
 
 /**
  * The key an event row groups under.
@@ -106,6 +119,123 @@ export interface MergedEvent {
  */
 function groupKey(row: EventRow): string {
   return row.manual_group || row.dedupe_group || `solo-${row.id}`;
+}
+
+/** The first member that has anything to say, falling back to the first row. */
+function firstNonEmpty(members: EventRow[], get: (r: EventRow) => string): string {
+  for (const m of members) {
+    const v = get(m);
+    if (v && v.length) return v;
+  }
+  return get(members[0]);
+}
+
+/** What `chooseFields` settled on, and which of it came from a model. */
+export interface ChosenFields {
+  description: string;
+  venueName: string;
+  address: string;
+  category: string;
+  priceText: string;
+  photoScore: number;
+  note: string;
+  enriched: Record<string, EnrichedBy>;
+}
+
+/**
+ * Choose between the scraped value, the flyer and the text model, field by
+ * field, and record which one won.
+ *
+ * The only place the three are weighed against each other, which is what keeps
+ * enrichment from being load-bearing: with the tasks off, or before they have
+ * run, every field here falls straight through to what was scraped.
+ *
+ * Pure, and separate from the merge around it, because this is the part worth
+ * being sure about — and being sure needs nothing but rows.
+ */
+export function chooseFields(members: EventRow[]): ChosenFields {
+  const str = (get: (r: EventRow) => string) => firstNonEmpty(members, get);
+
+  /**
+   * Every choice below records itself here when a model's answer is what won,
+   * so the API can say so and a reader is never shown a machine's sentence as
+   * though the organiser had written it.
+   */
+  const enriched: Record<string, EnrichedBy> = {};
+
+  /**
+   * The model's answer instead of the scraped one.
+   *
+   * For the two fields where replacing is the entire point: a rewritten blurb
+   * is meant to supplant the CMS soup it was made from, and a category is meant
+   * to supplant the keyword classifier's guess.
+   */
+  const preferLlm = (
+    field: string, llm: (r: EventRow) => string, scraped: () => string
+  ): string => {
+    const written = str(llm);
+    if (written) {
+      enriched[field] = 'model';
+      return written;
+    }
+    return scraped();
+  };
+
+  /**
+   * The model's answer only where there was nothing.
+   *
+   * Venue, address and price are facts the source stated, not opinions to be
+   * improved on, and a model asked to look at one will find something to say
+   * about it: given a listing whose venue was "Nelsonville, Ohio" and whose
+   * address was "International", qwen3 decided they were the wrong way round
+   * and swapped them. Both were then wrong. Asking it to leave populated fields
+   * alone helps; not consulting it about them cannot fail.
+   */
+  const fillBlank = (
+    field: string,
+    scraped: (r: EventRow) => string,
+    ...guesses: [EnrichedBy, (r: EventRow) => string][]
+  ): string => {
+    const stated = str(scraped);
+    if (stated) return stated;
+    for (const [by, guess] of guesses) {
+      const value = str(guess);
+      if (value) {
+        enriched[field] = by;
+        return value;
+      }
+    }
+    return '';
+  };
+
+  // A tidied blurb is preferred over the longest raw one: length was only ever
+  // a stand-in for "most complete", and a rewritten one beats it.
+  const longest = members.reduce((best, m) => (m.description.length > best.length ? m.description : best), '');
+  const note = str((r) => r.vision_note);
+  if (note) enriched.note = 'flyer';
+
+  // Marked when a model had an opinion at all: unlike the fields above this is
+  // a blend, so the number shown is part heuristic either way. See schema.ts —
+  // the keyword score is deterministic and tuned on listings that have actually
+  // turned up here, and the model has judgement about the ones it never sees.
+  if (members.some((m) => m.llm_photo_score != null)) enriched.photoScore = 'model';
+
+  return {
+    description: preferLlm('description', (r) => r.llm_description, () => longest),
+    venueName: fillBlank(
+      'venueName', (r) => r.venue_name, ['flyer', (r) => r.vision_venue_name], ['model', (r) => r.llm_venue_name]
+    ),
+    address: fillBlank(
+      'address', (r) => r.address, ['flyer', (r) => r.vision_address], ['model', (r) => r.llm_address]
+    ),
+    category: preferLlm('category', (r) => r.llm_category, () => str((r) => r.category)),
+    priceText: fillBlank(
+      'priceText', (r) => r.price_text, ['flyer', (r) => r.vision_price_text], ['model', (r) => r.llm_price_text]
+    ),
+    photoScore: Math.max(...members.map((m) => blendPhotoScore(m.photo_score, m.llm_photo_score))),
+    note,
+    enriched,
+  };
 }
 
 /**
@@ -128,54 +258,9 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
 
   const merged: MergedEvent[] = [];
   for (const [group, members] of byGroup) {
-    const pick = <T>(get: (r: EventRow) => T, nonEmpty: (v: T) => boolean): T => {
-      for (const m of members) {
-        const v = get(m);
-        if (nonEmpty(v)) return v;
-      }
-      return get(members[0]);
-    };
-    const str = (get: (r: EventRow) => string) => pick(get, (v) => Boolean(v && v.length));
-    /**
-     * The model's answer instead of the scraped one.
-     *
-     * For the two fields where replacing is the entire point: a rewritten blurb
-     * is meant to supplant the CMS soup it was made from, and a category is
-     * meant to supplant the keyword classifier's guess.
-     *
-     * This is the only place the two are chosen between, which is what keeps
-     * enrichment from being load-bearing: with the task off, or before it has
-     * run, every one of these falls straight through to what was scraped.
-     */
-    const preferLlm = (llm: (r: EventRow) => string, scraped: (r: EventRow) => string): string =>
-      str(llm) || str(scraped);
-
-    /**
-     * The model's answer only where there was nothing.
-     *
-     * Venue, address and price are facts the source stated, not opinions to be
-     * improved on, and a model asked to look at one will find something to say
-     * about it: given a listing whose venue was "Nelsonville, Ohio" and whose
-     * address was "International", qwen3 decided they were the wrong way round
-     * and swapped them. Both were then wrong. Asking it to leave populated
-     * fields alone helps; not consulting it about them cannot fail.
-     */
-    const fillBlank = (
-      scraped: (r: EventRow) => string,
-      ...guesses: ((r: EventRow) => string)[]
-    ): string => {
-      const stated = str(scraped);
-      if (stated) return stated;
-      for (const guess of guesses) {
-        const value = str(guess);
-        if (value) return value;
-      }
-      return '';
-    };
-    const longestDesc = members.reduce((best, m) => (m.description.length > best.length ? m.description : best), '');
-    // A tidied blurb is preferred over the longest raw one: length was only
-    // ever a stand-in for "most complete", and a rewritten one beats it.
-    const bestDesc = str((r) => r.llm_description) || longestDesc;
+    const str = (get: (r: EventRow) => string) => firstNonEmpty(members, get);
+    const chosen = chooseFields(members);
+    const { venueName, address, note, enriched } = chosen;
     // A merge is worth doing partly for this: a listing with no picture
     // inherits one from its twin. Distinct images are kept so nothing is lost.
     const images = [...new Set(members.map((m) => m.image_url).filter(Boolean))];
@@ -183,23 +268,21 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
     merged.push({
       group,
       title: str((r) => r.title),
-      description: bestDesc,
+      description: chosen.description,
       // Not members[0]: rows arrive sorted by start, so a lone listing with a
       // date a day early would set the whole group's day. The date most
       // members agree on is the one to show.
       startTime: consensusStart(members.map((m) => m.start_time)),
       endTime: members.find((m) => m.end_time)?.end_time ?? null,
-      venueName: fillBlank((r) => r.venue_name, (r) => r.vision_venue_name, (r) => r.llm_venue_name),
-      address: fillBlank((r) => r.address, (r) => r.vision_address, (r) => r.llm_address),
+      venueName,
+      address,
       // Derived here rather than in the browser: reading a locality out of an
       // address means knowing every country's postal tail, and that table
       // belongs in one place. See regions.ts. The venue field is tried too,
       // because a good few sources put the street address in it and leave the
       // address empty — those are exactly the rows that need a locality most,
       // since without one they head their own group by street number.
-      locality:
-        localityOf(fillBlank((r) => r.address, (r) => r.vision_address, (r) => r.llm_address)) ||
-        localityOf(fillBlank((r) => r.venue_name, (r) => r.vision_venue_name, (r) => r.llm_venue_name)),
+      locality: localityOf(address) || localityOf(venueName),
       // Filled in below, once every event is known: which town an event
       // rounds to depends on what the others taught about its suburb.
       place: '',
@@ -207,15 +290,10 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       lng: members.find((m) => m.lng != null)?.lng ?? null,
       imageUrl: images[0] ?? '',
       images,
-      category: preferLlm((r) => r.llm_category, (r) => r.category),
-      priceText: fillBlank((r) => r.price_text, (r) => r.vision_price_text, (r) => r.llm_price_text),
+      category: chosen.category,
+      priceText: chosen.priceText,
       isOnline: members.every((m) => m.is_online === 1),
-      // Blended rather than replaced: the keyword heuristic is deterministic
-      // and tuned on listings that have actually turned up here, and the model
-      // has judgement about the ones its regexes never see. See schema.ts.
-      photoScore: Math.max(
-        ...members.map((m) => blendPhotoScore(m.photo_score, m.llm_photo_score))
-      ),
+      photoScore: chosen.photoScore,
       starred: members.some((m) => m.starred === 1),
       hidden: members.some((m) => m.hidden === 1),
       sources: members.map((m) => ({ source: m.source, url: m.url })),
@@ -229,7 +307,8 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
         venueName: m.venue_name,
       })),
       manual: Boolean(members[0].manual_group),
-      note: str((r) => r.vision_note),
+      note,
+      enriched,
     });
   }
   // Events that have been and gone are dropped here as well as archived on a
@@ -250,6 +329,22 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
     opts.archived ? b.startTime.localeCompare(a.startTime) : a.startTime.localeCompare(b.startTime)
   );
   return live;
+}
+
+/**
+ * One event by its group key, upcoming or past.
+ *
+ * Merged through the same path as the list rather than assembled from the rows
+ * directly, because `place` is decided by looking at every other event — a
+ * suburb rounds to a town on the strength of what its neighbours taught. Built
+ * alone it would sometimes differ from the same event in the list, which is a
+ * worse trade than the cost of merging twice.
+ */
+export function getMergedEvent(group: string): MergedEvent | undefined {
+  return (
+    getMergedEvents().find((ev) => ev.group === group) ??
+    getMergedEvents({ archived: true }).find((ev) => ev.group === group)
+  );
 }
 
 /** The rows behind a group key, whichever kind of group it is. */

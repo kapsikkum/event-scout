@@ -3,6 +3,7 @@ import { MergedEvent, haversineKm } from '../api';
 import { decodeEntities } from '../text';
 import { useStore } from '../store';
 import EventImage from './EventImage';
+import { enrichedTooltip, isEnriched } from '../enriched';
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
@@ -92,6 +93,11 @@ export default function EventCard({ ev, onOpen, selected, onSelect }: EventCardP
             <span className="badge badge--merged" title={ev.manual ? 'Merged by hand' : 'Matched automatically'}>
               {ev.manual ? '⛓ ' : '⧉ '}{ev.members.length} listings
             </span>
+          )}
+          {/* Which parts of this card a model wrote. The detail view spells it
+              out; here there is only room to say that some of it was. */}
+          {isEnriched(ev) && (
+            <span className="badge badge--ai" title={enrichedTooltip(ev)}>✨ AI</span>
           )}
           {[...new Set(ev.sources.map((s) => s.source))].map((source) => (
             <span key={source} className={`badge src-${source}`}>

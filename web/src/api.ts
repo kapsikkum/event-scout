@@ -30,6 +30,12 @@ export interface MergedEvent {
   manual: boolean;
   /** A line read off the flyer — when gates open, which entrance. '' when none. */
   note: string;
+  /**
+   * Which fields above are a model's answer rather than the source's own words.
+   * `model` is the text pass, `flyer` the one that reads the promotional image.
+   * Absent fields are as published. Empty whenever the tasks have not run.
+   */
+  enriched: Record<string, 'model' | 'flyer'>;
 }
 
 export interface EventMember {

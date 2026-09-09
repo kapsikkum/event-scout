@@ -18,7 +18,8 @@ import {
   sessionValid,
   setPassword,
 } from './authStore.js';
-import { getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
+import { getMergedEvent, getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
+import { filterEvents, paginate, parseEventQuery, QueryError } from './query.js';
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
 import { archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
@@ -173,9 +174,37 @@ app.get('/api/geocode', async (req, res) => {
   }
 });
 
+/**
+ * The list, whole or narrowed.
+ *
+ * With no parameters this answers exactly what it always has — every upcoming
+ * event, as an array — because the web app fetches once and filters in the
+ * browser. The filters are for everything else, which would otherwise pull a
+ * megabyte to answer a question about one weekend in one town.
+ *
+ * The page is still a bare array rather than an envelope, so adding this broke
+ * nothing; the count it was taken from goes in a header. Express already
+ * answers a matching `If-None-Match` with a 304, so a poller that has not
+ * missed anything pays for the headers only.
+ */
 app.get('/api/events', (req, res) => {
-  // ?archived=1 returns past events instead of upcoming ones.
-  res.json(getMergedEvents({ archived: req.query.archived === '1' }));
+  let query;
+  try {
+    query = parseEventQuery(req.query as Record<string, unknown>);
+  } catch (err) {
+    if (err instanceof QueryError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  const found = filterEvents(getMergedEvents({ archived: query.archived }), query);
+  const { page, total } = paginate(found, query);
+  res.set('X-Total-Count', String(total));
+  res.json(page);
+});
+
+app.get('/api/events/:group', (req, res) => {
+  const event = getMergedEvent(req.params.group);
+  if (!event) return res.status(404).json({ error: `Unknown event: ${req.params.group}` });
+  res.json(event);
 });
 
 app.post('/api/archive', (_req, res) => {
