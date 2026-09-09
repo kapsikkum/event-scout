@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, DensityStatus, EventTopic, GeocodeResult, LlmStatus, Settings as SettingsType, SourceStatus, VersionInfo } from '../api';
 import { useStore } from '../store';
 import Tasks from './Tasks';
@@ -438,16 +438,15 @@ export default function Settings() {
   const active: TabKey = (TABS.find((t) => t.key === tab)?.key ?? 'general');
   const [step, setStep] = useState(0);
   /** Set when somebody would rather have the whole page than be walked through it. */
-  const [skipWizard, setSkipWizard] = useState(false);
   /**
-   * Whether this visit began without a location, latched on the first answer
-   * from the server.
+   * The walk-through is a place, not a mode.
    *
-   * It cannot be derived per render from whether a location exists now: step
-   * one saves the location, which would make the walk-through decide it was no
-   * longer needed and drop the reader into the tabbed page at step two.
+   * Being its own address is what keeps the nav bar from lighting up Settings
+   * underneath it, and it doubles as the thing that holds the walk-through
+   * open: deriving that from whether a location exists meant step one saved
+   * the location and dropped the reader into the tabbed page at step two.
    */
-  const [wizardRun, setWizardRun] = useState<boolean | null>(null);
+  const onSetupRoute = useLocation().pathname === '/setup';
 
   // Only once it has finished: while it runs the feed is at the top of the
   // page, and showing the same lines twice helps nobody.
@@ -497,10 +496,6 @@ export default function Settings() {
   useEffect(() => {
     api.topics().then((r) => setTopics(r.topics)).catch(() => setTopics([]));
   }, []);
-
-  useEffect(() => {
-    if (settings && wizardRun === null) setWizardRun(settings.lat == null);
-  }, [settings, wizardRun]);
 
   useEffect(() => {
     if (settings && !draft) {
@@ -1094,7 +1089,7 @@ export default function Settings() {
    * there is an order to do things in, and one panel with somewhere to go next
    * says that better than six tabs and a save button do.
    */
-  if (wizardRun && !skipWizard) {
+  if (onSetupRoute) {
     const current = STEPS[step];
     const last = step === STEPS.length - 1;
     const canAdvance = current.key !== 'general' || draft.lat != null;
@@ -1103,7 +1098,7 @@ export default function Settings() {
       <div className="settings wizard">
         <div className="wizard__head">
           <h1>Set up Event Scout</h1>
-          <button className="linky" onClick={() => setSkipWizard(true)}>
+          <button className="linky" onClick={() => navigate('/settings')}>
             Skip and use the full settings page
           </button>
         </div>
@@ -1143,7 +1138,7 @@ export default function Settings() {
               disabled={draft.lat == null || refreshing}
               onClick={() =>
                 void save()
-                  .then(() => setWizardRun(false))
+                  .then(() => navigate('/settings'))
                   .then(() => refresh())
               }
             >

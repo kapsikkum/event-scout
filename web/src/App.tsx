@@ -94,13 +94,20 @@ function Shell() {
       <SignIn />
       <main className="page">
         <RefreshActivity />
-        {needsSetup && !location.pathname.startsWith('/settings') && <Navigate to="/settings" replace />}
+        {/* Setup lives at its own address rather than on /settings, so nothing
+            in the bar lights up while it runs. /settings is left reachable so
+            skipping the walk-through does not bounce straight back into it. */}
+        {needsSetup
+          && !location.pathname.startsWith('/settings')
+          && location.pathname !== '/setup'
+          && <Navigate to="/setup" replace />}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/events" element={<Events />} />
           <Route path="/map" element={<MapView />} />
           <Route path="/places" element={<Places />} />
           <Route path="/calendar" element={<Calendar />} />
+          <Route path="/setup" element={<Settings />} />
           {/* Tasks moved into Settings; keep the old address working. */}
           <Route path="/tasks" element={<Navigate to="/settings/tasks" replace />} />
           <Route path="/settings" element={<Settings />} />
