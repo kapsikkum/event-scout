@@ -101,6 +101,104 @@ narrows it further, saving one request each.
 
 npm workspaces: `server/` (Express + TypeScript, SQLite via Node's built-in `node:sqlite`, one adapter per source in `server/src/sources/`) and `web/` (React + Vite). The dev server proxies `/api` to the backend; the production server serves the built UI itself. Set `API_PORT` to change the backend port (default 3001).
 
+## Tasks
+
+Everything that happens on a timer is a **task**, listed on the Tasks page with
+its schedule, when it last ran, what it said, when it is next due, and a **Run
+now** button. Jobs that had been invisible — the only sign one had been failing
+for a week was events quietly going stale — say so there instead.
+
+| Task | Runs | What it does |
+|---|---|---|
+| Event refresh | every 6 h, ticked hourly | Fetch every enabled source across every area, then tidy, place and de-duplicate. |
+| Archive past events | every 10 min | Move events that have been and gone into the archive; purge very old archived rows. |
+| Venue density sampling | your density interval, ticked every 5 min | One page load per venue, recording how busy each is. |
+| Rebuild venue list | when asked | Re-run venue discovery. Slow, rarely needed. |
+| Waze live map | when asked | Read the live map in a window that can be driven by hand. |
+| Sign in to Waze | when asked | Hold a window open while you sign in yourself. |
+
+Two rules that matter:
+
+- **A task refuses to start a second copy of itself** rather than queueing —
+  for jobs where the next run supersedes the last, queueing only builds a pile
+  behind whatever is stuck.
+- **The four browser jobs share one lock.** Density sampling, venue discovery
+  and both Waze passes drive the same browser and the same profile directory,
+  whose lock is exclusive, so only one of them runs at a time. The others report
+  "waiting on …" rather than failing.
+
+Ticks are deliberately more frequent than the intervals they gate, which is what
+lets a changed interval take effect without a restart.
+
+Routes: `GET /api/tasks`, `POST /api/tasks/:name/run`, `POST /api/tasks/:name/enable`.
+
+## Reading listings with a local model
+
+Optional, off by default, and nothing else depends on it. Point Settings →
+**Local model** at an [Ollama](https://ollama.com) and it runs as a task,
+reading scraped listings and offering four things:
+
+| Job | What it does |
+|---|---|
+| Tidy descriptions | Rewrite a CMS-soup blurb into two or three plain sentences, dropping hashtags, emoji, ticket boilerplate and "link in bio". |
+| Categorise | Pick a category, for the listings the keyword classifier files under the catch-all. |
+| Fill in blanks | Read a venue, address or price out of the description **when the stored field is empty**. |
+| Judge photo appeal | Rate how worth shooting an event is, averaged with the keyword score rather than replacing it. |
+
+Each is switched on and off separately, and only the ones you ask for are put
+to the model — the JSON Schema is built from them, so a job that is off cannot
+produce a field at all.
+
+### What keeps this safe to turn on
+
+**Verdicts are stored beside the scraped values, never over them.** They live in
+their own `llm_*` columns, and `events.ts` is the only place the two are chosen
+between. Switch the task off and everything reverts exactly, because the scraped
+value was never touched. It also has to work this way: `reclassifyAll` and
+`repairAddresses` rewrite category, address and description on every refresh, so
+anything written in place would be overwritten within the hour.
+
+**Extraction fills blanks only.** Venue, address and price are facts the source
+stated, not opinions to improve on — and a model asked to look at one will find
+something to say. Given a listing whose venue was "Nelsonville, Ohio" and whose
+address was "International", qwen3 decided they were the wrong way round and
+swapped them; both were then wrong. The prompt asks it to leave populated fields
+alone, and `events.ts` does not consult it about them regardless.
+
+**The category is pinned to an `enum`** of the categories the UI filter knows
+about, so the model cannot invent a new heading. Scores are clamped, summaries
+truncated, and the several prose ways of saying "I don't know" ("N/A", "none",
+"not specified") are treated as no answer rather than stored as a venue name.
+
+**The listing is fenced and labelled as untrusted data** in the prompt, since
+these descriptions are scraped from pages anyone can publish.
+
+### Cost, and why it is affordable
+
+An event is read **once, ever**. A content hash over the text that was read —
+plus the model name, the job set and a prompt version — is stored per event, so
+a run only picks up what is new, edited, or affected by a settings change.
+Without that, every pass would re-process the whole database.
+
+A pass takes `llmMaxPerRun` events (default 40) oldest-first, so a backlog
+drains over several runs rather than one very long one. Expect roughly 15–20
+seconds an event on an 8B model on CPU — which is exactly why this is its own
+task rather than part of a refresh, where a slow model would be
+indistinguishable from a hung source.
+
+The cost of that separation, stated plainly: a venue the model reads out of a
+description is picked up by the *next* refresh's geocoding pass, not the same
+one. One cycle of latency, not a loss.
+
+### Configuration
+
+Blank `llmUrl` uses `OLLAMA_URL`, then `http://localhost:11434`. In Docker the
+host's Ollama is `http://host.docker.internal:11434` — localhost inside a
+container is the container. **Forget what it decided** in Settings clears every
+verdict so the next pass reconsiders from scratch; it never touches scraped data.
+
+Routes: `GET /api/llm/status`, `POST /api/llm/reset`.
+
 ## Venue density
 
 Density sampling runs as one of event-scout's background tasks, on its own
@@ -121,8 +219,8 @@ immediately without a restart.
 
 Two manual actions are available: **Sample now** forces a pass, and **Rebuild
 venue list** re-runs discovery (slow, and rarely needed — the venue list barely
-changes, unlike its busyness). Concurrent passes are refused rather than queued,
-so a long run cannot stack up behind the timer.
+changes, unlike its busyness). Both are tasks (see [Tasks](#tasks)), so they
+also appear there, take the shared browser lock, and refuse to run concurrently.
 
 Routes: `/api/density/status`, `POST /api/density/refresh`, `POST /api/density/discover`.
 

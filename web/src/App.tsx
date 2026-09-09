@@ -6,6 +6,7 @@ import MapView from './pages/MapView';
 import Places from './pages/Places';
 import Calendar from './pages/Calendar';
 import Settings from './pages/Settings';
+import Tasks from './pages/Tasks';
 import { StoreProvider, useStore } from './store';
 import RefreshActivity from './components/RefreshActivity';
 
@@ -67,6 +68,9 @@ function Shell() {
           <NavLink to="/calendar" className={({ isActive }) => (isActive ? 'active' : '')}>
             Calendar
           </NavLink>
+          <NavLink to="/tasks" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Tasks
+          </NavLink>
           <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
             Settings
           </NavLink>
@@ -92,6 +96,7 @@ function Shell() {
           <Route path="/map" element={<MapView />} />
           <Route path="/places" element={<Places />} />
           <Route path="/calendar" element={<Calendar />} />
+          <Route path="/tasks" element={<Tasks />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

@@ -2,23 +2,17 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import cron from 'node-cron';
 import { getKv, getSettings, saveSettings } from './db.js';
 import { getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
-import { archivePastEvents, getProgress, getStatuses, isRefreshing, refreshAll } from './refresh.js';
+import { archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
 import { getPhotoConditions } from './photo.js';
 import { listAreas, renderArea, venueHistory, venueReadings, wazeSnapshot } from './density/pipeline.js';
 import { pickAreas } from './density/areas.js';
-import {
-  discoverVenues as discoverDensityVenues,
-  getDensityStatus,
-  refreshDensity,
-  refreshDensityIfDue,
-  refreshWaze,
-  wazeSignIn,
-} from './densityRefresh.js';
+import { getDensityStatus } from './densityRefresh.js';
+import { tasks } from './tasks/tasks.js';
+import { runDueTasksOnStartup, startScheduler } from './tasks/scheduler.js';
 import { DEFAULT_SETTINGS, Settings } from './sources/types.js';
 import { EVENT_TOPICS } from './sources/topics.js';
 
@@ -39,7 +33,7 @@ app.put('/api/settings', (req, res) => {
     enabledSources: { ...current.enabledSources, ...(body.enabledSources ?? {}) },
   };
   // Keep arrays sane if the client sends junk
-  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates'] as const) {
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
   saveSettings(next);
@@ -79,13 +73,15 @@ app.get('/api/density/status', (_req, res) => {
   res.json(getDensityStatus());
 });
 
+// Kept as the buttons the density panel already links to; both go through the
+// registry so they take the same browser lock as everything else.
 app.post('/api/density/refresh', async (_req, res) => {
-  const result = await refreshDensity(true);
+  const result = await tasks.run('density', { force: true });
   res.status(result.ok ? 200 : 409).json(result);
 });
 
 app.post('/api/density/discover', async (_req, res) => {
-  const result = await discoverDensityVenues();
+  const result = await tasks.run('densityDiscover', { force: true });
   res.status(result.ok ? 200 : 409).json(result);
 });
 
@@ -133,7 +129,10 @@ app.get('/api/density/:area/waze', (req, res) => {
 // and visible on purpose - the window is there to be driven by hand.
 app.post('/api/density/waze', async (req, res) => {
   const hold = Number((req.body as { holdSeconds?: number } | undefined)?.holdSeconds ?? 0);
-  const result = await refreshWaze(Number.isFinite(hold) ? hold : 0);
+  const result = await tasks.run('waze', {
+    force: true,
+    arg: { holdSeconds: Number.isFinite(hold) ? hold : 0 },
+  });
   res.status(result.ok ? 200 : 409).json(result);
 });
 
@@ -141,7 +140,10 @@ app.post('/api/density/waze', async (req, res) => {
 // No credentials pass through here: they use Waze's own form or QR code.
 app.post('/api/density/waze/signin', async (req, res) => {
   const hold = Number((req.body as { holdSeconds?: number } | undefined)?.holdSeconds ?? 180);
-  const result = await wazeSignIn(Number.isFinite(hold) ? hold : 180);
+  const result = await tasks.run('wazeSignIn', {
+    force: true,
+    arg: { holdSeconds: Number.isFinite(hold) ? hold : 180 },
+  });
   res.status(result.ok ? 200 : 409).json(result);
 });
 
@@ -181,12 +183,33 @@ app.get('/api/status', (_req, res) => {
 });
 
 app.post('/api/refresh', async (_req, res) => {
-  try {
-    const statuses = await refreshAll();
-    res.json({ sources: statuses, lastRefresh: getKv('lastRefresh') });
-  } catch (err) {
-    res.status(409).json({ error: (err as Error).message });
-  }
+  // Through the registry rather than straight to refreshAll, so the Tasks page
+  // records a hand-driven refresh the same as a scheduled one.
+  const result = await tasks.run('events', { force: true });
+  if (!result.ok) return res.status(409).json({ error: result.message });
+  res.json({ sources: getStatuses(), lastRefresh: getKv('lastRefresh') });
+});
+
+// --- tasks ------------------------------------------------------------------
+
+app.get('/api/tasks', (_req, res) => {
+  res.json({ tasks: tasks.statuses() });
+});
+
+app.post('/api/tasks/:name/run', async (req, res) => {
+  const hold = Number((req.body as { holdSeconds?: number } | undefined)?.holdSeconds);
+  const result = await tasks.run(req.params.name, {
+    force: true,
+    arg: Number.isFinite(hold) ? { holdSeconds: hold } : {},
+  });
+  res.status(result.ok ? 200 : 409).json(result);
+});
+
+app.post('/api/tasks/:name/enable', (req, res) => {
+  const { enabled } = req.body as { enabled?: boolean };
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+  const result = tasks.setEnabled(req.params.name, enabled);
+  res.status(result.ok ? 200 : 400).json(result);
 });
 
 /**
@@ -264,45 +287,17 @@ app.listen(PORT, () => {
   console.log(`event-scout server listening on http://localhost:${PORT}`);
 });
 
-// Auto-refresh: on startup (after a beat) and hourly, when the cache is stale.
-const STALE_MS = 6 * 3600 * 1000;
-async function refreshIfStale(): Promise<void> {
-  const settings = getSettings();
-  if (settings.lat == null || settings.lng == null || isRefreshing()) return;
-  const last = getKv('lastRefresh');
-  if (last && Date.now() - Date.parse(last) < STALE_MS) return;
-  try {
-    await refreshAll();
-    console.log('Auto-refresh complete');
-  } catch (err) {
-    console.error('Auto-refresh failed:', (err as Error).message);
-  }
-}
-setTimeout(refreshIfStale, 5000);
-cron.schedule('15 * * * *', refreshIfStale);
-
 /**
- * Age past events out on their own clock.
+ * The background jobs, all of them, on the schedules they have always run on.
  *
- * Archiving used to happen only inside a refresh, so when the refresh stopped
- * running — a hung source held its in-progress flag for ten days — yesterday's
- * events stayed at the top of the list indefinitely. Events go stale whether
- * or not new ones are arriving, so this is its own tick. getMergedEvents
- * filters them out on read as well; this keeps the database in step.
+ * These were four hand-written cron entries with their state scattered behind
+ * them. They are task definitions now (see tasks/tasks.ts), which is what lets
+ * the Tasks page say when each last ran and run one on demand.
+ *
+ * Archiving still gets its own schedule rather than riding along with a
+ * refresh: events go stale whether or not new ones are arriving, and when a
+ * hung source held the refresh flag for ten days, yesterday events sat at the
+ * top of the list the whole time.
  */
-function archiveNow(): void {
-  try {
-    const { archived } = archivePastEvents();
-    if (archived > 0) console.log(`Archived ${archived} past event${archived === 1 ? '' : 's'}`);
-  } catch (err) {
-    console.error('Archiving failed:', (err as Error).message);
-  }
-}
-archiveNow();
-cron.schedule('*/10 * * * *', archiveNow);
-
-// Density is sampled far more often than events, so it gets its own tick. The
-// job itself decides whether the configured interval has actually elapsed.
-cron.schedule('*/5 * * * *', () => {
-  void refreshDensityIfDue().catch((err) => console.error('Density refresh failed:', err.message));
-});
+startScheduler();
+runDueTasksOnStartup();

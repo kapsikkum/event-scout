@@ -67,6 +67,7 @@ export interface Settings {
   eventAreas: { name: string; lat?: number; lng?: number; radiusKm?: number }[];
   icalFeeds: { name: string; url: string }[];
   midnightspecStates: string[];
+  tasksDisabled: string[];
   enabledSources: Record<string, boolean>;
   densityEnabled: boolean;
   densityIntervalMinutes: number;
@@ -85,6 +86,28 @@ export interface DensityStatus {
   lastResult: string | null;
   nextDue: string | null;
   areas: DensityArea[];
+  log: string[];
+}
+
+/** One background job, as the Tasks page shows it. */
+export interface TaskStatus {
+  name: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  /** False for jobs with no off switch, like venue discovery. */
+  canDisable: boolean;
+  /** True for jobs that only ever run when asked. */
+  manualOnly: boolean;
+  running: boolean;
+  /** Set when something sharing this job's lock is running instead. */
+  blockedBy: string | null;
+  schedule: string | null;
+  intervalMinutes: number | null;
+  lastRun: string | null;
+  lastResult: string | null;
+  lastOk: boolean | null;
+  nextDue: string | null;
   log: string[];
 }
 
@@ -238,6 +261,21 @@ export const api = {
   topics: () => fetch('/api/topics').then((r) => json<{ topics: EventTopic[] }>(r)),
   geocode: (q: string) => fetch(`/api/geocode?q=${encodeURIComponent(q)}`).then((r) => json<GeocodeResult[]>(r)),
   refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => json<StatusResponse>(r)),
+  tasks: () => fetch('/api/tasks').then((r) => json<{ tasks: TaskStatus[] }>(r)),
+  // A refused run — already going, or sharing a busy browser — answers 409 with
+  // a reason worth showing, so the body is read either way rather than thrown.
+  runTask: (name: string, body: { holdSeconds?: number } = {}) =>
+    fetch(`/api/tasks/${name}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => r.json() as Promise<{ ok: boolean; message: string }>),
+  enableTask: (name: string, enabled: boolean) =>
+    fetch(`/api/tasks/${name}/enable`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }).then((r) => r.json() as Promise<{ ok: boolean; message: string }>),
   densityStatus: () => fetch('/api/density/status').then((r) => json<DensityStatus>(r)),
   densityRefresh: () =>
     fetch('/api/density/refresh', { method: 'POST' }).then((r) => json<{ ok: boolean; message: string }>(r)),

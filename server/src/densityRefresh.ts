@@ -1,18 +1,17 @@
-import { getKv, setKv, getSettings } from './db.js';
+import { getSettings } from './db.js';
 import { runDiscover, runScrape, runWaze, runWazeSignIn, listAreas, AreaSummary } from './density/pipeline.js';
 import { resolveAreas } from './density/areas.js';
+import { TaskLog, TaskResult } from './tasks/registry.js';
+import { tasks } from './tasks/tasks.js';
 
 /**
- * Density sampling as one of event-scout's background tasks.
+ * The density passes, as plain pieces of work.
  *
- * Deliberately on its own schedule, separate from `refreshAll`: events change a
- * few times a day, but venue busyness is only meaningful sampled every half
- * hour or so. A pass opens one page per venue and takes minutes, so overlapping
- * runs are refused rather than queued.
+ * The lock, the bounded log and the last-run bookkeeping all used to live here;
+ * they are the task registry's job now, which is what lets these four share one
+ * exclusive lock on the browser rather than a module global that only these
+ * four knew about. What is left is the work itself.
  */
-
-let running = false;
-let lastLog: string[] = [];
 
 export interface DensityStatus {
   enabled: boolean;
@@ -25,14 +24,15 @@ export interface DensityStatus {
   log: string[];
 }
 
-export function isDensityRunning(): boolean {
-  return running;
-}
-
+/**
+ * The density panel's own view of things.
+ *
+ * Everything but the area list now comes from the task registry, so the
+ * Settings panel and the Tasks page cannot disagree about whether a pass is
+ * running or when the last one was.
+ */
 export function getDensityStatus(): DensityStatus {
-  const settings = getSettings();
-  const lastRun = getKv('densityLastRun');
-  const interval = Math.max(5, settings.densityIntervalMinutes ?? 60);
+  const task = tasks.status('density');
   let areas: AreaSummary[] = [];
   try {
     areas = listAreas();
@@ -40,132 +40,59 @@ export function getDensityStatus(): DensityStatus {
     areas = [];
   }
   return {
-    enabled: Boolean(settings.densityEnabled),
-    running,
-    intervalMinutes: interval,
-    lastRun,
-    lastResult: getKv('densityLastResult'),
-    nextDue: lastRun ? new Date(Date.parse(lastRun) + interval * 60_000).toISOString() : null,
+    enabled: task?.enabled ?? false,
+    // Any of the four browser passes being in flight is what the panel means
+    // by busy: none of them can start while another is going.
+    running: Boolean(
+      task?.running || task?.blockedBy || tasks.status('densityDiscover')?.running
+    ),
+    intervalMinutes: task?.intervalMinutes ?? 60,
+    lastRun: task?.lastRun ?? null,
+    lastResult: task?.lastResult ?? null,
+    nextDue: task?.nextDue ?? null,
     areas,
-    log: lastLog,
-  };
-}
-
-function collector(): { log: (msg: string) => void; lines: string[] } {
-  const lines: string[] = [];
-  return {
-    lines,
-    log: (msg: string) => {
-      lines.push(msg);
-      if (lines.length > 200) lines.shift();
-    },
+    log: task?.log ?? [],
   };
 }
 
 /** Sample every configured area once. */
-export async function refreshDensity(force = false): Promise<{ ok: boolean; message: string }> {
-  if (running) return { ok: false, message: 'Density sampling already running' };
-
-  const settings = getSettings();
-  if (!force && !settings.densityEnabled) return { ok: false, message: 'Density sampling is disabled' };
+export async function runDensityScrape(log: TaskLog): Promise<TaskResult> {
   if (resolveAreas().length === 0) {
     return { ok: false, message: 'No areas configured - set a location in Settings' };
   }
-
-  running = true;
-  const { log, lines } = collector();
-  try {
-    const result = await runScrape(settings.densityCities ?? [], log);
-    const summary = result.areas
-      .map((a) => (a.ok ? `${a.name}: ${a.observations ?? 0} obs` : `${a.name}: ${a.error}`))
-      .join('; ');
-    setKv('densityLastRun', new Date().toISOString());
-    setKv('densityLastResult', summary || 'no areas');
-    lastLog = lines;
-    return { ok: result.ok, message: summary || 'no areas configured' };
-  } catch (err) {
-    const message = (err as Error).message;
-    setKv('densityLastRun', new Date().toISOString());
-    setKv('densityLastResult', `failed: ${message}`);
-    lastLog = [...lines, `failed: ${message}`];
-    return { ok: false, message };
-  } finally {
-    running = false;
-  }
+  const result = await runScrape(getSettings().densityCities ?? [], log);
+  const summary = result.areas
+    .map((a) => (a.ok ? `${a.name}: ${a.observations ?? 0} obs` : `${a.name}: ${a.error}`))
+    .join('; ');
+  return { ok: result.ok, message: summary || 'no areas configured' };
 }
 
 /**
- * A Waze-only pass, triggered by hand.
+ * A Waze-only pass.
  *
- * Separate from the full density run because it opens a visible browser window
- * and can be asked to hold it open: the live map is meant to be driven while
- * this runs, and nobody wants that happening on a timer.
+ * Kept apart from the full density run because it opens a visible window and
+ * can be asked to hold it open: the live map is meant to be driven while this
+ * runs, and nobody wants that happening on a timer.
  */
-export async function refreshWaze(holdSeconds = 0): Promise<{ ok: boolean; message: string }> {
-  if (running) return { ok: false, message: 'Density sampling already running' };
-  running = true;
-  const { log, lines } = collector();
-  try {
-    const results = await runWaze(getSettings().densityCities ?? [], holdSeconds, log);
-    lastLog = lines;
-    const message = results
-      .map((r) => (r.ok ? `${r.name}: ${r.observations} observations` : `${r.name}: ${r.error}`))
-      .join('; ');
-    return { ok: results.some((r) => r.ok), message: message || 'no areas configured' };
-  } catch (err) {
-    lastLog = [...lines, `failed: ${(err as Error).message}`];
-    return { ok: false, message: (err as Error).message };
-  } finally {
-    running = false;
-  }
+export async function runWazePass(log: TaskLog, holdSeconds: number): Promise<TaskResult> {
+  const results = await runWaze(getSettings().densityCities ?? [], holdSeconds, log);
+  const message = results
+    .map((r) => (r.ok ? `${r.name}: ${r.observations} observations` : `${r.name}: ${r.error}`))
+    .join('; ');
+  return { ok: results.some((r) => r.ok), message: message || 'no areas configured' };
 }
 
 /** Open the live map so the user can sign in to Waze in the window. */
-export async function wazeSignIn(holdSeconds = 180): Promise<{ ok: boolean; message: string }> {
-  if (running) return { ok: false, message: 'Density sampling already running' };
-  running = true;
-  const { log, lines } = collector();
-  try {
-    const res = await runWazeSignIn(holdSeconds, log);
-    lastLog = lines;
-    return { ok: res.signedIn, message: res.message };
-  } catch (err) {
-    lastLog = [...lines, `failed: ${(err as Error).message}`];
-    return { ok: false, message: (err as Error).message };
-  } finally {
-    running = false;
-  }
+export async function runWazeSignInPass(log: TaskLog, holdSeconds: number): Promise<TaskResult> {
+  const res = await runWazeSignIn(holdSeconds, log);
+  return { ok: res.signedIn, message: res.message };
 }
 
-/** Rebuild venue lists. Slow and rarely needed, so never automatic. */
-export async function discoverVenues(): Promise<{ ok: boolean; message: string }> {
-  if (running) return { ok: false, message: 'Density sampling already running' };
-  running = true;
-  const { log, lines } = collector();
-  try {
-    const results = await runDiscover(getSettings().densityCities ?? [], log);
-    lastLog = lines;
-    const message = results
-      .map((r) => (r.ok ? `${r.name}: ${r.observations} venues` : `${r.name}: ${r.error}`))
-      .join('; ');
-    return { ok: results.some((r) => r.ok), message: message || 'no areas configured' };
-  } catch (err) {
-    lastLog = [...lines, `failed: ${(err as Error).message}`];
-    return { ok: false, message: (err as Error).message };
-  } finally {
-    running = false;
-  }
-}
-
-/** Called on a timer; runs only when enabled and the interval has elapsed. */
-export async function refreshDensityIfDue(): Promise<void> {
-  const settings = getSettings();
-  if (!settings.densityEnabled || running) return;
-
-  const interval = Math.max(5, settings.densityIntervalMinutes ?? 60) * 60_000;
-  const last = getKv('densityLastRun');
-  if (last && Date.now() - Date.parse(last) < interval) return;
-
-  const result = await refreshDensity();
-  console.log(`Density sampling: ${result.message}`);
+/** Rebuild venue lists. Slow and rarely needed, so never on a schedule. */
+export async function runVenueDiscovery(log: TaskLog): Promise<TaskResult> {
+  const results = await runDiscover(getSettings().densityCities ?? [], log);
+  const message = results
+    .map((r) => (r.ok ? `${r.name}: ${r.observations} venues` : `${r.name}: ${r.error}`))
+    .join('; ');
+  return { ok: results.some((r) => r.ok), message: message || 'no areas configured' };
 }

@@ -43,6 +43,12 @@ export interface Settings {
    * on locality regardless.
    */
   midnightspecStates: string[];
+  /**
+   * Background jobs paused from the Tasks page, by name. Only for the ones with
+   * no setting of their own — density and enrichment are governed by the
+   * settings that already exist for them, so there is one answer rather than two.
+   */
+  tasksDisabled: string[];
   enabledSources: Record<string, boolean>;
   /** Scrape venue density on a timer, alongside the event sources. */
   densityEnabled: boolean;
@@ -119,6 +125,7 @@ export const DEFAULT_SETTINGS: Settings = {
   eventAreas: [],
   icalFeeds: [],
   midnightspecStates: [],
+  tasksDisabled: [],
   densityEnabled: false,
   densityIntervalMinutes: 60,
   densityAreas: [],
