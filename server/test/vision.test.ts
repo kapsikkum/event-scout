@@ -42,7 +42,7 @@ test('the prompt says the image is data, not instructions', () => {
 test('neither the schema nor the prompt asks for a date or a start time', () => {
   const fields = Object.keys((VISION_SCHEMA as { properties: object }).properties);
   assert.deepEqual(fields.sort(), ['address', 'note', 'priceText', 'venueName']);
-  assert.match(buildVisionPrompt(FLYER), /Do not\s*\n?\s*put the date in here/i);
+  assert.match(buildVisionPrompt(FLYER), /Never the date/i);
 });
 
 test('every field is nullable, because a flyer need not print any of them', () => {
@@ -78,10 +78,18 @@ test('every way of saying nothing is treated as nothing', () => {
 });
 
 /**
- * Asked for one line of practical detail about an event called "Roll Racing
- * Sydney Test & Tune #27", the model answered "#27" — printed on the flyer,
- * true, and of no use to anybody.
+ * The note kept coming back as something nobody needs: "#27" off a title,
+ * "(REGISTER HERE)" off a button, a date it had been told to leave out. Naming
+ * what a note is not turned two of those three into null.
  */
+test('the prompt rules out the things notes kept coming back as', () => {
+  const prompt = buildVisionPrompt(FLYER);
+  assert.match(prompt, /never a call to action/i);
+  assert.match(prompt, /register here/i);
+  // The instruction wraps across lines, so match across whitespace.
+  assert.match(prompt, /Use null far more[\s\S]{0,6}often than not/i);
+});
+
 test('a note too short to be practical detail is dropped', () => {
   assert.equal(readVisionVerdict({ note: '#27' }).note, undefined);
   assert.equal(readVisionVerdict({ note: '6pm' }).note, undefined);

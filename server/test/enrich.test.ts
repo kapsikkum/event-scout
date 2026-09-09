@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   blendPhotoScore,
   buildPrompt,
+  describeStart,
   buildSchema,
   contentHash,
   EnrichInput,
@@ -64,8 +65,10 @@ test('an over-long description is cut before it reaches the model', () => {
   // The long run, not the stray x in "e.g." style prose earlier in the prompt.
   const carried = (prompt.match(/x{10,}/)?.[0] ?? '').length;
   assert.equal(carried, 1500);
-  // And the fixed part around it stays small.
-  assert.ok(prompt.length - carried < 1800, `overhead was ${prompt.length - carried} chars`);
+  // The fixed part is larger than it was: the scoring scale earns its length by
+  // spreading the answers out, and the category note stops a 4x4 show being
+  // filed under Heritage. Still worth a bound, so it cannot grow unnoticed.
+  assert.ok(prompt.length - carried < 3000, `overhead was ${prompt.length - carried} chars`);
 });
 
 test('the cache key follows the text, the model and the jobs', () => {
@@ -145,16 +148,50 @@ test('a runaway summary is truncated', () => {
 });
 
 /**
- * The instruction half of the guarantee that extraction only fills blanks. The
- * other half is in events.ts, which does not consult the model about a field
- * the source already stated — because asking politely is not the same as not
- * asking. qwen3, handed a listing whose venue was "Nelsonville, Ohio" and whose
- * address was "International", decided they were swapped and swapped them.
+ * Extraction is asked only about the fields this listing actually lacks.
+ *
+ * Being told to answer null for fields already filled did not work: in a sample
+ * of eight, every event offered a venue it had been told to leave alone. Naming
+ * only the blanks — and leaving the rest out of the schema — is what stopped it.
  */
-test('extraction is told to leave fields the listing already gives', () => {
-  const prompt = buildPrompt(EVENT, ['extract']);
-  assert.match(prompt, /already gives above/i);
-  assert.match(prompt, /do not repeat, reword, correct or swap/i);
+test('extraction asks only about the fields the listing left blank', () => {
+  // Venue and address known, so only the price is worth asking for.
+  const known = buildPrompt(EVENT, ['extract']);
+  assert.match(known, /- priceText: fill from what the description/);
+  assert.ok(!/- venueName/.test(known), 'should not ask for a venue it already has');
+  assert.ok(!/venueName, address/.test(known));
+
+  // Nothing known, so all three are named.
+  const blank = buildPrompt({ ...EVENT, venueName: '', address: '' }, ['extract']);
+  assert.match(blank, /- venueName, address, priceText: fill from/);
+});
+
+/** The same rule, enforced where instructions cannot be argued with. */
+test('the schema leaves out extract fields the listing already has', () => {
+  const known = buildSchema(['extract'], EVENT).properties as Record<string, unknown>;
+  assert.deepEqual(Object.keys(known), ['priceText']);
+
+  const blank = buildSchema(['extract'], { ...EVENT, venueName: '', address: '' })
+    .properties as Record<string, unknown>;
+  assert.deepEqual(Object.keys(blank).sort(), ['address', 'priceText', 'venueName']);
+
+  // With no input to judge, all three are offered: a caller that does not know
+  // is better served by too much than by a field silently dropped.
+  const unknown = buildSchema(['extract']).properties as Record<string, unknown>;
+  assert.deepEqual(Object.keys(unknown).sort(), ['address', 'priceText', 'venueName']);
+});
+
+/**
+ * The stored time is UTC, and the model read it off literally: an event at 9am
+ * on the 25th was summarised as "starts at 23:00 on 24th September".
+ */
+test('the start time reaches the prompt as a local date, not a UTC stamp', () => {
+  const shown = describeStart('2026-09-25T09:00:00+10:00');
+  assert.match(shown, /Friday/);
+  assert.match(shown, /25 September 2026/);
+  assert.ok(!shown.includes('T'), 'no ISO stamp should survive');
+  // Junk is passed through rather than turned into "Invalid Date".
+  assert.equal(describeStart('not a date'), 'not a date');
 });
 
 test('the photo score is the average of the two opinions, or the heuristic alone', () => {

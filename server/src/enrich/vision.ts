@@ -44,7 +44,7 @@ export interface VisionVerdict {
  * Bump to have every flyer looked at again. Part of the cache key, like the
  * text pass's own version.
  */
-export const VISION_PROMPT_VERSION = 2;
+export const VISION_PROMPT_VERSION = 3;
 
 export const VISION_SCHEMA: Record<string, unknown> = {
   type: 'object',
@@ -79,9 +79,12 @@ export function buildVisionPrompt(input: VisionInput): string {
     '- venueName: the venue, exactly as printed.',
     '- address: the street address, only if one is printed.',
     '- priceText: what entry costs, as printed — "$10", "Free", "$25 per car".',
-    '- note: one short line of practical detail a visitor would want that is not',
-    '  already obvious, such as when gates open or which entrance to use. Do not',
-    '  put the date in here.',
+    '- note: one short line a visitor would need on the day, and only if the',
+    '  flyer prints one — when gates open, which entrance to use, what to bring,',
+    '  where to park, whether it runs rain or shine. Never the date, never the',
+    '  event name, and never a call to action: "register here", "tickets on',
+    '  sale", "link in bio" and "follow us" are not notes. Use null far more',
+    '  often than not; most flyers carry nothing that belongs here.',
     '',
     'Copy what is printed. Do not infer, complete or guess anything.',
   ].join('\n');

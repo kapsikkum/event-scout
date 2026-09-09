@@ -154,7 +154,6 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
   const rows = pendingEvents(model, jobs, limit);
   if (rows.length === 0) return { ok: true, message: 'nothing new to read' };
 
-  const schema = buildSchema(jobs);
   const record = recordStmt();
   const update = db.prepare(
     `UPDATE events SET llm_description = ?, llm_category = ?, llm_venue_name = ?,
@@ -175,7 +174,9 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
         url,
         model,
         prompt: buildPrompt(input, jobs),
-        schema,
+        // Per event, not per run: which fields it may answer depends on which
+        // ones this listing left blank.
+        schema: buildSchema(jobs, input),
         timeoutMs: EVENT_TIMEOUT_MS,
       });
       const verdict = readVerdict(raw, jobs);

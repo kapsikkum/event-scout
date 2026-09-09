@@ -9,6 +9,9 @@ import { ALL_CATEGORIES, GENERAL_CATEGORY } from '../sources/topics.js';
  * needs to be trusted very far, and none of it is.
  */
 
+/** A newline, as a constant so the multi-line instructions below stay readable. */
+const NEWLINE = String.fromCharCode(10);
+
 export type EnrichJob = 'describe' | 'classify' | 'extract' | 'score';
 
 export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
@@ -41,7 +44,7 @@ export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
  * events be looked at again. Leaving it alone after a wording tweak is fine;
  * the point is to have the choice.
  */
-export const PROMPT_VERSION = 2;
+export const PROMPT_VERSION = 3;
 
 /** Longest summary worth keeping. Roughly a card's worth of text. */
 export const MAX_SUMMARY = 600;
@@ -74,7 +77,7 @@ export interface EnrichVerdict {
  * of the categories the UI filter knows about, which is the difference between
  * a classifier and a model inventing a new heading every few events.
  */
-export function buildSchema(jobs: EnrichJob[]): Record<string, unknown> {
+export function buildSchema(jobs: EnrichJob[], input?: EnrichInput): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   const want = new Set(jobs);
@@ -88,12 +91,30 @@ export function buildSchema(jobs: EnrichJob[]): Record<string, unknown> {
     required.push('summary');
   }
   if (want.has('extract')) {
+    // Only the fields this listing actually lacks. Asked for a venue it had
+    // already been given, the model supplied one every time in a sample of
+    // eight, however plainly the prompt said not to — and being required by
+    // the schema, it had to put something there. Leaving the field out is the
+    // only instruction it cannot talk itself out of.
+    //
+    // Without an input to judge, all three are asked for: callers that do not
+    // know are better served by too much than by silently dropping a field.
+    const blank = (value: string | undefined): boolean => !input || !value?.trim();
     // Nullable rather than optional: a model given the option of omitting a
     // field will omit it, whereas it will answer null honestly.
-    properties.venueName = { type: ['string', 'null'] };
-    properties.address = { type: ['string', 'null'] };
-    properties.priceText = { type: ['string', 'null'] };
-    required.push('venueName', 'address', 'priceText');
+    const nullableString = { type: ['string', 'null'] };
+    if (blank(input?.venueName)) {
+      properties.venueName = nullableString;
+      required.push('venueName');
+    }
+    if (blank(input?.address)) {
+      properties.address = nullableString;
+      required.push('address');
+    }
+    // Price is never carried by the sources that matter here, so it is always
+    // worth asking for.
+    properties.priceText = nullableString;
+    required.push('priceText');
   }
   if (want.has('score')) {
     properties.photoScore = { type: 'integer', minimum: 0, maximum: 100 };
@@ -103,15 +124,45 @@ export function buildSchema(jobs: EnrichJob[]): Record<string, unknown> {
   return { type: 'object', properties, required };
 }
 
-const JOB_INSTRUCTIONS: Record<EnrichJob, string> = {
+/**
+ * How the start time is written into the prompt.
+ *
+ * It used to go in as the stored ISO string, which is UTC, and the model read
+ * it off literally: an event at 9am on the 25th came back summarised as
+ * "starts at 23:00 on 24th September". Formatting it in the server's own zone —
+ * the same zone that decides when an event counts as past — is what makes the
+ * date the model sees the date a reader would.
+ */
+export function describeStart(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return at.toLocaleString('en-AU', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}
+
+/**
+ * The instructions for the fields that are always asked the same way.
+ *
+ * Extraction is not here: what to ask of it depends on which fields the
+ * listing already filled, so it is built per event below.
+ */
+const JOB_INSTRUCTIONS: Record<Exclude<EnrichJob, 'extract'>, string> = {
   classify:
-    `- category: which of the listed categories fits best. Use "${GENERAL_CATEGORY}" only when none of the others do.`,
+    `- category: which of the listed categories fits best. Use "${GENERAL_CATEGORY}" only when none of the others do. "Heritage & machinery" means genuinely old or preserved things — steam, vintage, rail, aviation, historic re-enactment. A show of modern cars, 4x4s or bikes is "Cars & bikes"; competitive driving or riding is "Motorsport".`,
   describe:
-    '- summary: two or three plain sentences saying what the event is, where and when. Drop hashtags, emoji, ticket terms, sponsor lists, opening hours, "link in bio" and anything addressed to the reader. Never remark on what the listing does not say. If the text says nothing beyond the title, return an empty string.',
-  extract:
-    '- venueName, address, priceText: use null for any of these the listing already gives above — they are filled in only when blank, so do not repeat, reword, correct or swap them. Otherwise, only if the description plainly states one: copy the words used, do not infer or complete an address, and do not guess a town from a venue name. Use null when it does not say.',
+    '- summary: two or three plain sentences saying what the event is and where. Drop hashtags, emoji, ticket terms, sponsor lists, opening hours, "link in bio" and anything addressed to the reader. Give the date only as it is written above, and never state a time of day unless the description itself gives one. Never remark on what the listing does not say. If the text says nothing beyond the title, return an empty string.',
   score:
-    '- photoScore: 0-100 for how worth photographing this is for a stills photographer. Crowds, colour, motion, fire, water, machinery, costume and open-air settings score high; talks, classes, meetings, online events and anything indoors and static score low.',
+    [
+      '- photoScore: 0-100, how much there is for a stills photographer to shoot.',
+      '  Use the whole range and be willing to sit in the middle. As a guide:',
+      '  90+ fireworks, air shows, parades, festivals of light, motorsport on track;',
+      '  70-85 car and bike shows, live bands, rodeos, big outdoor markets;',
+      '  45-65 community fairs, museum open days, small markets, indoor exhibitions;',
+      '  20-40 talks, tours, presentations, award nights, club meetings;',
+      '  0-15 webinars, online-only events, classes, courses, AGMs, trivia.',
+    ].join(NEWLINE),
 };
 
 /**
@@ -121,8 +172,34 @@ const JOB_INSTRUCTIONS: Record<EnrichJob, string> = {
  * from pages anyone can publish, so a blurb containing "ignore the above and
  * ..." is not hypothetical; being explicit about it costs one sentence.
  */
+/**
+ * What to ask extraction for, given what this listing already has.
+ *
+ * Telling the model to answer null for fields already filled did not work:
+ * every event in a sample of eight offered a venue it had been told to leave
+ * alone. Naming only the blanks removes the temptation rather than arguing
+ * with it. events.ts ignores the rest either way, so this is about not wasting
+ * the ask, not about safety.
+ */
+function extractInstruction(input: EnrichInput): string {
+  const blank: string[] = [];
+  if (!input.venueName.trim()) blank.push('venueName');
+  if (!input.address.trim()) blank.push('address');
+  blank.push('priceText');
+
+  return [
+    `- ${blank.join(', ')}: fill from what the description plainly states, and`,
+    '  nothing else. Copy the words it uses. Do not infer or complete an address,',
+    '  and do not guess a town from a venue name. Use null when it does not say.',
+    '- Answer null for every other field: what the listing already gives above is',
+    '  not yours to repeat, reword or correct.',
+  ].join(NEWLINE);
+}
+
 export function buildPrompt(input: EnrichInput, jobs: EnrichJob[]): string {
-  const asked = jobs.map((j) => JOB_INSTRUCTIONS[j]).join('\n');
+  const asked = jobs
+    .map((j) => (j === 'extract' ? extractInstruction(input) : JOB_INSTRUCTIONS[j]))
+    .join(NEWLINE);
   return [
     'You are tidying one entry in a local events listing. Answer only with the JSON object described.',
     '',
@@ -130,7 +207,7 @@ export function buildPrompt(input: EnrichInput, jobs: EnrichJob[]): string {
     '',
     '--- LISTING ---',
     `title: ${input.title}`,
-    `starts: ${input.startTime}`,
+    `starts: ${describeStart(input.startTime)}`,
     `venue: ${input.venueName || '(none given)'}`,
     `address: ${input.address || '(none given)'}`,
     `source: ${input.source}`,
