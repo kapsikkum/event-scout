@@ -9,6 +9,10 @@
 #   git push                                       # CI builds and publishes
 #   sudo systemctl restart podman-event-scout      # pulls it, pull = "newer"
 #
+# A change to this file is a nixos-rebuild rather than a restart: copy it to
+# ~/.nixos-config/modules/containers/event-scout/default.nix on the host, then
+# sudo nixos-rebuild switch.
+#
 # They used to be built on the host as root, because CI could not publish while
 # the GitHub account was locked. That worked, but it rebuilt Chromium's image on
 # the data server for changes CI had already built, and what ran was whatever
@@ -38,6 +42,15 @@ let
   # without editing this file.
   appImage = "ghcr.io/kapsikkum/event-scout:latest";
   chromiumImage = "ghcr.io/kapsikkum/event-scout-chromium:latest";
+
+  # The Ollama the two model-reading tasks talk to. Neither is on by default,
+  # and both degrade to "cannot reach" rather than failing anything else, so
+  # naming a host that is down costs nothing.
+  #
+  # By name rather than by address: podman's DNS forwards what it cannot answer
+  # to the host's resolvers, so this resolves wherever the host can resolve it,
+  # and survives squareeyes moving.
+  ollamaUrl = "http://squareeyes:11434";
 
   # Local disk, matching the other containers on this fleet, and emphatically
   # not the NAS mount this first pointed at.
@@ -152,6 +165,10 @@ in
         # tells the pages it visits: a container running UTC while claiming
         # en-AU is a contradiction a bot check can read.
         TZ = config.time.timeZone;
+        # Only a default: the Settings page overrides it. Ollama listens on
+        # 127.0.0.1 unless told otherwise, so squareeyes needs its own
+        # services.ollama.host set to 0.0.0.0 for this to reach anything.
+        OLLAMA_URL = ollamaUrl;
       };
     };
   };
