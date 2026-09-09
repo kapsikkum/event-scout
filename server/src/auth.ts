@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import { getKv, setKv } from './db.js';
 
 /**
  * One shared password, and a rule about what it protects.
@@ -12,12 +11,15 @@ import { getKv, setKv } from './db.js';
  * Deliberately small: no session library, no JWTs, a signed cookie over
  * `node:crypto`. The dependency list is short everywhere else in this project
  * and there is nothing here worth a package for.
+ *
+ * This half is pure: what needs protecting, and how a cookie is signed and
+ * checked. The half that reaches the database lives in authStore.ts. They were
+ * one file until the tests for these rules opened a database to reach them and
+ * raced another test file's migrations on a fresh one.
  */
 
 export const SESSION_COOKIE = 'es_session';
 
-/** How long a sign-in lasts. Long, because this is a tool you leave open. */
-const SESSION_DAYS = 30;
 
 // --- what the password protects ---------------------------------------------
 
@@ -47,7 +49,6 @@ export function needsAuth(method: string, path: string): boolean {
   return method !== 'GET' && method !== 'HEAD';
 }
 
-// --- password ---------------------------------------------------------------
 
 function scryptHash(password: string, salt: string): string {
   return crypto.scryptSync(password, salt, 64).toString('hex');
@@ -65,55 +66,7 @@ export function secureEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ah, bh);
 }
 
-/** Set or clear the stored password. An empty string turns authentication off. */
-export function setPassword(password: string): void {
-  if (!password) {
-    setKv('authPasswordHash', '');
-    setKv('authPasswordSalt', '');
-    return;
-  }
-  const salt = crypto.randomBytes(16).toString('hex');
-  setKv('authPasswordSalt', salt);
-  setKv('authPasswordHash', scryptHash(password, salt));
-}
-
-/**
- * Whether anything is protected at all.
- *
- * `AUTH_PASSWORD` wins when set, so a container can be locked down without
- * anybody visiting the UI first. With neither, the app behaves exactly as it
- * did before this existed — which the Settings page says out loud, rather than
- * leaving it to be discovered.
- */
-export function passwordRequired(): boolean {
-  return Boolean(process.env.AUTH_PASSWORD || getKv('authPasswordHash'));
-}
-
-export function checkPassword(attempt: string): boolean {
-  const fromEnv = process.env.AUTH_PASSWORD;
-  if (fromEnv) return secureEqual(attempt, fromEnv);
-  const salt = getKv('authPasswordSalt');
-  const hash = getKv('authPasswordHash');
-  if (!salt || !hash) return false;
-  return secureEqual(scryptHash(attempt, salt), hash);
-}
-
-/** True when the password lives in the environment, so the UI cannot change it. */
-export function passwordIsFromEnv(): boolean {
-  return Boolean(process.env.AUTH_PASSWORD);
-}
-
-// --- sessions ---------------------------------------------------------------
-
-/** Persisted, so signing in survives a restart. */
-function sessionSecret(): Buffer {
-  let hex = getKv('authSessionSecret');
-  if (!hex) {
-    hex = crypto.randomBytes(32).toString('hex');
-    setKv('authSessionSecret', hex);
-  }
-  return Buffer.from(hex, 'hex');
-}
+export { scryptHash };
 
 /** `<expiry>.<hmac>`, where the hmac covers the expiry. */
 export function signSession(expiresAt: number, secret: Buffer): string {
@@ -135,15 +88,6 @@ export function verifySession(token: string | undefined, secret: Buffer, now = D
   return Number.isFinite(expiry) && expiry > now;
 }
 
-export function newSessionToken(): { token: string; maxAgeMs: number } {
-  const maxAgeMs = SESSION_DAYS * 24 * 3600 * 1000;
-  return { token: signSession(Date.now() + maxAgeMs, sessionSecret()), maxAgeMs };
-}
-
-export function sessionValid(token: string | undefined): boolean {
-  return verifySession(token, sessionSecret());
-}
-
 /** Pull one cookie out of a Cookie header, without a parser dependency. */
 export function readCookie(header: string | undefined, name: string): string | undefined {
   if (!header) return undefined;
@@ -156,62 +100,5 @@ export function readCookie(header: string | undefined, name: string): string | u
   return undefined;
 }
 
-// --- the calendar feed ------------------------------------------------------
-
-/**
- * A secret in the feed URL, because a calendar client cannot sign in.
- *
- * Subscribing is a GET and stays reachable, but the feed carries the shortlist,
- * so once a password is set the URL has to carry something. Generated on first
- * use and only enforced once a password exists, which keeps URLs already
- * subscribed to working right up until authentication is turned on.
- */
-export function feedToken(): string {
-  let token = getKv('feedToken');
-  if (!token) {
-    token = crypto.randomBytes(24).toString('base64url');
-    setKv('feedToken', token);
-  }
-  return token;
-}
-
-export function regenerateFeedToken(): string {
-  const token = crypto.randomBytes(24).toString('base64url');
-  setKv('feedToken', token);
-  return token;
-}
-
-export function feedTokenValid(supplied: unknown): boolean {
-  if (!passwordRequired()) return true;
-  return typeof supplied === 'string' && supplied.length > 0 && secureEqual(supplied, feedToken());
-}
-
-// --- brute force ------------------------------------------------------------
-
-/**
- * A small, deliberately unsophisticated brake on guessing.
- *
- * Not a general rate limiter: one password, one process, and a lockout measured
- * in seconds is enough to make an online guessing attack pointless without ever
- * locking the owner out for long.
- */
-const FREE_ATTEMPTS = 5;
-const LOCKOUT_MS = 30_000;
-const attempts = new Map<string, { count: number; until: number }>();
-
-export function loginBlockedFor(ip: string, now = Date.now()): number {
-  const entry = attempts.get(ip);
-  if (!entry || entry.until <= now) return 0;
-  return entry.until - now;
-}
-
-export function noteLoginFailure(ip: string, now = Date.now()): void {
-  const entry = attempts.get(ip) ?? { count: 0, until: 0 };
-  entry.count++;
-  if (entry.count > FREE_ATTEMPTS) entry.until = now + LOCKOUT_MS;
-  attempts.set(ip, entry);
-}
-
-export function noteLoginSuccess(ip: string): void {
-  attempts.delete(ip);
-}
+/** How long a sign-in lasts. Long, because this is a tool you leave open. */
+export const SESSION_DAYS = 30;

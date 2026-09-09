@@ -3,23 +3,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getKv, getSettings, saveSettings } from './db.js';
+import { needsAuth, readCookie, SESSION_COOKIE } from './auth.js';
 import {
   checkPassword,
   feedToken,
   feedTokenValid,
   loginBlockedFor,
-  needsAuth,
   newSessionToken,
   noteLoginFailure,
   noteLoginSuccess,
   passwordIsFromEnv,
   passwordRequired,
-  readCookie,
   regenerateFeedToken,
   sessionValid,
   setPassword,
-  SESSION_COOKIE,
-} from './auth.js';
+} from './authStore.js';
 import { getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';

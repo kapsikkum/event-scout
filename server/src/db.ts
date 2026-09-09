@@ -10,6 +10,15 @@ fs.mkdirSync(dataDir, { recursive: true });
 
 export const db = new DatabaseSync(path.join(dataDir, 'event-scout.db'));
 db.exec('PRAGMA journal_mode = WAL');
+/**
+ * Wait for a busy database rather than failing at once.
+ *
+ * SQLite's default is to give up immediately, which is wrong everywhere this
+ * runs: the test files open the same database in parallel processes and raced
+ * each other's migrations on a fresh one, and in production the nightly
+ * VACUUM INTO backup reads while the app is writing.
+ */
+db.exec('PRAGMA busy_timeout = 5000');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS events (
