@@ -161,13 +161,20 @@ Optional, off by default. Point Settings → Local model at an
 
 | Job | Does |
 |---|---|
-| Tidy descriptions | Rewrite a scraped blurb into two or three plain sentences. |
+| Tidy descriptions | Boil a scraped blurb down to what the listing actually states, in at most three sentences. |
 | Categorise | Pick a category for listings the keyword classifier cannot place. |
 | Fill in blanks | Read venue, address or price out of the description, **only where the stored field is empty**. |
 | Judge photo appeal | Rate how worth shooting an event is, averaged with the keyword score. |
 
 Each toggles separately; the JSON schema is built from the ones you enable, so a
 job that is off cannot produce a field.
+
+Summaries carry no date, weekday or start time: those are shown beside the text
+already, and left free to repeat them the model spent a third of every summary
+doing it. Nor does the instruction name any subject to look for — an earlier one
+that listed stalls, cars, food and parking had thin listings reporting which of
+them were *absent*, and a listing with no description at all had a zoo invented
+for it out of an emoji in the title.
 
 Verdicts go in separate `llm_*` columns, never over the scraped values — turn
 the task off and everything reverts. The category is pinned to an enum of known

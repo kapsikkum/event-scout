@@ -66,9 +66,12 @@ test('an over-long description is cut before it reaches the model', () => {
   const carried = (prompt.match(/x{10,}/)?.[0] ?? '').length;
   assert.equal(carried, 1500);
   // The fixed part is larger than it was: the scoring scale earns its length by
-  // spreading the answers out, and the category note stops a 4x4 show being
-  // filed under Heritage. Still worth a bound, so it cannot grow unnoticed.
-  assert.ok(prompt.length - carried < 3000, `overhead was ${prompt.length - carried} chars`);
+  // spreading the answers out, the category note stops a 4x4 show being filed
+  // under Heritage, and the summary instruction is long because every short
+  // version of it produced a summary that said only what the card already
+  // showed. Still worth a bound, so it cannot grow unnoticed. It is prefill
+  // rather than generation, which is the cheap half.
+  assert.ok(prompt.length - carried < 3600, `overhead was ${prompt.length - carried} chars`);
 });
 
 test('the cache key follows the text, the model and the jobs', () => {
@@ -205,4 +208,56 @@ test('the photo score is the average of the two opinions, or the heuristic alone
   assert.equal(blendPhotoScore(55, 56), 56);
   // A model at rock bottom can only halve the heuristic, not erase it.
   assert.equal(blendPhotoScore(90, 0), 45);
+});
+
+/**
+ * The blank lines are structure, not decoration.
+ *
+ * They were all being lost: a `.filter(Boolean)` meant to drop one conditional
+ * line at the end dropped every intentional '' with it, and the whole prompt —
+ * the warning, the fenced listing, the fields — arrived as one unbroken run of
+ * text with no separation between the untrusted part and the instructions.
+ */
+test('the prompt keeps the breaks between its sections', () => {
+  const prompt = buildPrompt(EVENT, ALL);
+  assert.ok(prompt.includes('\n\n--- LISTING ---'), 'the fence starts a new block');
+  assert.ok(prompt.includes('--- END LISTING ---\n\n'), 'and closes one');
+  assert.ok(prompt.split('\n\n').length >= 5, 'several blocks, not one wall');
+  // Dropping the trailing category line must not take the blank lines with it.
+  assert.ok(buildPrompt(EVENT, ['describe']).includes('\n\n--- LISTING ---'));
+  assert.ok(!buildPrompt(EVENT, ['describe']).includes('Categories:'));
+});
+
+/**
+ * Naming subjects to look for biases the answer towards them.
+ *
+ * A draft that listed stalls, cars, bands, food and parking had a thin listing
+ * come back reporting which of them were absent, and a listing with no
+ * description at all had a zoo invented for it from an emoji in the title.
+ * Neither survived taking the nouns out, so this guards against them coming
+ * back the next time the instruction is reworded.
+ */
+test('the summary instruction names no subjects to look for', () => {
+  // Unwrapped first: the instruction is hard-wrapped for the sake of reading
+  // it in the source, and a phrase can straddle two lines.
+  const summary = buildPrompt(EVENT, ['describe']).split('Fields:')[1].replace(/\s+/g, ' ');
+  for (const noun of ['stalls', 'bands', 'animals', 'fireworks', 'parking', 'children']) {
+    assert.ok(!new RegExp(`\b${noun}\b`, 'i').test(summary), `names "${noun}"`);
+  }
+  assert.match(summary, /take the subjects from the description/i);
+  assert.match(summary, /never note that something is missing/i);
+});
+
+/**
+ * A summary that restates the date spends a third of itself on something shown
+ * beside it. Measured over the enriched rows, 89% of them did.
+ */
+test('the summary is told not to repeat the date, or to invent a time', () => {
+  // Unwrapped first: the instruction is hard-wrapped for the sake of reading
+  // it in the source, and a phrase can straddle two lines.
+  const summary = buildPrompt(EVENT, ['describe']).split('Fields:')[1].replace(/\s+/g, ' ');
+  assert.match(summary, /never give the date, the weekday or the start time/i);
+  // The heading carries a start time for every event, and most descriptions
+  // print none. Left as fair game it was copied out as though the text said it.
+  assert.match(summary, /the heading above is not a source for it/i);
 });

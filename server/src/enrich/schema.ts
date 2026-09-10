@@ -18,7 +18,7 @@ export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
   {
     key: 'describe',
     label: 'Tidy descriptions',
-    hint: 'Rewrite a scraped blurb into a couple of plain sentences, dropping hashtags, emoji runs, ticket boilerplate and "link in bio".',
+    hint: 'Boil a scraped blurb down to what the listing actually states, dropping hashtags, emoji runs, ticket boilerplate, "link in bio" and the date already shown on the card.',
   },
   {
     key: 'classify',
@@ -44,7 +44,7 @@ export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
  * events be looked at again. Leaving it alone after a wording tweak is fine;
  * the point is to have the choice.
  */
-export const PROMPT_VERSION = 3;
+export const PROMPT_VERSION = 4;
 
 /** Longest summary worth keeping. Roughly a card's worth of text. */
 export const MAX_SUMMARY = 600;
@@ -155,8 +155,40 @@ export function describeStart(iso: string, timeZone?: string): string {
 const JOB_INSTRUCTIONS: Record<Exclude<EnrichJob, 'extract'>, string> = {
   classify:
     `- category: which of the listed categories fits best. Use "${GENERAL_CATEGORY}" only when none of the others do. "Heritage & machinery" means genuinely old or preserved things — steam, vintage, rail, aviation, historic re-enactment. A show of modern cars, 4x4s or bikes is "Cars & bikes"; competitive driving or riding is "Motorsport".`,
+  /**
+   * Naming no subjects is the point.
+   *
+   * An earlier draft listed what was worth keeping — stalls, cars, bands,
+   * animals, food, parking — and it read as a checklist to work through rather
+   * than as examples. A thin listing came back answering it in the negative
+   * ("there is no mention of food, children's activities, or parking"), and one
+   * with no description at all had a zoo invented for it out of an emoji in the
+   * title. Asking for the description's own subjects instead fixed both, and
+   * leaves the summary shaped by the event rather than by this list.
+   */
   describe:
-    '- summary: two or three plain sentences saying what the event is and where. Drop hashtags, emoji, ticket terms, sponsor lists, opening hours, "link in bio" and anything addressed to the reader. Give the date only as it is written above, and never state a time of day unless the description itself gives one. Never remark on what the listing does not say. If the text says nothing beyond the title, return an empty string.',
+    [
+      '- summary: what somebody deciding whether to go would want to know, and',
+      '  nothing they can already see beside it.',
+      '  Take the subjects from the description rather than looking for particular',
+      '  ones: whatever it states plainly about what will be there, the setting,',
+      '  the scale, or the practical business of attending. Say nothing at all',
+      '  about anything it does not raise, and never note that something is',
+      '  missing. Prefer what a reader could check on the day over how the text',
+      '  feels about itself — not how popular, beloved or long-running it says the',
+      '  event is.',
+      '  Never give the date, the weekday or the start time: they are shown beside',
+      '  this text already. A time of day belongs here only where the description',
+      '  itself prints one — the heading above is not a source for it.',
+      '  Drop hashtags, emoji, sponsor lists, prices, ticket and registration',
+      '  terms, "link in bio", repetition of the event\'s own name, and anything',
+      '  addressed to the reader.',
+      '  Every sentence must be traceable to the description, and there are at',
+      '  most three: three only where it is genuinely rich, one where it is thin.',
+      '  Where it is "(none given)", or says nothing the title has not, the answer',
+      '  is an empty string — the title, the venue and the heading are not',
+      '  material for a summary, and a listing with no description gets none.',
+    ].join(NEWLINE),
   score:
     [
       '- photoScore: 0-100, how much there is for a stills photographer to shoot.',
@@ -223,10 +255,11 @@ export function buildPrompt(input: EnrichInput, jobs: EnrichJob[]): string {
     asked,
     '',
     'Base every field only on the listing above. Never invent a fact it does not contain.',
-    jobs.includes('classify') ? `Categories: ${ALL_CATEGORIES.join(', ')}.` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+    // Spread rather than a conditional '': the blank strings above are wanted,
+    // and a .filter(Boolean) to drop this one dropped every one of them too,
+    // running the whole prompt together without a break anywhere in it.
+    ...(jobs.includes('classify') ? [`Categories: ${ALL_CATEGORIES.join(', ')}.`] : []),
+  ].join('\n');
 }
 
 /**
