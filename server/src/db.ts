@@ -64,30 +64,47 @@ CREATE TABLE IF NOT EXISTS kv (
 `);
 
 /**
+ * Add a column unless it is already there.
+ *
+ * The snapshot of column names is read once and then acted on, which is a race
+ * whenever two processes open the same file at once: both read a table without
+ * `llm_category`, both try to add it, and the loser dies on "duplicate column
+ * name". It showed up in CI, where the test runner gives each file its own
+ * process and the database starts empty, and it never showed up locally, where
+ * the database is already migrated and no ALTER runs at all.
+ *
+ * Treating a duplicate as success is the whole fix: the column exists, which is
+ * all the caller wanted. Two containers sharing a volume would race the same
+ * way, so this is worth more than getting the tests green.
+ */
+function addColumn(cols: string[], name: string, declaration: string): void {
+  if (cols.includes(name)) return;
+  try {
+    db.exec(`ALTER TABLE events ADD COLUMN ${name} ${declaration}`);
+  } catch (err) {
+    if (!/duplicate column name/i.test((err as Error).message)) throw err;
+  }
+}
+
+const TEXT_COLUMN = "TEXT NOT NULL DEFAULT ''";
+
+/**
  * Past events are archived rather than deleted: a year of history is what makes
  * "where was busy last Bathurst 1000" answerable, and it pairs with the
  * density time-series. Added here so existing databases pick it up.
  */
 function migrate(): void {
   const cols = (db.prepare('PRAGMA table_info(events)').all() as { name: string }[]).map((c) => c.name);
-  if (!cols.includes('archived')) {
-    db.exec('ALTER TABLE events ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!cols.includes('archived_at')) {
-    db.exec('ALTER TABLE events ADD COLUMN archived_at TEXT');
-  }
+  addColumn(cols, 'archived', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn(cols, 'archived_at', 'TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_events_archived ON events(archived)');
   // Manual merges, kept apart from dedupe_group so a refresh cannot undo them:
   // recomputing dedupe groups rewrites that column on every pass.
-  if (!cols.includes('manual_group')) {
-    db.exec("ALTER TABLE events ADD COLUMN manual_group TEXT NOT NULL DEFAULT ''");
-  }
+  addColumn(cols, 'manual_group', TEXT_COLUMN);
   db.exec('CREATE INDEX IF NOT EXISTS idx_events_manual ON events(manual_group)');
   // Remembers that we already tried to place an event. Without it the geocode
   // pass reworks the same earliest rows every refresh and never reaches the rest.
-  if (!cols.includes('geocode_tried')) {
-    db.exec('ALTER TABLE events ADD COLUMN geocode_tried INTEGER NOT NULL DEFAULT 0');
-  }
+  addColumn(cols, 'geocode_tried', 'INTEGER NOT NULL DEFAULT 0');
 
   /**
    * What a local model made of a listing, kept beside the scraped values
@@ -101,11 +118,9 @@ function migrate(): void {
    * cannot damage anything that was scraped.
    */
   for (const col of ['llm_description', 'llm_category', 'llm_venue_name', 'llm_address', 'llm_price_text']) {
-    if (!cols.includes(col)) db.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+    addColumn(cols, col, TEXT_COLUMN);
   }
-  if (!cols.includes('llm_photo_score')) {
-    db.exec('ALTER TABLE events ADD COLUMN llm_photo_score REAL');
-  }
+  addColumn(cols, 'llm_photo_score', 'REAL');
 
   /**
    * One row per event already looked at, keyed by a hash of the text that was
@@ -130,13 +145,11 @@ function migrate(): void {
     'edit_title', 'edit_description', 'edit_start_time', 'edit_venue_name',
     'edit_address', 'edit_category', 'edit_price_text', 'edit_image_url',
   ]) {
-    if (!cols.includes(col)) db.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+    addColumn(cols, col, TEXT_COLUMN);
   }
   // Nullable rather than '' because 0 is a meaningful score, so "unset" needs
   // to be a different value from "set to nothing".
-  if (!cols.includes('edit_photo_score')) {
-    db.exec('ALTER TABLE events ADD COLUMN edit_photo_score REAL');
-  }
+  addColumn(cols, 'edit_photo_score', 'REAL');
 
   /**
    * What a vision model read off the event's flyer. Its own columns, kept apart
@@ -144,7 +157,7 @@ function migrate(): void {
    * chosen between rather than overwriting one another.
    */
   for (const col of ['vision_venue_name', 'vision_address', 'vision_price_text', 'vision_note']) {
-    if (!cols.includes(col)) db.exec(`ALTER TABLE events ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+    addColumn(cols, col, TEXT_COLUMN);
   }
 
   db.exec(`
