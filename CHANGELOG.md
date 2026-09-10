@@ -7,6 +7,32 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.3.0](https://github.com/kapsikkum/event-scout/compare/v0.2.0...v0.3.0) (2026-09-10)
+
+
+### Features
+
+* add an API token, and patch the dependency advisories ([f047eb2](https://github.com/kapsikkum/event-scout/commit/f047eb2e4272933eba098728a8797cf72f426357))
+* edit events by hand, and read the blurb as it was published ([65831d9](https://github.com/kapsikkum/event-scout/commit/65831d9732780546cd9b860f9bdbb758b6236320))
+* **enrich:** summarise what the listing says, not what the card shows ([abc3c60](https://github.com/kapsikkum/event-scout/commit/abc3c60c1395bbe2919d2cab8b18301e3ddb8c6e))
+* keep a copy of every flyer, filed by the date of the event ([144ad28](https://github.com/kapsikkum/event-scout/commit/144ad28e065cc5a4d6c2a839d2f7b999b96691e3))
+* let other sites read the API, for the origins you name ([0dbb6bf](https://github.com/kapsikkum/event-scout/commit/0dbb6bff9ff832810643977c9dba10d29b913bf7))
+* say which fields a model wrote, and let the API be queried ([d5b0a86](https://github.com/kapsikkum/event-scout/commit/d5b0a86349d1032f27a255107104fe6d4bfacf24))
+
+
+### Fixes
+
+* audit findings — SSRF guard, JSON errors, density retention ([0050e8b](https://github.com/kapsikkum/event-scout/commit/0050e8b8470a9bd528b29c4b6b7d21757567e346))
+* **db:** let a column that another process just added count as added ([3e1ea98](https://github.com/kapsikkum/event-scout/commit/3e1ea98176f381c29994c3074b7618bff7133f27))
+* score the events this app actually collects ([67f3145](https://github.com/kapsikkum/event-scout/commit/67f314502101ff4c1e369dd5887f352a4824fd42))
+* stop handing the credentials back out of /api/settings ([0a6cc6e](https://github.com/kapsikkum/event-scout/commit/0a6cc6eef38402bee5788bb62ffe623a12736815))
+* **web:** show the year on dates outside the current one ([aa29dfc](https://github.com/kapsikkum/event-scout/commit/aa29dfcea9551fa8cb9d0fc20d378175276955ce))
+
+
+### Documentation
+
+* show the app in the README ([2d7e7b8](https://github.com/kapsikkum/event-scout/commit/2d7e7b86e75413ca1f6568d52c0f3c597f1d04bc))
+
 ## [0.2.0](https://github.com/kapsikkum/event-scout/compare/v0.1.0...v0.2.0) (2026-09-09)
 
 
