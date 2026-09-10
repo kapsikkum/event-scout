@@ -7,9 +7,21 @@ import { enrichedTooltip, isEnriched } from '../enriched';
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
+/**
+ * When an event is on, as it appears on a card, the map and the detail panel.
+ *
+ * The year is shown only when it is not the current one. Most of what is listed
+ * is within the next few months, where "Sat, Sep 12" is how a person would say
+ * it and a year is noise on every card — but the sources do carry dates a year
+ * or more out, and those read as though they were this year's.
+ */
 export function formatWhen(ev: MergedEvent): string {
   const start = new Date(ev.startTime);
-  const day = start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const otherYear = start.getFullYear() !== new Date().getFullYear();
+  const day = start.toLocaleDateString(undefined, {
+    weekday: 'short', month: 'short', day: 'numeric',
+    ...(otherYear ? { year: 'numeric' } : {}),
+  });
   const time = start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   return `${day} · ${time}`;
 }

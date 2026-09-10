@@ -229,7 +229,13 @@ export default function Calendar() {
           {agendaDays.map(({ key, date, events: dayEvents }) => (
             <section key={key} className={`agenda__day${key === todayKey ? ' is-today' : ''}`}>
               <h3>
-                {date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+                {/* The agenda runs forward without a month heading over it, so
+                    unlike the month view it has nothing else to say which year
+                    a day belongs to. */}
+                {date.toLocaleDateString(undefined, {
+                  weekday: 'long', day: 'numeric', month: 'long',
+                  ...(date.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+                })}
                 {key === todayKey && <span className="agenda__today">Today</span>}
                 <span className="agenda__count">{dayEvents.length}</span>
               </h3>
