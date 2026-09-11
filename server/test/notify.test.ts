@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import type { MergedEvent } from '../src/events.js';
 import { matchesFilters } from '../src/notify/filters.js';
 import { discordPayloads, markdownToMatrix, matrixList, matrixMessages } from '../src/notify/format.js';
-import { batchQuestion, buildChatMessages, chatReply, chatStillOn, eventsForChat } from '../src/notify/chat.js';
+import { batchQuestion, buildChatMessages, chatReply, chatStillOn, eventsForChat, parseChatCommand } from '../src/notify/chat.js';
 import { digestSlot, inQuietHours, planTarget } from '../src/notify/run.js';
 import type { NotifyStore, Snapshot } from '../src/notify/store.js';
 import { DEFAULT_FILTERS, normalizeTarget } from '../src/notify/targets.js';
@@ -272,6 +272,37 @@ test('several people in a chat: one turn, a reply to the last, everyone who aske
     settings: DEFAULT_SETTINGS, events: [], question: 'q', history: [], now: new Date(), conditions: '',
   });
   assert.match(system.content, /Several people may be in the room/);
+});
+
+test('!chat commands are read whole, so a system prompt keeps its lines', () => {
+  assert.deepEqual(parseChatCommand('!chat', '!'), { kind: 'status' });
+  assert.deepEqual(parseChatCommand('!chat start', '!'), { kind: 'start' });
+  assert.deepEqual(parseChatCommand('!chat END', '!'), { kind: 'end' });
+  assert.deepEqual(parseChatCommand('!chat system You are a pirate.\nKeep it short.', '!'),
+    { kind: 'system', value: 'You are a pirate.\nKeep it short.' });
+  assert.deepEqual(parseChatCommand('!chat system', '!'), { kind: 'system', value: undefined }, 'asking');
+  assert.deepEqual(parseChatCommand('!chat system reset', '!'), { kind: 'system', value: null }, 'back to Settings');
+  assert.deepEqual(parseChatCommand('!chat context off', '!'), { kind: 'context', value: false });
+  assert.deepEqual(parseChatCommand('!chat context', '!'), { kind: 'context', value: undefined });
+  assert.deepEqual(parseChatCommand('!chat model gemma4:12b', '!'), { kind: 'model', value: 'gemma4:12b' });
+  assert.deepEqual(parseChatCommand('.chat forget', '.'), { kind: 'forget' });
+  assert.deepEqual(parseChatCommand('!chat dance', '!'), { kind: 'unknown', word: 'dance' });
+});
+
+test('with context off the model gets only the system prompt', () => {
+  const now = new Date('2026-09-11T00:00:00.000Z');
+  const settings = { ...DEFAULT_SETTINGS, city: 'Bathurst', matrixBot: { ...DEFAULT_SETTINGS.matrixBot, chat: { ...DEFAULT_SETTINGS.matrixBot.chat, systemPrompt: 'From Settings.' } } };
+  const bare = buildChatMessages({
+    settings, events: [ev({ title: 'Hillclimb' })], question: 'kapsikkum: hi', history: [], now, conditions: 'Today: Sunny',
+    busy: 'Pub 90%', context: false,
+  });
+  assert.equal(bare[0].content, 'From Settings.\n\nEach message starts with the name of whoever sent it; several people may be talking.');
+  const sessionPrompt = buildChatMessages({
+    settings, events: [], question: 'q', history: [], now, conditions: '', context: false, systemPrompt: 'This chat only.',
+  });
+  assert.match(sessionPrompt[0].content, /^This chat only\./);
+  const withContext = buildChatMessages({ settings, events: [ev({ title: 'Hillclimb' })], question: 'q', history: [], now, conditions: '', systemPrompt: 'Pirate.' });
+  assert.match(withContext[0].content, /^Pirate\.\n[\s\S]*Hillclimb/);
 });
 
 test('a chat stays on until it is ended or left quiet for an hour', () => {

@@ -293,8 +293,13 @@ With several people talking, each message carries its sender's name, anything
 said while it was busy is answered together on the next turn rather than
 dropped, and each answer is a reply to the last message it covers, mentioning
 everyone it answers.
-The model, a system prompt and how much it remembers are set under Matrix bot →
-Chat.
+The model, a system prompt, how much it remembers, and whether it is handed the
+events at all (off: the bare model with only the system prompt) are set under
+Matrix bot → Chat. In a room, allowed accounts can change them for that chat
+only — `!chat system <prompt>` (`reset` for Settings'), `!chat context on|off`,
+`!chat model <name>` (checked against what is installed) — and `!chat forget`
+clears the conversation; `!chat` on its own shows how it stands. Changes last
+until the chat ends.
 
 It also answers commands. In a room with a target, commands can be switched off,
 and they list only what that target's filters let through — a cars room answers

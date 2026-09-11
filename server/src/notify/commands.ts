@@ -100,6 +100,7 @@ function help(p: string): MatrixContent {
     `${p}event <n> — more about item n of the last list`,
     `${p}busy [place] — how busy places are right now`,
     `${p}chat start, ${p}chat end — talk to the local model about what’s on, in this room`,
+    `${p}chat system, ${p}chat context, ${p}chat model, ${p}chat forget — change this chat only; ${p}chat shows it`,
     `${p}digest — the week ahead`,
     `${p}status — when it last looked`,
   ];

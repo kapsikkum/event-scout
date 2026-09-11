@@ -228,6 +228,7 @@ app.put('/api/settings', (req, res) => {
     commandsEverywhere: bot.commandsEverywhere !== false,
     chat: {
       enabled: bot.chat?.enabled === true,
+      eventContext: bot.chat?.eventContext !== false,
       model: typeof bot.chat?.model === 'string' ? bot.chat.model.trim() : '',
       systemPrompt: typeof bot.chat?.systemPrompt === 'string' ? bot.chat.systemPrompt.slice(0, 4000) : '',
       historyMessages: Math.min(40, Math.max(0, Math.round(Number(bot.chat?.historyMessages ?? 12)) || 0)),

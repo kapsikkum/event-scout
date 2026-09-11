@@ -8,11 +8,12 @@ import { MATRIX_LOOK_LABEL, MATRIX_LOOKS, normalizeTarget } from './targets.js';
 import { matchesFilters } from './filters.js';
 import { markdownToMatrix, matrixText, type BusyVenue, type MatrixContent } from './format.js';
 import {
-  batchQuestion, buildChatMessages, busyText, chatReply, chatStillOn, conditionsText, eventsForChat, type ChatLine,
+  batchQuestion, buildChatMessages, busyText, chatReply, chatStillOn, conditionsText, eventsForChat, parseChatCommand,
+  type ChatLine, type ChatSession,
 } from './chat.js';
 import { resolveAreas } from '../density/areas.js';
 import { venueReadings } from '../density/pipeline.js';
-import { chatText, type ChatMessage } from '../enrich/ollama.js';
+import { chatText, listModels, type ChatMessage } from '../enrich/ollama.js';
 import { ollamaUrl } from '../enrich/pipeline.js';
 import { getPhotoConditions } from '../photo.js';
 import type { NotifyFilters } from '../sources/types.js';
@@ -147,44 +148,140 @@ const chatOn = (roomId: string): boolean =>
   getSettings().matrixBot?.chat?.enabled === true && chatStillOn(getKv(chatKey(roomId)), new Date());
 const CHAT_OFF = 'Chat is switched off. It can be switched on in Settings → Notifications → Matrix bot → Chat.';
 
+/** What each running chat has changed about itself. In memory, like the conversation, and gone with it. */
+const sessions = new Map<string, ChatSession>();
+
+/** A chat's model, prompt and context as they stand: its own changes, then Settings. */
+function effectiveChat(roomId: string): { model: string; context: boolean; systemPrompt: string; from: Record<string, string> } {
+  const settings = getSettings();
+  const chat = settings.matrixBot?.chat;
+  const s = sessions.get(roomId) ?? {};
+  return {
+    model: s.model || chat?.model || settings.llmModel || '',
+    context: s.context ?? chat?.eventContext !== false,
+    systemPrompt: s.systemPrompt ?? chat?.systemPrompt ?? '',
+    from: {
+      model: s.model ? 'this chat' : chat?.model ? 'Settings' : 'the listing pass',
+      context: s.context !== undefined ? 'this chat' : 'Settings',
+      systemPrompt: s.systemPrompt !== undefined ? 'this chat' : chat?.systemPrompt ? 'Settings' : 'built in',
+    },
+  };
+}
+
 /**
- * !chat start, !chat end, and !chat on its own to ask.
+ * !chat and what follows it.
  *
- * Starting is kept to the allowed accounts, because every answer is a minute
- * of someone's GPU; ending is anyone's. Either way the conversation so far is
- * forgotten, so a new chat starts clean.
+ *   !chat                        how this room's chat stands
+ *   !chat start / end            on and off; ending forgets everything
+ *   !chat system <text>          this chat's system prompt (reset: back to Settings)
+ *   !chat context on|off         events, weather and busy places, or the bare model
+ *   !chat model <name>           another installed model for this chat
+ *   !chat forget                 clear the conversation, keep the chat
+ *
+ * Starting and changing are kept to the allowed accounts, because every
+ * answer is a turn of someone's GPU and a system prompt is the whole of the
+ * bot's manner; ending and asking are anyone's. Changes last for this chat
+ * only — until !chat end or an hour of quiet — and never touch Settings.
  */
-function chatCommand(arg: string | undefined, msg: IncomingMessage): MatrixContent {
+async function chatCommand(msg: IncomingMessage): Promise<MatrixContent> {
   const settings = getSettings();
   const p = settings.matrixBot?.commandPrefix || '!';
-  switch ((arg ?? '').toLowerCase()) {
-    case 'start':
-    case 'on': {
-      if (!settings.matrixBot?.chat?.enabled) return matrixText(CHAT_OFF);
-      if (!(settings.matrixBot?.allowedUsers ?? []).includes(msg.sender)) {
-        return matrixText('Only accounts on the bot’s allowed list can start a chat.');
-      }
-      if (!(settings.matrixBot?.chat?.model || settings.llmModel)) {
-        return matrixText('There is no model to chat with yet: choose one in Settings → Notifications → Chat.');
-      }
-      setKv(chatKey(msg.roomId), new Date().toISOString());
-      histories.delete(msg.roomId);
-      return matrixText(
-        `Chat on. Ask me about what’s on — I’ll answer every message here until ${p}chat end, or an hour of quiet.`
-      );
-    }
-    case 'end':
-    case 'stop':
-    case 'off':
-      setKv(chatKey(msg.roomId), '');
-      histories.delete(msg.roomId);
-      return matrixText('Chat off. Commands still work.');
-    default:
-      if (!settings.matrixBot?.chat?.enabled) return matrixText(CHAT_OFF);
-      return matrixText(chatOn(msg.roomId)
-        ? `Chat is on here. ${p}chat end to stop.`
-        : `Chat is off here. ${p}chat start to talk to the model about what’s on.`);
+  const action = parseChatCommand(msg.body, p);
+  const allowed = (settings.matrixBot?.allowedUsers ?? []).includes(msg.sender);
+  const room = msg.roomId;
+
+  if (action.kind === 'end') {
+    setKv(chatKey(room), '');
+    histories.delete(room);
+    sessions.delete(room);
+    return matrixText('Chat off. Commands still work.');
   }
+  if (!settings.matrixBot?.chat?.enabled) return matrixText(CHAT_OFF);
+
+  if (action.kind === 'start') {
+    if (!allowed) return matrixText('Only accounts on the bot’s allowed list can start a chat.');
+    if (!effectiveChat(room).model) {
+      return matrixText('There is no model to chat with yet: choose one in Settings → Notifications → Chat.');
+    }
+    setKv(chatKey(room), new Date().toISOString());
+    histories.delete(room);
+    sessions.delete(room);
+    return matrixText(
+      `Chat on. I’ll answer every message here until ${p}chat end, or an hour of quiet. ` +
+        `${p}chat on its own shows how I’m set up; ${p}chat system, ${p}chat context and ${p}chat model change this chat.`
+    );
+  }
+
+  if (action.kind === 'unknown') {
+    return matrixText(
+      `${p}chat start · ${p}chat end · ${p}chat system <prompt> · ${p}chat context on|off · ` +
+        `${p}chat model <name> · ${p}chat forget · ${p}chat on its own for how it stands.`
+    );
+  }
+
+  const on = chatOn(room);
+  const now = effectiveChat(room);
+  const describe = (): string =>
+    `Model: ${now.model || '(none)'} (${now.from.model}). ` +
+    `Events, weather and busy places: ${now.context ? 'on' : 'off, bare model'} (${now.from.context}). ` +
+    `System prompt (${now.from.systemPrompt}): ${now.systemPrompt ? `“${now.systemPrompt.slice(0, 300)}${now.systemPrompt.length > 300 ? '…' : ''}”` : 'the built-in one'}.`;
+
+  if (action.kind === 'status') {
+    return matrixText(on ? `Chat is on here. ${describe()}` : `Chat is off here. ${p}chat start to begin.`);
+  }
+  if (!on) return matrixText(`There is no chat going here. ${p}chat start first.`);
+
+  if (action.kind === 'forget') {
+    histories.delete(room);
+    return matrixText('Forgotten what was said so far. The chat carries on.');
+  }
+
+  // system, context, model: asking is anyone's; changing is for the allowed.
+  const asking = action.value === undefined;
+  if (!asking && !allowed) return matrixText('Only accounts on the bot’s allowed list can change the chat.');
+  const session = { ...(sessions.get(room) ?? {}) };
+
+  if (action.kind === 'system') {
+    if (asking) return matrixText(`System prompt (${now.from.systemPrompt}): ${now.systemPrompt || 'the built-in one'}`);
+    if (action.value === null) delete session.systemPrompt;
+    else session.systemPrompt = action.value;
+    sessions.set(room, session);
+    return matrixText(action.value === null ? 'System prompt back to the one in Settings.' : 'System prompt set for this chat.');
+  }
+
+  if (action.kind === 'context') {
+    if (asking) return matrixText(`Events, weather and busy places are ${now.context ? 'on' : 'off'}. ${p}chat context on|off to change it.`);
+    session.context = action.value;
+    sessions.set(room, session);
+    return matrixText(action.value
+      ? 'Context on: I can see the events, weather and busy places.'
+      : 'Context off: just the model and the system prompt now.');
+  }
+
+  // model
+  let installed: string[] = [];
+  try {
+    installed = (await listModels(ollamaUrl(settings.llmUrl))).map((m) => m.name);
+  } catch (err) {
+    return matrixText(`Cannot reach the Ollama to check: ${(err as Error).message}`);
+  }
+  if (asking) return matrixText(`Model: ${now.model || '(none)'} (${now.from.model}). Installed: ${installed.join(', ') || 'none'}.`);
+  if (action.value === null) {
+    delete session.model;
+    sessions.set(room, session);
+    return matrixText(`Model back to ${effectiveChat(room).model || '(none)'}.`);
+  }
+  const wanted = (action.value ?? '').toLowerCase();
+  const match =
+    installed.find((n) => n.toLowerCase() === wanted) ??
+    installed.find((n) => n.toLowerCase() === `${wanted}:latest`) ??
+    (installed.filter((n) => n.toLowerCase().includes(wanted)).length === 1
+      ? installed.find((n) => n.toLowerCase().includes(wanted))
+      : undefined);
+  if (!match) return matrixText(`No single installed model matches “${action.value}”. Installed: ${installed.join(', ') || 'none'}.`);
+  session.model = match;
+  sessions.set(room, session);
+  return matrixText(`Model for this chat: ${match}.`);
 }
 
 /**
@@ -223,7 +320,8 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
   const chat = settings.matrixBot.chat;
   const conn = connFromSettings(settings);
   if (!conn) return;
-  const model = chat.model || settings.llmModel;
+  const { model, context, systemPrompt } = effectiveChat(roomId);
+  const session = sessions.get(roomId);
   if (!model) {
     await sendMatrix(conn, roomId, matrixText('Chat is on, but no model is chosen. Pick one in Settings → Notifications.'));
     return;
@@ -234,10 +332,14 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
     const now = new Date();
     const question = batchQuestion(lines);
     const history = histories.get(roomId) ?? [];
-    const conditions = await getPhotoConditions().then(conditionsText).catch(() => '');
+    // The bare model is handed nothing, so there is nothing to look up.
+    const conditions = context ? await getPhotoConditions().then(conditionsText).catch(() => '') : '';
     const messages = buildChatMessages({
       settings,
-      events: eventsForChat(getMergedEvents(), lines.map((l) => l.body).join('\n'), filters, now),
+      context,
+      // Only a prompt this chat set overrides; otherwise Settings' (or the built-in one).
+      systemPrompt: session?.systemPrompt !== undefined ? systemPrompt : undefined,
+      events: context ? eventsForChat(getMergedEvents(), lines.map((l) => l.body).join('\n'), filters, now) : [],
       // qwen3 ignores Ollama's think switch on some versions and reasons out
       // loud for a minute; its own soft switch is this, on the turn itself.
       // Not kept in the history, which stays what was actually said.
@@ -245,7 +347,7 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
       history,
       now,
       conditions,
-      busy: busyText(busyVenues(), now),
+      busy: context ? busyText(busyVenues(), now) : '',
     });
     const answer = await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000, numCtx: 8192 });
     await sendMatrix(conn, roomId, chatReply(answer, lines));
@@ -261,7 +363,7 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
 }
 
 /** The bot's answer to one message in one of its rooms, or nothing if it was not a command. */
-function handleMatrixMessage(msg: IncomingMessage): MatrixContent | null {
+function handleMatrixMessage(msg: IncomingMessage): Promise<MatrixContent> | MatrixContent | null {
   const settings = getSettings();
   const prefix = settings.matrixBot?.commandPrefix || '!';
   const cmd = parseCommand(msg.body, prefix);
@@ -277,7 +379,7 @@ function handleMatrixMessage(msg: IncomingMessage): MatrixContent | null {
     if (chatOn(msg.roomId)) queueChat(msg, target?.filters);
     return null;
   }
-  if (cmd.name === 'chat') return chatCommand(cmd.args[0], msg);
+  if (cmd.name === 'chat') return chatCommand(msg);
   if (target ? !target.commands : settings.matrixBot?.commandsEverywhere === false) return null;
   return runCommand(cmd, msg, {
     filters: target?.filters,

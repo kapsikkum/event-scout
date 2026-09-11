@@ -233,6 +233,11 @@ export interface MatrixBotSettings {
 export interface MatrixChatSettings {
   /** The feature at all. Off, !chat start is refused and a chat already going stops answering. */
   enabled: boolean;
+  /**
+   * Hand the model the events, date, weather and busy places. Off, it is the
+   * bare model with only the system prompt. !chat context changes it for one chat.
+   */
+  eventContext: boolean;
   /** An installed Ollama model. Blank uses the one the listing pass uses. */
   model: string;
   /** Blank uses the built-in one. See notify/chat.ts. */
@@ -305,7 +310,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyTargets: [],
   matrixBot: {
     enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true,
-    chat: { enabled: false, model: '', systemPrompt: '', historyMessages: 12 },
+    chat: { enabled: false, eventContext: true, model: '', systemPrompt: '', historyMessages: 12 },
   },
   matrixAccessToken: '',
   appUrl: '',

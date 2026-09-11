@@ -132,6 +132,66 @@ export function chatStillOn(last: string | null, now: Date): boolean {
 /** "@kapsikkum:vore.party" as "kapsikkum", which is how people in a room refer to each other. */
 export const speaker = (userId: string): string => userId.replace(/^@/, '').split(':')[0];
 
+/** What one chat has changed about itself with !chat commands; unset means as in Settings. Gone when the chat ends. */
+export interface ChatSession {
+  systemPrompt?: string;
+  context?: boolean;
+  model?: string;
+}
+
+/** A !chat command, read. For system and model: undefined asks what it is, null puts back the Settings one. */
+export type ChatAction =
+  | { kind: 'status' }
+  | { kind: 'start' }
+  | { kind: 'end' }
+  | { kind: 'forget' }
+  | { kind: 'system'; value: string | null | undefined }
+  | { kind: 'context'; value: boolean | undefined }
+  | { kind: 'model'; value: string | null | undefined }
+  | { kind: 'unknown'; word: string };
+
+/**
+ * "!chat system You are a pirate." and the rest.
+ *
+ * Read from the whole message rather than split words, so a system prompt
+ * keeps its line breaks.
+ */
+export function parseChatCommand(body: string, prefix: string): ChatAction {
+  const rest = body.trim().slice((prefix || '!').length).replace(/^chat\b\s*/i, '');
+  const m = /^(\S*)\s*([\s\S]*)$/.exec(rest)!;
+  const word = m[1].toLowerCase();
+  const arg = m[2].trim();
+  const resetting = /^(reset|default|clear)$/i.test(arg);
+  switch (word) {
+    case '':
+    case 'status':
+    case 'settings':
+      return { kind: 'status' };
+    case 'start':
+    case 'on':
+      return { kind: 'start' };
+    case 'end':
+    case 'stop':
+    case 'off':
+      return { kind: 'end' };
+    case 'forget':
+      return { kind: 'forget' };
+    case 'system':
+    case 'prompt':
+      return { kind: 'system', value: !arg ? undefined : resetting ? null : arg.slice(0, 4000) };
+    case 'context':
+    case 'events':
+      return {
+        kind: 'context',
+        value: /^(on|yes|true)$/i.test(arg) ? true : /^(off|no|false)$/i.test(arg) ? false : undefined,
+      };
+    case 'model':
+      return { kind: 'model', value: !arg ? undefined : resetting ? null : arg };
+    default:
+      return { kind: 'unknown', word };
+  }
+}
+
 /** What a chat turn needs of a message in the room. */
 export interface ChatLine {
   sender: string;
@@ -173,11 +233,23 @@ export function buildChatMessages(opts: {
   conditions: string;
   /** How busy places are right now, from venue density. See busyText. */
   busy?: string;
+  /** False for the bare model: the system prompt and nothing else. */
+  context?: boolean;
+  /** This chat's own system prompt, over the one in Settings. */
+  systemPrompt?: string;
 }): ChatMessage[] {
   const { settings, events, question, history, now, conditions, busy } = opts;
+  const prompt = (opts.systemPrompt ?? settings.matrixBot?.chat?.systemPrompt ?? '').trim();
+  if (opts.context === false) {
+    // Bare: whatever the prompt says, and the one thing the model cannot work
+    // out for itself — that the names in front of each line are people.
+    const system = [prompt, 'Each message starts with the name of whoever sent it; several people may be talking.']
+      .filter(Boolean).join('\n\n');
+    return [{ role: 'system', content: system }, ...history, { role: 'user', content: question }];
+  }
   const areas = [settings.city, ...(settings.eventAreas ?? []).map((a) => a.name)].filter(Boolean).join(', ');
   const system = [
-    (settings.matrixBot?.chat?.systemPrompt ?? '').trim() || DEFAULT_CHAT_PROMPT,
+    prompt || DEFAULT_CHAT_PROMPT,
     '',
     `It is ${now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}, ` +
       `${now.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}.`,

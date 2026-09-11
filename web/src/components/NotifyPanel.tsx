@@ -397,9 +397,9 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
   const targets = draft.notifyTargets ?? [];
   const bot = draft.matrixBot ?? {
     enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true,
-    chat: { enabled: false, model: '', systemPrompt: '', historyMessages: 12 },
+    chat: { enabled: false, eventContext: true, model: '', systemPrompt: '', historyMessages: 12 },
   };
-  const chat = bot.chat ?? { enabled: false, model: '', systemPrompt: '', historyMessages: 12 };
+  const chat = bot.chat ?? { enabled: false, eventContext: true, model: '', systemPrompt: '', historyMessages: 12 };
   const setChat = (patch: Partial<typeof chat>): void => setBot({ chat: { ...chat, ...patch } });
   const setBot = (patch: Partial<typeof bot>): void => set({ matrixBot: { ...bot, ...patch } });
   const places = [...new Set([draft.city, ...(draft.eventAreas ?? []).map((a) => a.name)].map((p) => town(p ?? '')).filter(Boolean))];
@@ -551,6 +551,9 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
             <Check checked={chat.enabled} onChange={(v) => setChat({ enabled: v })}>
               Chat on — switching it off silences every room at once
             </Check>
+            <Check checked={chat.eventContext !== false} onChange={(v) => setChat({ eventContext: v })}>
+              Give it the events, weather and busy places — off, it is the bare model with only the system prompt
+            </Check>
             <div className="formrow">
               <label>Model</label>
               <select value={chat.model} onChange={(e) => setChat({ model: e.target.value })}>
@@ -572,7 +575,9 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
               />
             </div>
             <p className="hint" style={{ marginTop: -4 }}>
-              The date, your areas, the weather and the event list are added after it, whatever it says.
+              With the events on, the date, your areas, the weather and the event list are added after it, whatever
+              it says. In a room, <code>{bot.commandPrefix || '!'}chat system</code>, <code>context</code> and{' '}
+              <code>model</code> change these for that chat only.
             </p>
             <div className="formrow">
               <label>Remembers</label>
