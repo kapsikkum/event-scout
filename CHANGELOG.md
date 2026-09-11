@@ -7,6 +7,29 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.5.0](https://github.com/kapsikkum/event-scout/compare/v0.4.0...v0.5.0) (2026-09-11)
+
+
+### Features
+
+* **crawler:** graph the last day of cycles, and count how often each page is read ([ddc0fc6](https://github.com/kapsikkum/event-scout/commit/ddc0fc6526d3e1744041750608077ed26070f333))
+* **crawler:** preview a calendar feed and add it to Calendar feeds ([ddc0fc6](https://github.com/kapsikkum/event-scout/commit/ddc0fc6526d3e1744041750608077ed26070f333))
+* **crawler:** read Instagram posts, and hand Facebook events to the app ([ddc0fc6](https://github.com/kapsikkum/event-scout/commit/ddc0fc6526d3e1744041750608077ed26070f333))
+* **photos:** score events for children zero, whatever the model says ([ddc0fc6](https://github.com/kapsikkum/event-scout/commit/ddc0fc6526d3e1744041750608077ed26070f333))
+* **web:** add a Recently found filter, and name the site on the crawler badge ([ddc0fc6](https://github.com/kapsikkum/event-scout/commit/ddc0fc6526d3e1744041750608077ed26070f333))
+* **web:** fold the dates of a repeating event into one card ([ddc0fc6](https://github.com/kapsikkum/event-scout/commit/ddc0fc6526d3e1744041750608077ed26070f333))
+
+
+### Fixes
+
+* **ical:** give up on a feed that has not answered in 20 seconds ([ddc0fc6](https://github.com/kapsikkum/event-scout/commit/ddc0fc6526d3e1744041750608077ed26070f333))
+* **ical:** keep a feed's events until they end, not only until they start ([ddc0fc6](https://github.com/kapsikkum/event-scout/commit/ddc0fc6526d3e1744041750608077ed26070f333))
+
+
+### Build and packaging
+
+* **nix:** make the module generic, and take the deployment details out ([a4be884](https://github.com/kapsikkum/event-scout/commit/a4be884f8aac8fbee0d3ec460cf6c1d9d537ec83))
+
 ## [0.4.0](https://github.com/kapsikkum/event-scout/compare/v0.3.0...v0.4.0) (2026-09-11)
 
 
