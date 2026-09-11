@@ -227,6 +227,7 @@ app.put('/api/settings', (req, res) => {
     allowedUsers: Array.isArray(bot.allowedUsers) ? bot.allowedUsers.map((u) => String(u).trim()).filter(Boolean) : [],
     commandsEverywhere: bot.commandsEverywhere !== false,
     chat: {
+      enabled: bot.chat?.enabled === true,
       model: typeof bot.chat?.model === 'string' ? bot.chat.model.trim() : '',
       systemPrompt: typeof bot.chat?.systemPrompt === 'string' ? bot.chat.systemPrompt.slice(0, 4000) : '',
       historyMessages: Math.min(40, Math.max(0, Math.round(Number(bot.chat?.historyMessages ?? 12)) || 0)),

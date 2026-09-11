@@ -397,9 +397,9 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
   const targets = draft.notifyTargets ?? [];
   const bot = draft.matrixBot ?? {
     enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true,
-    chat: { model: '', systemPrompt: '', historyMessages: 12 },
+    chat: { enabled: false, model: '', systemPrompt: '', historyMessages: 12 },
   };
-  const chat = bot.chat ?? { model: '', systemPrompt: '', historyMessages: 12 };
+  const chat = bot.chat ?? { enabled: false, model: '', systemPrompt: '', historyMessages: 12 };
   const setChat = (patch: Partial<typeof chat>): void => setBot({ chat: { ...chat, ...patch } });
   const setBot = (patch: Partial<typeof bot>): void => set({ matrixBot: { ...bot, ...patch } });
   const places = [...new Set([draft.city, ...(draft.eventAreas ?? []).map((a) => a.name)].map((p) => town(p ?? '')).filter(Boolean))];
@@ -539,7 +539,7 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
 
         <h4 className="notify__sub">Chat</h4>
         <p className="hint">
-          Say <code>{bot.commandPrefix || '!'}chat start</code> in a room (allowed accounts only) and the local model
+          With chat on, say <code>{bot.commandPrefix || '!'}chat start</code> in a room (allowed accounts only) and the local model
           answers every message there that is not a command, until <code>{bot.commandPrefix || '!'}chat end</code> or
           an hour of quiet. It sees the upcoming events (that room’s filters apply, if it has a target), today’s
           weather and light, which places are busy, and the last few messages. It can only read.
@@ -548,6 +548,9 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
           <div className="status-line error">No Ollama reachable{llm.problem ? ` — ${llm.problem}` : ''}. Set it up under Local model.</div>
         ) : (
           <>
+            <Check checked={chat.enabled} onChange={(v) => setChat({ enabled: v })}>
+              Chat on — switching it off silences every room at once
+            </Check>
             <div className="formrow">
               <label>Model</label>
               <select value={chat.model} onChange={(e) => setChat({ model: e.target.value })}>

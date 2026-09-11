@@ -162,7 +162,7 @@ export interface Settings {
     allowedUsers: string[];
     commandsEverywhere: boolean;
     /** !chat start in a room: the local model answering. Blank model uses the listing pass's; blank prompt the built-in one. */
-    chat: { model: string; systemPrompt: string; historyMessages: number };
+    chat: { enabled: boolean; model: string; systemPrompt: string; historyMessages: number };
   };
   /** Arrives as ''; see secretsSet. */
   matrixAccessToken: string | null;

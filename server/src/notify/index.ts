@@ -133,7 +133,10 @@ const histories = new Map<string, ChatMessage[]>();
 
 /** Where a room's chat stands: when it was started or last answered, '' once ended. */
 const chatKey = (roomId: string): string => `matrix:chat:${roomId}`;
-const chatOn = (roomId: string): boolean => chatStillOn(getKv(chatKey(roomId)), new Date());
+/** On in this room, and the feature itself switched on: turning it off in Settings silences every room at once. */
+const chatOn = (roomId: string): boolean =>
+  getSettings().matrixBot?.chat?.enabled === true && chatStillOn(getKv(chatKey(roomId)), new Date());
+const CHAT_OFF = 'Chat is switched off. It can be switched on in Settings → Notifications → Matrix bot → Chat.';
 
 /**
  * !chat start, !chat end, and !chat on its own to ask.
@@ -148,6 +151,7 @@ function chatCommand(arg: string | undefined, msg: IncomingMessage): MatrixConte
   switch ((arg ?? '').toLowerCase()) {
     case 'start':
     case 'on': {
+      if (!settings.matrixBot?.chat?.enabled) return matrixText(CHAT_OFF);
       if (!(settings.matrixBot?.allowedUsers ?? []).includes(msg.sender)) {
         return matrixText('Only accounts on the bot’s allowed list can start a chat.');
       }
@@ -167,6 +171,7 @@ function chatCommand(arg: string | undefined, msg: IncomingMessage): MatrixConte
       histories.delete(msg.roomId);
       return matrixText('Chat off. Commands still work.');
     default:
+      if (!settings.matrixBot?.chat?.enabled) return matrixText(CHAT_OFF);
       return matrixText(chatOn(msg.roomId)
         ? `Chat is on here. ${p}chat end to stop.`
         : `Chat is off here. ${p}chat start to talk to the model about what’s on.`);

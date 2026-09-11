@@ -281,7 +281,8 @@ way. Flyers go as image messages, uploaded to your homeserver since Matrix shows
 only images it holds. Also: an optional `@room` ping; ordinary messages, or quiet
 notices (drawn greyed out, no alert); and the bot's display name in that room.
 
-**Chat.** With an Ollama set up under Local model, say `!chat start` in a room
+**Chat.** With an Ollama set up under Local model and **Chat on** ticked under
+Matrix bot → Chat (off by default; unticking it silences every room), say `!chat start` in a room
 (allowed accounts only — each answer is a turn of your GPU) and every message
 there that is not a command is answered by the model, until `!chat end` or an
 hour of quiet. It is shown the date, your areas, today's and tomorrow's weather
