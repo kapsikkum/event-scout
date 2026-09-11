@@ -1,13 +1,15 @@
 import { getKv, getSettings } from '../db.js';
-import { getMergedEvents, setGroupFlag } from '../events.js';
+import { getMergedEvents } from '../events.js';
 import { runCommand, parseCommand } from './commands.js';
 import { deliver, runNotifications } from './run.js';
 import { dbStore, setTargetStatus, targetStatus, tidyNotifyState } from './store.js';
 import { connFromSettings, IncomingMessage, knownRoomId, matrixStatus, restartMatrixBot, sendMatrix, setTyping } from './matrix.js';
 import { MATRIX_LOOK_LABEL, MATRIX_LOOKS, normalizeTarget } from './targets.js';
 import { matchesFilters } from './filters.js';
-import { markdownToMatrix, matrixText, type MatrixContent } from './format.js';
-import { buildChatMessages, conditionsText, eventsForChat, speaker } from './chat.js';
+import { markdownToMatrix, matrixText, type BusyVenue, type MatrixContent } from './format.js';
+import { buildChatMessages, busyText, conditionsText, eventsForChat, speaker } from './chat.js';
+import { resolveAreas } from '../density/areas.js';
+import { venueReadings } from '../density/pipeline.js';
 import { chatText, type ChatMessage } from '../enrich/ollama.js';
 import { ollamaUrl } from '../enrich/pipeline.js';
 import { getPhotoConditions } from '../photo.js';
@@ -21,12 +23,35 @@ import type { TaskLog, TaskResult } from '../tasks/registry.js';
  * clock; this is the one place that fetches them, so the rest stays testable.
  */
 
+/**
+ * Every sampled place with its latest reading, across the density areas.
+ *
+ * Read from what density sampling has stored; nothing is sampled here. An area
+ * whose readings will not load is left out rather than failing the caller.
+ */
+export function busyVenues(): BusyVenue[] {
+  const out: BusyVenue[] = [];
+  for (const area of resolveAreas()) {
+    try {
+      for (const v of venueReadings(area)) {
+        out.push({ name: v.name, area: area.name, live: v.live, typical: v.typical, observedAt: v.observedAt });
+      }
+    } catch {
+      // No venues discovered yet for this area.
+    }
+  }
+  return out;
+}
+
 /** The task body: one pass over every target. */
 export async function notifyTask(log: TaskLog): Promise<TaskResult> {
   const settings = getSettings();
   const targets = (settings.notifyTargets ?? []).filter((t) => t.enabled);
   if (!targets.length) return { ok: true, message: 'no targets switched on' };
-  const result = await runNotifications({ settings, events: getMergedEvents(), store: dbStore });
+  const wantsBusy = targets.some((t) => normalizeTarget(t).triggers.busy.enabled);
+  const result = await runNotifications({
+    settings, events: getMergedEvents(), store: dbStore, venues: wantsBusy ? busyVenues() : [],
+  });
   const at = new Date().toISOString();
   for (const [id, s] of Object.entries(result.statuses)) setTargetStatus(id, { at, ...s });
   for (const line of result.lines) log(line);
@@ -128,12 +153,16 @@ async function answerChat(msg: IncomingMessage, filters: NotifyFilters): Promise
     const messages = buildChatMessages({
       settings,
       events: eventsForChat(getMergedEvents(), msg.body, filters, now),
-      question,
+      // qwen3 ignores Ollama's think switch on some versions and reasons out
+      // loud for a minute; its own soft switch is this, on the turn itself.
+      // Not kept in the history, which stays what was actually said.
+      question: /qwen3/i.test(model) ? `${question} /no_think` : question,
       history,
       now,
       conditions,
+      busy: busyText(busyVenues(), now),
     });
-    const answer = await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000 });
+    const answer = await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000, numCtx: 8192 });
     await sendMatrix(conn, msg.roomId, markdownToMatrix(answer));
     const kept = Math.max(0, chat.historyMessages);
     histories.set(msg.roomId, kept ? [...history, { role: 'user' as const, content: question }, { role: 'assistant' as const, content: answer }].slice(-kept) : []);
@@ -165,8 +194,7 @@ function handleMatrixMessage(msg: IncomingMessage): MatrixContent | null {
   return runCommand(cmd, msg, {
     filters: target?.filters,
     events: () => getMergedEvents(),
-    setFlag: setGroupFlag,
-    allowed: (sender) => (getSettings().matrixBot?.allowedUsers ?? []).includes(sender),
+    venues: busyVenues,
     appUrl: settings.appUrl ?? '',
     prefix,
     status: () => {

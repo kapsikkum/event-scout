@@ -1,7 +1,7 @@
 import type { MergedEvent } from '../events.js';
 import type { NotifyTarget, Settings } from '../sources/types.js';
 import { matchesFilters } from './filters.js';
-import { Change, discordPayloads, matrixMessages, Notice, NoticeItem, whenText } from './format.js';
+import { BusyVenue, Change, discordPayloads, matrixMessages, Notice, NoticeItem, whenText } from './format.js';
 import { sendDiscord } from './discord.js';
 import { connFromSettings, imagesFor, sendMatrix } from './matrix.js';
 import { NotifyStore, Snapshot } from './store.js';
@@ -90,7 +90,12 @@ export function diffSnapshot(before: Snapshot, ev: MergedEvent): Change[] {
 }
 
 /** What one target should be sent now. Writes the target's state as it goes. */
-export function planTarget(target: NotifyTarget, events: MergedEvent[], store: NotifyStore, now: Date): Notice[] {
+/** A density reading older than this is not "right now". Sampling runs hourly by default. */
+const BUSY_FRESH_MS = 90 * 60_000;
+
+export function planTarget(
+  target: NotifyTarget, events: MergedEvent[], store: NotifyStore, now: Date, venues: BusyVenue[] = []
+): Notice[] {
   const notices: Notice[] = [];
   const shown = events.filter(visible);
   const t = target.triggers;
@@ -186,6 +191,26 @@ export function planTarget(target: NotifyTarget, events: MergedEvent[], store: N
       });
     }
   }
+  if (t.busy.enabled && venues.length) {
+    const picked = t.busy.venues.map((v) => v.toLowerCase());
+    const due = venues.filter((v) => {
+      if (v.live == null || v.live < t.busy.threshold || !v.observedAt) return false;
+      if (now.getTime() - Date.parse(v.observedAt) > BUSY_FRESH_MS) return false;
+      if (picked.length && !picked.includes(v.name.toLowerCase())) return false;
+      // Once per place per cooldown: a place that stays packed all evening is one message, not twelve.
+      const last = store.get(`notify:busy:${id}:${v.area}|${v.name}`);
+      return !last || now.getTime() - Date.parse(last) >= t.busy.cooldownHours * 3600_000;
+    }).sort((a, b) => (b.live ?? 0) - (a.live ?? 0));
+    if (due.length) {
+      for (const v of due) store.set(`notify:busy:${id}:${v.area}|${v.name}`, now.toISOString());
+      notices.push({
+        kind: 'busy',
+        heading: due.length === 1 ? `🔥 ${due[0].name} is busy right now` : `🔥 ${due.length} places are busy right now`,
+        items: [],
+        venues: due,
+      });
+    }
+  }
   return notices;
 }
 
@@ -227,6 +252,8 @@ export async function runNotifications(opts: {
   store: NotifyStore;
   now?: Date;
   send?: Deliver;
+  /** The latest density readings, for the busy-place trigger. */
+  venues?: BusyVenue[];
 }): Promise<RunResult> {
   const now = opts.now ?? new Date();
   const send = opts.send ?? deliver;
@@ -239,7 +266,7 @@ export async function runNotifications(opts: {
       result.lines.push(`${label}: quiet hours`);
       continue;
     }
-    const notices = planTarget(target, opts.events, opts.store, now);
+    const notices = planTarget(target, opts.events, opts.store, now, opts.venues ?? []);
     if (!notices.length) continue;
     try {
       for (const notice of notices) {

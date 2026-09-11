@@ -1174,3 +1174,6 @@ section > .notify__check { margin-top: 10px; }
 .notify__sub { margin: 18px 0 4px; font-size: 14px; }
 .notify__prompt { align-items: flex-start; }
 .notify__prompt textarea { flex: 1; min-height: 90px; resize: vertical; font-size: 13px; }
+/* Each trigger's switch in the first column and its details in the second, whether or not the details show. */
+.notify__grid > .notify__check { grid-column: 1; }
+.notify__grid > span { grid-column: 2; }

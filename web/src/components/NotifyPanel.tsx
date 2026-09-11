@@ -36,6 +36,7 @@ function blankTarget(kind: NotifyTarget['kind']): NotifyTarget {
       digest: { enabled: false, cadence: 'weekly', weekday: 4, hour: 18, daysAhead: 7 },
       reminders: { enabled: false, hoursBefore: [24, 2] },
       starredChanges: { enabled: false },
+      busy: { enabled: false, threshold: 80, venues: [], cooldownHours: 6 },
     },
     filters: { places: [], categories: [], excludeCategories: [], minPhotoScore: 0, keywords: [], excludeKeywords: [], starredOnly: false },
     quietHours: { enabled: false, from: 22, to: 7 },
@@ -95,8 +96,10 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
   );
 }
 
-function TargetCard({ target, update, remove, places, categories, status, dirty, save, rooms, chatOn }: {
+function TargetCard({ target, update, remove, places, categories, status, dirty, save, rooms, chatOn, venues }: {
   rooms: { roomId: string; name: string }[];
+  /** Every place venue density samples, for the busy-place trigger. */
+  venues: string[];
   /** Whether the bot's chat is switched on, for the chat-room switch to say so. */
   chatOn: boolean;
   target: NotifyTarget;
@@ -287,7 +290,27 @@ function TargetCard({ target, update, remove, places, categories, status, dirty,
         <Check checked={tr.starredChanges.enabled} onChange={(v) => trig('starredChanges', { enabled: v })}>
           A shortlisted event’s time, place or name changing
         </Check>
+        <Check checked={tr.busy?.enabled ?? false} onChange={(v) => trig('busy', { enabled: v })}>A place getting busy</Check>
+        {tr.busy?.enabled && (
+          <span className="hint">
+            at{' '}
+            <input className="notify__num" type="number" min={10} max={100} value={tr.busy.threshold}
+              onChange={(e) => trig('busy', { threshold: Number(e.target.value) })} />% or more of its busiest, then not again for{' '}
+            <input className="notify__num" type="number" min={1} max={72} value={tr.busy.cooldownHours}
+              onChange={(e) => trig('busy', { cooldownHours: Number(e.target.value) })} /> h
+          </span>
+        )}
       </div>
+      {tr.busy?.enabled && (
+        <>
+          <label className="hint">only these places — none picked means all of them</label>
+          {venues.length ? (
+            <Chips options={venues} picked={tr.busy.venues} onChange={(v) => trig('busy', { venues: v })} />
+          ) : (
+            <p className="hint">No places sampled yet: switch on Venue density under Density and let it run once.</p>
+          )}
+        </>
+      )}
 
       <h4>Only events…</h4>
       <p className="hint">Leave a row empty to let everything through it.</p>
@@ -353,10 +376,19 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
   const [status, setStatus] = useState<NotifyStatus | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [llm, setLlm] = useState<LlmStatus | null>(null);
+  const [venueNames, setVenueNames] = useState<string[]>([]);
 
   useEffect(() => {
     api.topics().then((r) => setCategories(r.categories ?? [])).catch(() => undefined);
     api.llmStatus().then(setLlm).catch(() => setLlm(null));
+    // Every place density samples, across its areas, for the busy-place trigger.
+    api
+      .densityAreas()
+      .then(async ({ areas }) => {
+        const lists = await Promise.all(areas.map((a) => api.venues(a.slug).catch(() => [])));
+        setVenueNames([...new Set(lists.flat().map((v) => v.name))].sort((a, b) => a.localeCompare(b)));
+      })
+      .catch(() => undefined);
     let alive = true;
     const tick = (): void => {
       api.notifyStatus().then((s) => alive && setStatus(s)).catch(() => undefined);
@@ -405,6 +437,7 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
             save={save}
             rooms={m?.joinedRooms ?? []}
             chatOn={Boolean(draft.matrixBot?.chat?.enabled)}
+            venues={venueNames}
             update={(next) => set({ notifyTargets: targets.map((x) => (x.id === t.id ? next : x)) })}
             remove={() => set({ notifyTargets: targets.filter((x) => x.id !== t.id) })}
           />
@@ -457,7 +490,8 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
           />
         </div>
         <p className="hint" style={{ marginTop: -4 }}>
-          May invite the bot and use <code>star</code>, <code>unstar</code> and <code>hide</code>. Anyone in the room may list and search.
+          May invite the bot into rooms. The bot only reads: anyone in a room it is in can list and search, and
+          nothing is changed from Matrix.
         </p>
 
         {/* How it is getting on, after the fields that decide it. */}

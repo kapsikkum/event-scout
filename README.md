@@ -256,6 +256,7 @@ its own triggers and filters:
 | Digest | Daily or on one weekday, at an hour: what is on in the next N days. |
 | Reminders | Some hours before each shortlisted event (24 and 2 by default), once each. |
 | Changes | A shortlisted event's time, venue or name changing. |
+| Busy places | A place's live busyness, from venue density sampling, reaching your threshold (80% of its busiest by default). All sampled places, or the ones you pick; once per place per cooldown (6 h), and only from a reading taken in the last 90 minutes. |
 
 Filters: towns (and Unknown location), categories in and out, keywords in and out,
 a minimum photo score, shortlisted only. **Quiet hours** hold messages rather than
@@ -268,7 +269,7 @@ an optional `@here`, `@everyone` or role ping, and full or compact. Only
 `discord.com` webhook addresses are posted to.
 
 **Matrix:** give the bot its own account, then set the homeserver, its access
-token and the accounts allowed to use it. Invite it to an **unencrypted** room from
+token and the accounts allowed to invite it. Invite it to an **unencrypted** room from
 an allowed account — an invite from anyone else is declined, and Settings says so
 with a button to allow them. The rooms it is in are listed with **Set up
 notifications here**. Each room target has the same triggers and filters as a
@@ -291,15 +292,16 @@ thinks and can only read — it cannot shortlist or change anything.
 It also answers commands. In a room with a target, commands can be switched off,
 and they list only what that target's filters let through — a cars room answers
 `!events` with cars. Rooms with no target answer with everything, unless that is
-switched off too. From anyone in the room unless noted:
+switched off too. The bot only reads — nothing is shortlisted, removed or changed
+from Matrix — and anyone in the room may use it:
 
 | Command | Does |
 |---|---|
 | `!events [today\|tomorrow\|weekend\|week\|month\|14d] [words]` | What is on, numbered. |
 | `!new` | Found in the last week. |
+| `!busy [place]` | How busy the places venue density samples are right now. |
 | `!search <words>` | Anything upcoming that mentions them. |
 | `!event <n>` | More about item *n* of the last list. |
-| `!star <n>`, `!unstar <n>`, `!hide <n>` | Shortlist or remove — allowed accounts only. |
 | `!digest`, `!status`, `!help` | |
 
 Webhook addresses and the Matrix token are credentials: never sent back to the

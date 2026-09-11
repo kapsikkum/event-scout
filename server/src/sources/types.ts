@@ -172,6 +172,12 @@ export interface NotifyTriggers {
   reminders: { enabled: boolean; hoursBefore: number[] };
   /** A starred event's time, place or name changing. */
   starredChanges: { enabled: boolean };
+  /**
+   * A place's live busyness, from venue density sampling, reaching the
+   * threshold. `venues` empty means every sampled place; each is told about at
+   * most once per `cooldownHours`.
+   */
+  busy: { enabled: boolean; threshold: number; venues: string[]; cooldownHours: number };
 }
 
 export interface NotifyTarget {

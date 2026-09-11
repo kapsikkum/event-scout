@@ -226,6 +226,37 @@ test('a starred event that moves is reported with what changed', () => {
   assert.deepEqual(notice.items[0].changes, [{ field: 'venue', before: 'Old Hall', after: 'New Hall' }]);
 });
 
+test('a busy place is told about once a cooldown, and only when fresh and over the line', () => {
+  const store = memoryStore();
+  const busyOn = (id: string, venues: string[] = []) =>
+    normalizeTarget({ id, triggers: { newEvents: { enabled: false }, busy: { enabled: true, threshold: 80, venues, cooldownHours: 6 } } });
+  const now = new Date('2026-09-11T08:00:00.000Z');
+  const ago = (mins: number) => new Date(now.getTime() - mins * 60_000).toISOString();
+  const venues = [
+    { name: 'Mount Panorama', area: 'Bathurst', live: 92, typical: 40, observedAt: ago(10) },
+    { name: 'Quiet Cafe', area: 'Bathurst', live: 30, typical: 50, observedAt: ago(10) },
+    { name: 'Old Reading', area: 'Bathurst', live: 99, typical: 50, observedAt: ago(300) },
+  ];
+  const [notice] = planTarget(busyOn('b1'), [], store, now, venues);
+  assert.equal(notice.kind, 'busy');
+  assert.deepEqual(notice.venues!.map((v) => v.name), ['Mount Panorama'], 'over the line, and read recently');
+  const hourLater = new Date(now.getTime() + 3600_000);
+  const stillBusy = venues.map((v) => ({ ...v, observedAt: hourLater.toISOString() }));
+  assert.equal(planTarget(busyOn('b1'), [], store, hourLater, stillBusy).filter((n) => n.venues?.some((v) => v.name === 'Mount Panorama')).length, 0, 'not again within the cooldown');
+  assert.equal(planTarget(busyOn('b2', ['Some Pub']), [], store, now, venues).length, 0, 'only the places picked');
+});
+
+test('busy places show in Discord, in Matrix, and with !busy', () => {
+  const v = [{ name: 'Mount Panorama', area: 'Bathurst', live: 92, typical: 40, observedAt: new Date().toISOString() }];
+  const notice = { kind: 'busy' as const, heading: '🔥 Mount Panorama is busy right now', items: [], venues: v };
+  const [payload] = discordPayloads(notice, normalizeTarget({}), '');
+  assert.match(JSON.stringify(payload.embeds), /Mount Panorama \(Bathurst\) — 92% busy now, usually 40%/);
+  assert.match(matrixMessages(notice, normalizeTarget({ kind: 'matrix' }), '')[0].body, /Mount Panorama \(Bathurst\) — 92% busy now/);
+  const deps = { events: () => [], status: () => '', appUrl: '', prefix: '!', venues: () => v };
+  assert.match(runCommand({ name: 'busy', args: [] }, { roomId: '!r', sender: '@a:x' }, deps)!.body, /^Busiest right now\nMount Panorama \(Bathurst\) — 92%/);
+  assert.match(runCommand({ name: 'busy', args: ['orange'] }, { roomId: '!r', sender: '@a:x' }, deps)!.body, /No busyness readings for “orange”/);
+});
+
 test('digest slots and quiet hours', (t) => {
   useZone(t, 'Australia/Sydney');
   const thu6pm = { enabled: true, cadence: 'weekly' as const, weekday: 4, hour: 18, daysAhead: 7 };
@@ -238,20 +269,18 @@ test('digest slots and quiet hours', (t) => {
   assert.ok(!inQuietHours(night, new Date(2026, 8, 11, 12)));
 });
 
-test('commands: parsed by prefix, and changes kept to the allowed list', () => {
+test('commands: parsed by prefix, and read only', () => {
   assert.deepEqual(parseCommand('!events weekend cars', '!'), { name: 'events', args: ['weekend', 'cars'] });
   assert.equal(parseCommand('hello there', '!'), null);
   const list = [ev({ title: 'Swap meet', startTime: new Date(Date.now() + 86400_000).toISOString() })];
-  const flags: string[] = [];
-  const deps = {
-    events: () => list, setFlag: (g: string, f: string, v: boolean) => void flags.push(`${g}:${f}:${v}`),
-    status: () => 'ok', allowed: (s: string) => s === '@me:x', appUrl: '', prefix: '!',
-  };
+  const deps = { events: () => list, status: () => 'ok', appUrl: '', prefix: '!' };
   const shown = runCommand({ name: 'events', args: ['week'] }, { roomId: '!r', sender: '@you:x' }, deps)!;
   assert.match(shown.body, /1\. Swap meet/);
-  assert.match(runCommand({ name: 'star', args: ['1'] }, { roomId: '!r', sender: '@you:x' }, deps)!.body, /allowed list/);
-  runCommand({ name: 'star', args: ['1'] }, { roomId: '!r', sender: '@me:x' }, deps);
-  assert.deepEqual(flags, [`${list[0].group}:starred:true`]);
+  assert.match(runCommand({ name: 'event', args: ['1'] }, { roomId: '!r', sender: '@you:x' }, deps)!.body, /^Swap meet/);
+  for (const name of ['star', 'unstar', 'hide']) {
+    assert.match(runCommand({ name, args: ['1'] }, { roomId: '!r', sender: '@you:x' }, deps)!.body, /only reads/);
+  }
+  assert.doesNotMatch(runCommand({ name: 'help', args: [] }, { roomId: '!r', sender: '@you:x' }, deps)!.body, /star|hide/);
 });
 
 test('webhooks: only Discord’s, kept like any other credential', () => {

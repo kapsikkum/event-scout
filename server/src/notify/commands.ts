@@ -2,7 +2,7 @@ import type { MergedEvent } from '../events.js';
 import type { NotifyFilters } from '../sources/types.js';
 import { matchesFilters } from './filters.js';
 import { foldSeries } from './run.js';
-import { matrixCard, matrixList, matrixText, MatrixContent, whenText, whereText, linkFor, escapeHtml } from './format.js';
+import { busyLine, BusyVenue, matrixCard, matrixList, matrixText, MatrixContent, escapeHtml } from './format.js';
 
 /**
  * What the Matrix bot answers.
@@ -13,13 +13,15 @@ import { matrixCard, matrixList, matrixText, MatrixContent, whenText, whereText,
  *   !new                       found in the last week
  *   !search <words>            anything upcoming that mentions them
  *   !event <n>                 more about item n of the last list in this room
- *   !star / !unstar / !hide <n>
+ *   !busy [place]              how busy the sampled places are right now
  *   !digest                    the week ahead
  *   !status                    when it last looked
  *
- * Changing an event is kept to the allowed list; reading is anyone's who can
- * see the room. Lists are numbered, and the numbers stay good for the room
- * until the next list replaces them.
+ * Read only, all of it, for anyone who can see the room. Changing events —
+ * shortlisting, removing — happens in Event Scout itself, where it can be
+ * seen and undone; a bot doing it from a chat line was one more place for a
+ * change to come from that nobody remembers making. Lists are numbered, and
+ * the numbers stay good for the room until the next list replaces them.
  */
 
 export interface Command {
@@ -61,15 +63,15 @@ export interface CommandDeps {
   events(): MergedEvent[];
   /** The filters of the target set up for this room, if any: its commands list only what they let through. */
   filters?: NotifyFilters;
-  setFlag(group: string, flag: 'starred' | 'hidden', value: boolean): void;
+  /** The latest venue density readings, for !busy. */
+  venues?(): BusyVenue[];
   status(): string;
-  allowed(sender: string): boolean;
   appUrl: string;
   prefix: string;
 }
 
 const LIST_MAX = 15;
-/** Per room: the groups of the last list shown, so "!star 3" means the third of those. */
+/** Per room: the groups of the last list shown, so "!event 3" means the third of those. */
 const lastLists = new Map<string, string[]>();
 
 function list(roomId: string, heading: string, events: MergedEvent[], deps: CommandDeps, empty: string): MatrixContent {
@@ -95,7 +97,7 @@ function help(p: string): MatrixContent {
     `${p}new — found in the last week`,
     `${p}search <words> — anything upcoming that mentions them`,
     `${p}event <n> — more about item n of the last list`,
-    `${p}star <n>, ${p}unstar <n>, ${p}hide <n> — shortlist or remove it`,
+    `${p}busy [place] — how busy places are right now`,
     `${p}digest — the week ahead`,
     `${p}status — when it last looked`,
   ];
@@ -162,14 +164,28 @@ export function runCommand(
 
     case 'star':
     case 'unstar':
-    case 'hide': {
-      if (!deps.allowed(ctx.sender)) return matrixText('Only people on the bot’s allowed list can change events.');
-      const ev = picked(ctx.roomId, cmd.args[0], deps);
-      if (typeof ev === 'string') return matrixText(ev);
-      if (cmd.name === 'hide') deps.setFlag(ev.group, 'hidden', true);
-      else deps.setFlag(ev.group, 'starred', cmd.name === 'star');
-      const verb = cmd.name === 'star' ? '★ Shortlisted' : cmd.name === 'unstar' ? 'Taken off the shortlist' : 'Removed';
-      return matrixText(`${verb}: ${ev.title} (${whenText(ev.startTime, ev.dateOnly)}, ${whereText(ev)})${linkFor(ev, deps.appUrl) ? ` ${linkFor(ev, deps.appUrl)}` : ''}`);
+    case 'hide':
+      return matrixText('The bot only reads. Shortlist and remove events in Event Scout itself.');
+
+    case 'busy': {
+      const words = cmd.args.join(' ').trim().toLowerCase();
+      const read = (deps.venues?.() ?? [])
+        .filter((v) => v.live != null || v.typical != null)
+        .filter((v) => !words || `${v.name} ${v.area}`.toLowerCase().includes(words))
+        .sort((a, b) => (b.live ?? -1) - (a.live ?? -1) || (b.typical ?? 0) - (a.typical ?? 0));
+      if (!read.length) {
+        return matrixText(words
+          ? `No busyness readings for “${words}”.`
+          : 'No busyness readings yet: venue density sampling is off, or has not run.');
+      }
+      const lines = read.slice(0, 10).map((v) => busyLine(v, now));
+      const heading = words ? `How busy, matching “${words}”` : 'Busiest right now';
+      return {
+        msgtype: 'm.text',
+        body: [heading, ...lines].join('\n'),
+        format: 'org.matrix.custom.html',
+        formatted_body: `<p><b>${escapeHtml(heading)}</b></p><p>${lines.map(escapeHtml).join('<br>')}</p>`,
+      };
     }
 
     case 'status':

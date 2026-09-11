@@ -11,7 +11,30 @@ import { cleanDescription } from '../validate.js';
  * each service enforces can be tested without either.
  */
 
-export type NoticeKind = 'new' | 'digest' | 'reminder' | 'change' | 'test';
+export type NoticeKind = 'new' | 'digest' | 'reminder' | 'change' | 'test' | 'busy';
+
+/** A sampled place and how busy it was last read, from venue density. */
+export interface BusyVenue {
+  name: string;
+  /** The density area it belongs to. */
+  area: string;
+  /** Percent busy at the moment it was read; null when only the usual level is known. */
+  live: number | null;
+  /** Percent busy it usually is at that hour. */
+  typical: number | null;
+  observedAt: string | null;
+}
+
+/** "Mount Panorama (Bathurst) — 92% busy now, usually 40% · read 12 min ago". */
+export function busyLine(v: BusyVenue, now = new Date()): string {
+  const level =
+    v.live != null
+      ? `${Math.round(v.live)}% busy now${v.typical != null ? `, usually ${Math.round(v.typical)}%` : ''}`
+      : v.typical != null ? `usually ${Math.round(v.typical)}% at this hour` : 'no reading';
+  const mins = v.observedAt ? Math.round((now.getTime() - Date.parse(v.observedAt)) / 60000) : null;
+  const ago = mins != null && mins > 0 ? ` · read ${mins < 60 ? `${mins} min` : `${Math.round(mins / 60)} h`} ago` : '';
+  return `${v.name} (${v.area}) — ${level}${ago}`;
+}
 
 export interface Change {
   field: 'title' | 'start' | 'end' | 'venue' | 'address';
@@ -32,6 +55,8 @@ export interface Notice {
   items: NoticeItem[];
   /** Matching events left out to keep the message a sensible size. */
   more?: number;
+  /** For a 'busy' notice: the places that are busy. */
+  venues?: BusyVenue[];
 }
 
 const CHANGE_LABEL: Record<Change['field'], string> = {
@@ -185,7 +210,12 @@ const embedSize = (e: Embed): number =>
  * characters a message at most, which is what Discord accepts.
  */
 export function discordPayloads(notice: Notice, target: NotifyTarget, appUrl: string): Record<string, unknown>[] {
-  const embeds = notice.kind === 'digest' ? digestEmbeds(notice, appUrl) : notice.items.map((i) => eventEmbed(i, target, appUrl));
+  const embeds =
+    notice.kind === 'busy'
+      ? [{ description: cut((notice.venues ?? []).map((v) => `• ${busyLine(v)}`).join('\n'), 4000), color: 0xf87171 }]
+      : notice.kind === 'digest'
+        ? digestEmbeds(notice, appUrl)
+        : notice.items.map((i) => eventEmbed(i, target, appUrl));
   const mention = target.mention;
   const ping = mention === '@here' || mention === '@everyone' ? mention : mention ? `<@&${mention}>` : '';
   const more = notice.more && notice.kind !== 'digest' ? ` (and ${notice.more} more)` : '';
@@ -454,6 +484,23 @@ export function matrixMessages(
     target.matrixLoud || c.msgtype === 'm.image' ? c : { ...c, msgtype: 'm.notice' };
   const ping = target.mention === '@room';
   const look = notice.kind === 'digest' && target.matrixLook === 'cards' ? 'minimal' : target.matrixLook;
+  if (notice.kind === 'busy') {
+    const lines = (notice.venues ?? []).map((v) => busyLine(v));
+    const body = [`${ping ? '@room ' : ''}${notice.heading}`, ...lines].join('\n');
+    return [
+      quiet(
+        look === 'plain'
+          ? { msgtype: 'm.text', body, 'm.mentions': ping ? { room: true } : {} }
+          : {
+              msgtype: 'm.text',
+              body,
+              format: HTML,
+              formatted_body: `<p>${ping ? '@room ' : ''}<b>${escapeHtml(notice.heading)}</b></p><p>${lines.map(escapeHtml).join('<br>')}</p>`,
+              'm.mentions': ping ? { room: true } : {},
+            }
+      ),
+    ];
+  }
   const flyers = (): MatrixContent[] =>
     target.showImage
       ? notice.items.flatMap((item) => {

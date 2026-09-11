@@ -208,6 +208,8 @@ export interface NotifyTarget {
     digest: { enabled: boolean; cadence: 'daily' | 'weekly'; weekday: number; hour: number; daysAhead: number };
     reminders: { enabled: boolean; hoursBefore: number[] };
     starredChanges: { enabled: boolean };
+    /** A place's live busyness reaching the threshold; no venues picked means all. */
+    busy: { enabled: boolean; threshold: number; venues: string[]; cooldownHours: number };
   };
   filters: NotifyFilters;
   quietHours: { enabled: boolean; from: number; to: number };

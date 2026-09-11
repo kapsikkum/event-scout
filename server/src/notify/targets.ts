@@ -20,6 +20,7 @@ export const DEFAULT_TRIGGERS: NotifyTriggers = {
   digest: { enabled: false, cadence: 'weekly', weekday: 4, hour: 18, daysAhead: 7 },
   reminders: { enabled: false, hoursBefore: [24, 2] },
   starredChanges: { enabled: false },
+  busy: { enabled: false, threshold: 80, venues: [], cooldownHours: 6 },
 };
 
 export const DEFAULT_FILTERS: NotifyFilters = {
@@ -52,6 +53,7 @@ export function normalizeTarget(raw: unknown): NotifyTarget {
   const dg = obj(tr.digest);
   const rm = obj(tr.reminders);
   const sc = obj(tr.starredChanges);
+  const bz = obj(tr.busy);
   const f = obj(t.filters);
   const q = obj(t.quietHours);
   const d = DEFAULT_TRIGGERS;
@@ -92,6 +94,12 @@ export function normalizeTarget(raw: unknown): NotifyTarget {
       },
       reminders: { enabled: bool(rm.enabled, d.reminders.enabled), hoursBefore: [...new Set(hours)].sort((a, b) => b - a) },
       starredChanges: { enabled: bool(sc.enabled, d.starredChanges.enabled) },
+      busy: {
+        enabled: bool(bz.enabled, d.busy.enabled),
+        threshold: num(bz.threshold, d.busy.threshold, 10, 100),
+        venues: list(bz.venues),
+        cooldownHours: num(bz.cooldownHours, d.busy.cooldownHours, 1, 72),
+      },
     },
     filters: {
       places: list(f.places),

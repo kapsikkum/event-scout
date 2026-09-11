@@ -119,8 +119,13 @@ export async function chatText(opts: {
     throw new OllamaError(detail);
   }
   const content = (JSON.parse(text) as { message?: { content?: string } }).message?.content ?? '';
-  // A model that thinks anyway puts it in a <think> block; that is not the answer.
-  const answer = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  // A model that thinks anyway puts it in a <think> block; that is not the
+  // answer. Some templates open the block in the prompt, so only the close
+  // arrives: everything up to the last one is thinking.
+  const closed = content.lastIndexOf('</think>');
+  const answer = (closed >= 0 ? content.slice(closed + '</think>'.length) : content)
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .trim();
   if (!answer) throw new OllamaError('answered nothing');
   return answer;
 }
