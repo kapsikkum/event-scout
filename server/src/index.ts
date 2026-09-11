@@ -32,7 +32,9 @@ import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
 import { crawlerBase, syncCrawler } from './sources/crawler.js';
 import { readFeed } from './sources/ical.js';
-import { archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
+import { addManualEvent, archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
+import { readEventPage } from './importer.js';
+import { validateDates } from './validate.js';
 import { getPhotoConditions } from './photo.js';
 import { listAreas, renderArea, venueHistory, venueReadings } from './density/pipeline.js';
 import { pickAreas } from './density/areas.js';
@@ -565,6 +567,50 @@ app.post('/api/ical/preview', async (req, res) => {
     const reason = (err as Error).name === 'TimeoutError' ? 'no answer within 20 seconds' : (err as Error).message;
     res.json({ ok: false, url, message: `Could not read it: ${reason}.` });
   }
+});
+
+/**
+ * "Add from a link": read a page for an event without keeping anything.
+ *
+ * A POST behind the password, because it has this server fetch an address it
+ * was handed; importer.ts checks every hop of it. Always 200 once the address
+ * is well-formed: the outcome is the body.
+ */
+app.post('/api/import/preview', async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  if (!/^https?:\/\/\S+$/i.test(url)) {
+    return res.status(400).json({ ok: false, url, candidates: [], message: 'Give a full address, starting http:// or https://.' });
+  }
+  res.json(await readEventPage(url, getSettings()));
+});
+
+/** Save an event a person checked in the "Add from a link" form. */
+app.post('/api/import', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const text = (key: string, max: number): string => (typeof body[key] === 'string' ? (body[key] as string).trim().slice(0, max) : '');
+  const title = text('title', 300);
+  if (!title) return res.status(400).json({ error: 'The event needs a title' });
+  const start = Date.parse(text('startTime', 40));
+  if (!Number.isFinite(start)) return res.status(400).json({ error: 'The event needs a date' });
+  const dates = validateDates({ startTime: new Date(start).toISOString(), endTime: text('endTime', 40) || undefined });
+  if (!dates.ok) return res.status(400).json({ error: `That date will not do: ${dates.reason}` });
+  const url = text('url', 2000);
+  if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'The link must start http:// or https://' });
+  const imageUrl = text('imageUrl', 2000);
+  const group = await addManualEvent({
+    url,
+    title,
+    description: text('description', 4000),
+    startTime: dates.startTime,
+    dateOnly: body.dateOnly === true,
+    endTime: dates.endTime ?? '',
+    venueName: text('venueName', 300),
+    address: text('address', 300),
+    imageUrl: /^https?:\/\//i.test(imageUrl) ? imageUrl : '',
+    priceText: text('priceText', 100),
+    category: ALL_CATEGORIES.includes(text('category', 60)) ? text('category', 60) : '',
+  });
+  res.json({ group, event: getMergedEvent(group) ?? null });
 });
 
 app.post('/api/tasks/:name/run', async (req, res) => {

@@ -315,7 +315,7 @@ function relativeWhen(caption: string, postedDay: Date): EventWhen | null {
 }
 
 /** A title from the caption's first line that has words in it, hashtags dropped. */
-function titleOf(post: InstagramPost): string {
+export function titleOf(post: InstagramPost): string {
   for (const line of post.caption.split('\n')) {
     const text = line.replace(/#[\p{L}\p{N}_]+/gu, '').replace(/\s+/g, ' ').trim();
     if (text.replace(/[^\p{L}\p{N}]/gu, '').length < 4) continue;

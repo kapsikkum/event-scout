@@ -13,6 +13,7 @@ const SOURCE_LABELS: Record<string, string> = {
   facebook: 'facebook*',
   websearch: 'web*',
   crawler: '🕷 crawler',
+  manual: '✍ added by hand',
 };
 
 /**

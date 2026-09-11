@@ -2,6 +2,7 @@ import { config } from './config.js';
 import { BlockedError, FetchError, fetchPage, permitted } from './fetch.js';
 import {
   eventFromPost, instagramPost, instagramProfilePosts, postUrl, SOCIAL_SITES, SocialLink, socialKind, socialLinksFrom,
+  titleOf,
 } from './extract/social.js';
 import { eventsFromHtml } from './extract/jsonld.js';
 import { crawlableLinks, feedsFrom } from './extract/links.js';
@@ -373,5 +374,50 @@ async function readSocialNow(url: string, link: SocialLink): Promise<PageReport>
   } catch (err) {
     store.markFailed(link.url, (err as Error).message);
     return { url: link.url, ok: false, message: `Could not read it: ${(err as Error).message}`, ...nothing };
+  }
+}
+
+/** What peekPost hands back: the event if the caption dates it, and the post either way. */
+export interface PostPeek {
+  ok: boolean;
+  message: string;
+  events: CrawledEvent[];
+  post?: { title: string; caption: string; imageUrl: string; url: string; author: string; postedAt: string | null };
+}
+
+/**
+ * An Instagram post read for event-scout's "Add from a link", and nothing more.
+ *
+ * Unlike "Read a page now", nothing is kept and nothing is queued: the person
+ * adding it is about to check it by hand, and the app stores what they save.
+ * The caption comes back even when it names no date, because the form can take
+ * the date from them. Here rather than in the app because this is where
+ * Instagram is read with a browser's headers.
+ */
+export async function peekPost(raw: string): Promise<PostPeek> {
+  if (!config.social) return { ok: false, message: 'Reading Instagram is switched off here (CRAWLER_SOCIAL).', events: [] };
+  const url = normalizeUrl(raw.trim());
+  const link = url ? socialKind(url) : null;
+  if (link?.kind !== 'instagram-post') return { ok: false, message: 'Only an Instagram post can be read this way.', events: [] };
+  try {
+    const page = await fetchPage(link.url, { browser: true });
+    const post = instagramPost(page.html, link.id);
+    if (!post) return { ok: false, message: 'No caption on the page; Instagram may be asking for a login.', events: [] };
+    const event = eventFromPost(post, new Date(), knownInterests().map((i) => i.city));
+    return {
+      ok: true,
+      message: event ? 'Found a date in the caption.' : 'Read the caption, but it names no upcoming date.',
+      events: event ? [event] : [],
+      post: {
+        title: titleOf(post),
+        caption: post.caption,
+        imageUrl: post.imageUrl ?? '',
+        url: post.url,
+        author: post.author,
+        postedAt: post.postedAt?.toISOString() ?? null,
+      },
+    };
+  } catch (err) {
+    return { ok: false, message: `Could not read it: ${(err as Error).message}`, events: [] };
   }
 }

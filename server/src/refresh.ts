@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { db, getSettings, setKv } from './db.js';
 import { assignDedupeGroups, DedupeInput, haversineKm } from './dedupe.js';
 import { photoScore } from './photoScore.js';
@@ -325,46 +326,109 @@ async function geocodeMissing(locations: Location[]): Promise<number> {
     .all(GEOCODE_BUDGET) as unknown as { id: number; venue_name: string; address: string }[];
   if (rows.length === 0) return 0;
 
-  const update = db.prepare('UPDATE events SET lat = ?, lng = ?, geocode_tried = 1 WHERE id = ?');
-  const markTried = db.prepare('UPDATE events SET geocode_tried = 1 WHERE id = ?');
   let placed = 0;
+  for (const row of rows) if (await placeRow(row, locations)) placed++;
+  return placed;
+}
 
-  for (const row of rows) {
-    const queries = geocodeCandidates(row.venue_name, row.address, locations);
-    if (queries.length === 0) {
-      markTried.run(row.id);
-      continue;
-    }
-    let found: { lat: number; lng: number } | null = null;
-    let errored = false;
-
-    for (const query of queries) {
-      try {
-        // Only a real network call needs the rate limit; a cached answer is
-        // free, so a backlog of previously-seen venues clears in one pass.
-        if (!isGeocodeCached(query)) await new Promise((r) => setTimeout(r, GEOCODE_SPACING_MS));
-        const hits = await geocode(query);
-        const hit = hits.find((h) =>
-          locations.some((loc) => haversineKm(loc.lat, loc.lng, h.lat, h.lng) <= loc.radiusKm * 1.5)
-        );
-        if (hit) {
-          found = hit;
-          break;
-        }
-      } catch {
-        errored = true;
+/** One row of geocodeMissing: true when it was placed. */
+async function placeRow(
+  row: { id: number; venue_name: string; address: string }, locations: Location[]
+): Promise<boolean> {
+  const markTried = db.prepare('UPDATE events SET geocode_tried = 1 WHERE id = ?');
+  const queries = geocodeCandidates(row.venue_name, row.address, locations);
+  if (queries.length === 0) {
+    markTried.run(row.id);
+    return false;
+  }
+  let errored = false;
+  for (const query of queries) {
+    try {
+      // Only a real network call needs the rate limit; a cached answer is
+      // free, so a backlog of previously-seen venues clears in one pass.
+      if (!isGeocodeCached(query)) await new Promise((r) => setTimeout(r, GEOCODE_SPACING_MS));
+      const hits = await geocode(query);
+      const hit = hits.find((h) =>
+        locations.some((loc) => haversineKm(loc.lat, loc.lng, h.lat, h.lng) <= loc.radiusKm * 1.5)
+      );
+      if (hit) {
+        db.prepare('UPDATE events SET lat = ?, lng = ?, geocode_tried = 1 WHERE id = ?').run(hit.lat, hit.lng, row.id);
+        return true;
       }
-    }
-
-    if (found) {
-      update.run(found.lat, found.lng, row.id);
-      placed++;
-    } else if (!errored) {
-      // Genuinely unplaceable rather than a transient failure, so stop asking.
-      markTried.run(row.id);
+    } catch {
+      errored = true;
     }
   }
-  return placed;
+  // Genuinely unplaceable rather than a transient failure, so stop asking.
+  if (!errored) markTried.run(row.id);
+  return false;
+}
+
+/** An event typed or checked by a person, from "Add from a link". */
+export interface ManualEvent {
+  url: string;
+  title: string;
+  description: string;
+  startTime: string;
+  dateOnly: boolean;
+  endTime: string;
+  venueName: string;
+  address: string;
+  imageUrl: string;
+  priceText: string;
+  /** '' to let the classifier decide, as it does for every other listing. */
+  category: string;
+}
+
+/**
+ * Store an event added by hand, and say which group it landed in.
+ *
+ * Through the same insert every source uses, as source "manual", so it is
+ * tidied, scored, deduplicated against the same event found elsewhere, and
+ * archived when it is over exactly like the rest. The id is the link, the
+ * title and the start, so saving the same thing twice updates it. A category
+ * chosen by hand goes where the classifier's nightly re-run cannot reach it.
+ * Placed on the map straight away when it has somewhere to place, rather than
+ * at the next refresh, so the card has its town the moment it appears.
+ */
+export async function addManualEvent(input: ManualEvent): Promise<string> {
+  const now = new Date().toISOString();
+  const sourceId =
+    'manual:' +
+    crypto.createHash('sha1').update(`${input.url}|${input.title}|${input.startTime}`).digest('hex').slice(0, 16);
+  const raw: RawEvent = {
+    sourceId,
+    title: input.title,
+    description: input.description,
+    startTime: input.startTime,
+    endTime: input.endTime || undefined,
+    venueName: input.venueName,
+    address: input.address,
+    url: input.url,
+    imageUrl: input.imageUrl,
+    priceText: input.priceText,
+    dateOnly: input.dateOnly,
+  };
+  insertRaw(upsertStmt(), 'manual', raw, now, localRegion());
+  const row = db
+    .prepare("SELECT id, venue_name, address FROM events WHERE source = 'manual' AND source_id = ?")
+    .get(sourceId) as unknown as { id: number; venue_name: string; address: string };
+  db.prepare('UPDATE events SET edit_category = ?, archived = 0, geocode_tried = 0 WHERE id = ?')
+    .run(input.category.trim(), row.id);
+
+  if (row.venue_name || row.address) {
+    try {
+      await placeRow(row, await eventLocations(getSettings()));
+    } catch {
+      // The next refresh tries again; saving must not fail on a map lookup.
+    }
+  }
+  recomputeDedupeGroups();
+  const group = db.prepare('SELECT manual_group, dedupe_group FROM events WHERE id = ?').get(row.id) as unknown as {
+    manual_group: string;
+    dedupe_group: string;
+  };
+  return group.manual_group || group.dedupe_group || `solo-${row.id}`;
 }
 
 /** Towns looked up per refresh for the area rule; the rest wait for the next. */

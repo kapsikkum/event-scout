@@ -1128,3 +1128,15 @@ button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
 .crawlfold > :not(summary) { margin-top: 0.5rem; }
 
 .pager { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; }
+
+/* "Add from a link". Rides on the detail panel's backdrop and frame. */
+.importdlg h2 { margin: 0 0 6px; }
+.importdlg .formrow input { flex: 1; }
+.importdlg__form { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.importdlg__form label { font-size: 12px; color: var(--muted, #9aa4b2); margin-top: 6px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.importdlg__form input, .importdlg__form textarea, .importdlg__form select { width: 100%; box-sizing: border-box; }
+.importdlg__row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.importdlg__image { max-height: 180px; object-fit: contain; align-self: flex-start; border-radius: 6px; }
+.importdlg__found { font-size: 11px; color: #86efac; }
+.importdlg__found.is-shaky { color: #fbbf24; }
+.importdlg__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }

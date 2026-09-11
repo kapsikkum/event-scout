@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { config } from './config.js';
-import { crawlUrlNow, hasWork, knownInterests, runCycle, setInterests, status } from './crawl.js';
+import { crawlUrlNow, hasWork, knownInterests, peekPost, runCycle, setInterests, status } from './crawl.js';
 import { haversineKm } from './geo.js';
 import { Interest, queriesFor } from './queries.js';
 import * as store from './store.js';
@@ -155,6 +155,18 @@ const server = http.createServer((req, res) => {
       .then((body) => crawlUrlNow(String((body as { url?: unknown } | null)?.url ?? '')))
       .then((report) => json(res, 200, report))
       .catch((err: Error) => json(res, 400, { ok: false, message: err.message, events: [], links: 0, feeds: [] }));
+    return;
+  }
+
+  /**
+   * An Instagram post read for event-scout's "Add from a link": nothing kept,
+   * nothing queued. Always 200 when it got that far; the outcome is the body.
+   */
+  if (req.method === 'POST' && url.pathname === '/read') {
+    readJson(req)
+      .then((body) => peekPost(String((body as { url?: unknown } | null)?.url ?? '')))
+      .then((report) => json(res, 200, report))
+      .catch((err: Error) => json(res, 400, { ok: false, message: err.message, events: [] }));
     return;
   }
 

@@ -482,6 +482,49 @@ export interface CrawlerPageRow {
   note: string;
 }
 
+/** Which reader filled a field of an imported event. */
+export type FoundBy = 'json-ld' | 'facebook' | 'instagram' | 'page' | 'text' | 'model';
+
+/** One event read off a page by "Add from a link", for checking before it is saved. */
+export interface ImportCandidate {
+  title: string;
+  description: string;
+  /** '' when the page gave no date. */
+  startTime: string;
+  dateOnly: boolean;
+  endTime: string;
+  venueName: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  url: string;
+  imageUrl: string;
+  priceText: string;
+  found: Partial<Record<'title' | 'description' | 'startTime' | 'endTime' | 'venueName' | 'address' | 'imageUrl', FoundBy>>;
+}
+
+export interface ImportPreview {
+  ok: boolean;
+  url: string;
+  message: string;
+  candidates: ImportCandidate[];
+}
+
+/** What the form sends back to be saved. */
+export interface ImportEvent {
+  url: string;
+  title: string;
+  description: string;
+  startTime: string;
+  dateOnly: boolean;
+  endTime: string;
+  venueName: string;
+  address: string;
+  imageUrl: string;
+  priceText: string;
+  category: string;
+}
+
 export interface AuthStatus {
   /** Whether a password is configured at all. False means nothing is gated. */
   required: boolean;
@@ -538,6 +581,23 @@ export const api = {
       const body = (await r.json().catch(() => ({}))) as Partial<IcalPreview>;
       return { url, ok: false, message: `HTTP ${r.status}`, ...body } as IcalPreview;
     }),
+  importPreview: (url: string) =>
+    fetch('/api/import/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    }).then(async (r) => {
+      // A refusal carries its reason in the body, as with the feed preview.
+      if (r.status === 401) throw new Unauthorized();
+      const body = (await r.json().catch(() => ({}))) as Partial<ImportPreview>;
+      return { url, ok: false, message: `HTTP ${r.status}`, candidates: [], ...body } as ImportPreview;
+    }),
+  importEvent: (ev: ImportEvent) =>
+    fetch('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ev),
+    }).then((r) => json<{ group: string; event: MergedEvent | null }>(r)),
   authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
   login: (password: string) =>
     fetch('/api/auth/login', {

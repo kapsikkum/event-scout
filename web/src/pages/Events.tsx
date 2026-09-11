@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import EventCard from '../components/EventCard';
 import EventDetail from '../components/EventDetail';
+import ImportDialog from '../components/ImportDialog';
 import { MergedEvent } from '../api';
 import { decodeEntities } from '../text';
 import {
@@ -52,8 +53,11 @@ const DATE_CHIPS: { key: DateChip; label: string }[] = [
 ];
 
 export default function Events() {
-  const { events, settings, status } = useStore();
+  const { events, settings, status, auth } = useStore();
   const { mergeGroups } = useStore();
+  const [importing, setImporting] = useState(false);
+  // A write, so only offered where it would be allowed.
+  const canAdd = !auth?.required || auth.authed;
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [open, setOpen] = useState<MergedEvent | null>(null);
   const [picking, setPicking] = useState(false);
@@ -190,7 +194,22 @@ export default function Events() {
         >
           {picking ? 'Cancel merge' : '⧉ Merge'}
         </button>
+        {canAdd && (
+          <button title="Read an event off a web page, Instagram post or Facebook event" onClick={() => setImporting(true)}>
+            ＋ Add from a link
+          </button>
+        )}
       </div>
+
+      {importing && (
+        <ImportDialog
+          onClose={() => setImporting(false)}
+          onSaved={(ev) => {
+            setImporting(false);
+            if (ev) setOpen(ev);
+          }}
+        />
+      )}
 
       {picking && (
         <div className="mergebar">

@@ -119,8 +119,18 @@ function eventFromNode(node: Record<string, unknown>, pageUrl: string): RawEvent
   };
 }
 
-/** Extract schema.org Events from a page's <script type="application/ld+json"> blocks. */
-export function extractEventsFromHtml(html: string, pageUrl: string): RawEvent[] {
+/**
+ * Extract schema.org Events from a page's <script type="application/ld+json"> blocks.
+ *
+ * `distinct` says what makes two of them different. By source id for the
+ * sources, which store by it: an event with no link of its own is keyed on the
+ * page's, and storing a second under the same key would overwrite the first.
+ * By title and start for "Add from a link", which stores nothing and wants
+ * every event on a calendar page, linked or not.
+ */
+export function extractEventsFromHtml(
+  html: string, pageUrl: string, distinct: 'source' | 'event' = 'source'
+): RawEvent[] {
   const blocks = html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
   const events: RawEvent[] = [];
   const seen = new Set<string>();
@@ -136,8 +146,9 @@ export function extractEventsFromHtml(html: string, pageUrl: string): RawEvent[]
     collectEventNodes(parsed, nodes);
     for (const node of nodes) {
       const ev = eventFromNode(node, pageUrl);
-      if (ev && !seen.has(ev.sourceId)) {
-        seen.add(ev.sourceId);
+      const key = ev && (distinct === 'source' ? ev.sourceId : `${ev.title}|${ev.startTime}`);
+      if (ev && key && !seen.has(key)) {
+        seen.add(key);
         events.push(ev);
       }
     }
