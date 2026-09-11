@@ -7,6 +7,35 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.7.0](https://github.com/kapsikkum/event-scout/compare/v0.6.0...v0.7.0) (2026-09-11)
+
+
+### Features
+
+* add an event from a link ([322d279](https://github.com/kapsikkum/event-scout/commit/322d279d96e2cfd73a15c4e3033da9f1a1b77497))
+* **crawler:** place an Instagram post in the area its caption names ([c70c423](https://github.com/kapsikkum/event-scout/commit/c70c4231b96c7143967e4c65a7ef1c437cbe9e93))
+* hide events outside your areas or in excluded categories, reversibly ([0c159a8](https://github.com/kapsikkum/event-scout/commit/0c159a80d2d3d33c01f18fc860d222f1e743b0fd))
+* **notify:** a bare-model chat, and !chat commands that change one chat ([a990357](https://github.com/kapsikkum/event-scout/commit/a990357f4bbc0771aeb542076fe7de88c55292c1))
+* **notify:** a main switch for Matrix chat ([30aeb65](https://github.com/kapsikkum/event-scout/commit/30aeb65914cbefa041b228129aae8c17da5c7564))
+* **notify:** answer commands in Matrix ([6177c50](https://github.com/kapsikkum/event-scout/commit/6177c505832e9cc69d060797a7f65baa78c6523a))
+* **notify:** busy-place alerts and !busy from venue density, and a read-only Matrix bot ([2b502d7](https://github.com/kapsikkum/event-scout/commit/2b502d7bf36b7309cddf51d8ec45bda36e37c203))
+* **notify:** Discord webhooks and Matrix rooms for new events, digests, reminders and changes ([6177c50](https://github.com/kapsikkum/event-scout/commit/6177c505832e9cc69d060797a7f65baa78c6523a))
+* **notify:** give Matrix rooms the look, pings and filters Discord has ([ae830e8](https://github.com/kapsikkum/event-scout/commit/ae830e845d284fd3af0d817a5c1d6dd80945cf55))
+* **notify:** Matrix looks to compare, and chat rooms answered by the local model ([7540017](https://github.com/kapsikkum/event-scout/commit/7540017a3c0840f473746f6d1ebd782cb613f933))
+* **notify:** start and end a Matrix chat with !chat start and !chat end ([d884a23](https://github.com/kapsikkum/event-scout/commit/d884a237beb05dd27ca9a06ed04ed179b566de22))
+* show events with no place at all as Unknown location ([0c159a8](https://github.com/kapsikkum/event-scout/commit/0c159a80d2d3d33c01f18fc860d222f1e743b0fd))
+
+
+### Fixes
+
+* **crawler:** read social pages that robots.txt turned away before they had their own path ([c70c423](https://github.com/kapsikkum/event-scout/commit/c70c4231b96c7143967e4c65a7ef1c437cbe9e93))
+* **notify:** decode entities in titles and venues, and let a test save first ([02293c6](https://github.com/kapsikkum/event-scout/commit/02293c6f5d0b7b880abdfedbbeef34a3771bf7a1))
+* **notify:** keep how the room works whatever the system prompt, and answer without a name in front ([ab0ce72](https://github.com/kapsikkum/event-scout/commit/ab0ce723bd654e43b111a4f2a826fab0083aa809))
+* **notify:** make Matrix chat work with several people in the room ([bd8d1c6](https://github.com/kapsikkum/event-scout/commit/bd8d1c6444722174ec4144bf5e77d767090391d5))
+* **notify:** say when the Matrix bot turns an invite down ([0153cb0](https://github.com/kapsikkum/event-scout/commit/0153cb09f9bf562be5cf20ee808b1a72470d2a23))
+* **notify:** send Matrix events as cards, with the flyer as an image ([0be6e74](https://github.com/kapsikkum/event-scout/commit/0be6e74c2ad53ad4f4cd1625bf9586a180b79ed7))
+* **web:** tidy the Matrix bot section ([9bd03f8](https://github.com/kapsikkum/event-scout/commit/9bd03f8286779d809654b49f310d8c42ef999c41))
+
 ## [0.6.0](https://github.com/kapsikkum/event-scout/compare/v0.5.0...v0.6.0) (2026-09-11)
 
 
