@@ -7,6 +7,15 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.7.1](https://github.com/kapsikkum/event-scout/compare/v0.7.0...v0.7.1) (2026-09-11)
+
+
+### Fixes
+
+* **notify:** a blank chat system prompt means the default persona again ([6c50627](https://github.com/kapsikkum/event-scout/commit/6c50627691b38221c4e95069f347df858c6643cb))
+* **places:** a town inside an area keeps its own name ([bfde0f5](https://github.com/kapsikkum/event-scout/commit/bfde0f5b8701e064d5abfef4b946e5bf33fc14c7))
+* **web:** pick several towns and categories at once, and show past days in the calendar ([109b94e](https://github.com/kapsikkum/event-scout/commit/109b94edb331e4f11d7a9f6b4e7c855c809ac438))
+
 ## [0.7.0](https://github.com/kapsikkum/event-scout/compare/v0.6.0...v0.7.0) (2026-09-11)
 
 
