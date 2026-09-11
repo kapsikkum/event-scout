@@ -138,7 +138,7 @@ export default function EventCard({ ev, dates, onOpen, selected, onSelect }: Eve
         <div className={`card__where${place ? '' : ' is-unknown'}`}>
           <span className="card__pin">{ev.isOnline ? '💻' : '📍'}</span>
           <span className="card__place">
-            {place || (ev.isOnline ? 'Online event' : 'Location unknown')}
+            {place || (ev.isOnline ? 'Online event' : ev.locality || 'Unknown location')}
           </span>
           {distance != null && (
             <span className="card__dist">
@@ -171,6 +171,12 @@ export default function EventCard({ ev, dates, onOpen, selected, onSelect }: Eve
               title={`First found ${new Date(ev.firstSeenAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`}
             >
               ✦ New
+            </span>
+          )}
+          {/* Only ever seen with "Show culled" on: says which rule took it. */}
+          {ev.culled && (
+            <span className="badge badge--culled" title="Kept out of sight by the rules in Settings. Change them there to bring it back.">
+              ⊘ {ev.culled}
             </span>
           )}
           {[...new Set(ev.sources.map((s) => s.source))].map((source) => (

@@ -5,6 +5,7 @@ import { formatWhen } from '../components/EventCard';
 import { api, DensityArea, DensityGeoJson, VenueReading } from '../api';
 import { busyColour } from '../busy';
 import { decodeEntities } from '../text';
+import { outOfSight } from '../filtering';
 
 // Distinct pin colors keyed by category hash.
 const PIN_COLORS = ['#f5a623', '#4cc3ff', '#4ade80', '#f87171', '#c084fc', '#fb923c', '#2dd4bf'];
@@ -188,7 +189,7 @@ export default function MapView() {
       // Include the events too. The density grid only covers the home area, so
       // fitting to it alone parked events in other areas off-screen entirely.
       for (const ev of events) {
-        if (ev.lat != null && ev.lng != null && !ev.hidden) bounds.extend([ev.lat, ev.lng]);
+        if (ev.lat != null && ev.lng != null && !outOfSight(ev)) bounds.extend([ev.lat, ev.lng]);
       }
       // Not animated: a pan still in flight when the user navigates away runs
       // its callback against a map that has been removed, which throws
@@ -218,7 +219,7 @@ export default function MapView() {
       // Events happening at this venue, matched by name or proximity.
       const here = events.filter(
         (ev) =>
-          !ev.hidden &&
+          !outOfSight(ev) &&
           ((ev.venueName && ev.venueName.toLowerCase() === v.name.toLowerCase()) ||
             (ev.lat != null && ev.lng != null &&
               Math.abs(ev.lat - v.lat) < 0.0012 && Math.abs(ev.lng - v.lon) < 0.0012))
@@ -254,7 +255,7 @@ export default function MapView() {
     if (!layer) return;
     layer.clearLayers();
     for (const ev of events) {
-      if (ev.lat == null || ev.lng == null || ev.hidden) continue;
+      if (ev.lat == null || ev.lng == null || outOfSight(ev)) continue;
       const url = ev.sources.find((s) => s.url)?.url;
       const marker = L.circleMarker([ev.lat, ev.lng], {
         radius: ev.starred ? 10 : 7,

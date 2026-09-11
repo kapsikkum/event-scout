@@ -192,6 +192,9 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 /* First found within the week. Filled rather than outlined like the sources,
    because it is the one badge that stops being true. */
 .badge--new { color: #86efac; border-color: rgba(134, 239, 172, 0.45); background: rgba(134, 239, 172, 0.12); cursor: help; }
+/* Kept out of sight by a rule in Settings; only seen with "Show culled" on. */
+.badge--culled { color: #fca5a5; border-color: rgba(252, 165, 165, 0.4); border-style: dashed; cursor: help; }
+.chip.chip--off { color: #fca5a5; border-color: rgba(252, 165, 165, 0.5); text-decoration: line-through; }
 .badge.unofficial { color: var(--red); border-color: #6b3030; }
 .card .actions { display: flex; gap: 6px; }
 .card .actions button { padding: 4px 10px; font-size: 13px; }

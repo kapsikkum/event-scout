@@ -15,10 +15,12 @@ import {
   foldSeries,
   isRecent,
   NEARBY,
+  outOfSight,
   placeLabel,
   placesOf,
   RECENT_DAYS,
   SortKey,
+  UNKNOWN,
 } from '../filtering';
 
 /**
@@ -81,14 +83,15 @@ export default function Events() {
   const categories = useMemo(() => categoriesOf(events), [events]);
   // Counted over everything rather than over the filtered list, so picking a
   // town does not immediately rewrite the menu it was picked from.
-  const { places, elsewhere } = useMemo(() => placesOf(events), [events]);
-  const nearby = events.length - elsewhere;
+  const { places, elsewhere, unknown } = useMemo(() => placesOf(events), [events]);
+  const nearby = events.length - elsewhere - unknown;
+  const culledCount = useMemo(() => events.filter((e) => e.culled && !e.hidden).length, [events]);
   const sourceNames = useMemo(
     () => (status ? status.sources.filter((s) => s.state === 'ok' || s.count > 0).map((s) => s.name) : []),
     [status]
   );
   const starredCount = events.filter((e) => e.starred).length;
-  const recentCount = useMemo(() => events.filter((e) => !e.hidden && isRecent(e)).length, [events]);
+  const recentCount = useMemo(() => events.filter((e) => !outOfSight(e) && isRecent(e)).length, [events]);
 
   return (
     <>
@@ -125,6 +128,7 @@ export default function Events() {
             </option>
           ))}
           {elsewhere > 0 && <option value={ELSEWHERE}>Elsewhere ({elsewhere})</option>}
+          {unknown > 0 && <option value={UNKNOWN}>Unknown location ({unknown})</option>}
         </select>
         <select value={filters.category} onChange={(e) => set({ category: e.target.value })}>
           <option value="">All categories</option>
@@ -164,6 +168,12 @@ export default function Events() {
           <input type="checkbox" checked={filters.showHidden} onChange={(e) => set({ showHidden: e.target.checked })} />
           Show removed
         </label>
+        {culledCount > 0 && (
+          <label className="toggle" title="Events kept out of sight by the area and category rules in Settings">
+            <input type="checkbox" checked={filters.showCulled} onChange={(e) => set({ showCulled: e.target.checked })} />
+            Show culled ({culledCount})
+          </label>
+        )}
         {starredCount > 0 && (
           <a href="/api/export.ics" download>
             Export shortlist (.ics)
@@ -225,7 +235,7 @@ export default function Events() {
             {filters.sort === 'place' && (
               <h2 className="placegroup__head">
                 <span className="placegroup__pin">📍</span>
-                {decodeEntities(place) || 'Location unknown'}
+                {decodeEntities(place) || 'Unknown location'}
                 <span className="placegroup__count">{list.length}</span>
               </h2>
             )}

@@ -12,6 +12,11 @@ export type SortKey = 'date' | 'photo' | 'distance' | 'place';
  */
 export const NEARBY = 'nearby:any';
 export const ELSEWHERE = 'nearby:none';
+/** Nothing says where it is. Kept apart from Elsewhere, which is somewhere known to be far. */
+export const UNKNOWN = 'nearby:unknown';
+
+/** Out of sight: removed by hand, or culled by the rules in Settings. */
+export const outOfSight = (ev: MergedEvent): boolean => ev.hidden || Boolean(ev.culled);
 
 export interface Filters {
   dateChip: DateChip;
@@ -25,6 +30,8 @@ export interface Filters {
   search: string;
   hideOnline: boolean;
   showHidden: boolean;
+  /** Show what the area and category rules in Settings keep out of sight. */
+  showCulled: boolean;
   starredOnly: boolean;
   /** Only events first found in the last RECENT_DAYS days. */
   recentOnly: boolean;
@@ -52,6 +59,7 @@ export const DEFAULT_FILTERS: Filters = {
   search: '',
   hideOnline: true,
   showHidden: false,
+  showCulled: false,
   starredOnly: false,
   recentOnly: false,
   sort: 'date',
@@ -84,14 +92,16 @@ export function applyFilters(events: MergedEvent[], f: Filters, settings: Settin
   const q = f.search.trim().toLowerCase();
   let out = events.filter((ev) => {
     if (!f.showHidden && ev.hidden) return false;
+    if (!f.showCulled && ev.culled) return false;
     if (f.starredOnly && !ev.starred) return false;
     if (f.recentOnly && !isRecent(ev)) return false;
     if (f.hideOnline && ev.isOnline) return false;
     if (f.category && ev.category !== f.category) return false;
     if (f.source && !ev.sources.some((s) => s.source === f.source)) return false;
     if (f.place === NEARBY && !ev.place) return false;
-    else if (f.place === ELSEWHERE && ev.place) return false;
-    else if (f.place && f.place !== NEARBY && f.place !== ELSEWHERE && ev.place !== f.place) return false;
+    else if (f.place === ELSEWHERE && (ev.place || ev.unknownLocation)) return false;
+    else if (f.place === UNKNOWN && !ev.unknownLocation) return false;
+    else if (f.place && ![NEARBY, ELSEWHERE, UNKNOWN].includes(f.place) && ev.place !== f.place) return false;
     if (window) {
       const t = new Date(ev.startTime);
       if (t < window[0] || t >= window[1]) return false;
@@ -187,15 +197,21 @@ export function categoriesOf(events: MergedEvent[]): string[] {
  * events are, and the towns with three listings between them are not the
  * answer to that question.
  */
-export function placesOf(events: MergedEvent[]): { places: { name: string; count: number }[]; elsewhere: number } {
+export function placesOf(events: MergedEvent[]): {
+  places: { name: string; count: number }[];
+  elsewhere: number;
+  unknown: number;
+} {
   const counts = new Map<string, number>();
   let elsewhere = 0;
+  let unknown = 0;
   for (const ev of events) {
-    if (!ev.place) elsewhere++;
-    else counts.set(ev.place, (counts.get(ev.place) ?? 0) + 1);
+    if (ev.place) counts.set(ev.place, (counts.get(ev.place) ?? 0) + 1);
+    else if (ev.unknownLocation) unknown++;
+    else elsewhere++;
   }
   const places = [...counts]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  return { places, elsewhere };
+  return { places, elsewhere, unknown };
 }

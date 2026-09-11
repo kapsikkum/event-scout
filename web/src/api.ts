@@ -29,6 +29,10 @@ export interface MergedEvent {
    * the app keeping track, which is never "recent".
    */
   firstSeenAt: string | null;
+  /** Nothing says where it is: no coordinates, venue, address or town. */
+  unknownLocation: boolean;
+  /** Why it is out of sight on its own (outside every area, excluded category), or null. */
+  culled: string | null;
   sources: { source: string; url: string }[];
   /** Every distinct image across the merged listings, best first. */
   images: string[];
@@ -114,6 +118,10 @@ export interface Settings {
   webSearchTerms: string[];
   eventTopics: string[];
   eventAreas: { name: string; lat?: number; lng?: number; radiusKm?: number }[];
+  /** Keep events well outside every area out of sight. Never deletes; undoes itself. */
+  cullOutsideAreas: boolean;
+  /** Categories kept out of sight. */
+  excludedCategories: string[];
   icalFeeds: { name: string; url: string }[];
   midnightspecStates: string[];
   tasksDisabled: string[];
@@ -498,7 +506,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(s),
     }).then((r) => json<Settings>(r)),
-  topics: () => fetch('/api/topics').then((r) => json<{ topics: EventTopic[] }>(r)),
+  topics: () => fetch('/api/topics').then((r) => json<{ topics: EventTopic[]; categories?: string[] }>(r)),
   geocode: (q: string) => fetch(`/api/geocode?q=${encodeURIComponent(q)}`).then((r) => json<GeocodeResult[]>(r)),
   refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => json<StatusResponse>(r)),
   version: () => fetch('/api/version').then((r) => json<VersionInfo>(r)),

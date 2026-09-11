@@ -29,6 +29,8 @@ export interface EventQuery {
   to?: string;
   starred?: boolean;
   hidden?: boolean;
+  /** Out of sight on its own: outside every area, or in an excluded category. */
+  culled?: boolean;
   online?: boolean;
   minScore?: number;
   limit?: number;
@@ -38,7 +40,7 @@ export interface EventQuery {
 /** Every parameter this route understands, so a typo can be told from a filter. */
 const KNOWN = new Set([
   'archived', 'q', 'category', 'locality', 'place', 'source',
-  'from', 'to', 'starred', 'hidden', 'online', 'minScore', 'limit', 'offset',
+  'from', 'to', 'starred', 'hidden', 'culled', 'online', 'minScore', 'limit', 'offset',
 ]);
 
 function one(value: unknown, name: string): string {
@@ -107,6 +109,7 @@ export function parseEventQuery(query: Record<string, unknown>): EventQuery {
   if (has('to')) out.to = date(query.to, 'to', true);
   if (has('starred')) out.starred = bool(query.starred, 'starred');
   if (has('hidden')) out.hidden = bool(query.hidden, 'hidden');
+  if (has('culled')) out.culled = bool(query.culled, 'culled');
   if (has('online')) out.online = bool(query.online, 'online');
   if (has('minScore')) out.minScore = int(query.minScore, 'minScore', 0);
   if (has('limit')) out.limit = int(query.limit, 'limit', 1);
@@ -135,6 +138,7 @@ export function filterEvents(events: MergedEvent[], q: EventQuery): MergedEvent[
     if (q.to && ev.startTime > q.to) return false;
     if (q.starred !== undefined && ev.starred !== q.starred) return false;
     if (q.hidden !== undefined && ev.hidden !== q.hidden) return false;
+    if (q.culled !== undefined && Boolean(ev.culled) !== q.culled) return false;
     if (q.online !== undefined && ev.isOnline !== q.online) return false;
     if (q.minScore !== undefined && ev.photoScore < q.minScore) return false;
     if (q.q) {

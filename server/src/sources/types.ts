@@ -35,6 +35,14 @@ export interface Settings {
    * widening the home radius and dragging in everything between.
    */
   eventAreas: EventArea[];
+  /**
+   * Keep events well outside every area above out of sight. Worked out when
+   * the list is read, never stored, so it undoes itself when an area is added
+   * back; events with no place at all are never taken. See cull.ts.
+   */
+  cullOutsideAreas: boolean;
+  /** Categories to keep out of sight, by name. Same rules as the above. */
+  excludedCategories: string[];
   icalFeeds: { name: string; url: string }[];
   /**
    * States to read from the MIDNIGHT_SPEC car-meet feed, lowercase and
@@ -159,6 +167,8 @@ export const DEFAULT_SETTINGS: Settings = {
   webSearchTerms: [],
   eventTopics: [],
   eventAreas: [],
+  cullOutsideAreas: false,
+  excludedCategories: [],
   icalFeeds: [],
   midnightspecStates: [],
   tasksDisabled: [],

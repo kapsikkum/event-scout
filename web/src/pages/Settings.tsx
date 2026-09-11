@@ -787,8 +787,15 @@ export default function Settings() {
    */
   const [dirty, setDirty] = useState(false);
 
+  const [categories, setCategories] = useState<string[]>([]);
   useEffect(() => {
-    api.topics().then((r) => setTopics(r.topics)).catch(() => setTopics([]));
+    api
+      .topics()
+      .then((r) => {
+        setTopics(r.topics);
+        setCategories(r.categories ?? []);
+      })
+      .catch(() => setTopics([]));
   }, []);
 
   useEffect(() => {
@@ -950,6 +957,22 @@ export default function Settings() {
           }
         />
 
+        <label className="toggle" style={{ display: 'flex', marginTop: 12 }}>
+          <input
+            type="checkbox"
+            checked={draft.cullOutsideAreas === true}
+            onChange={(e) => set({ cullOutsideAreas: e.target.checked })}
+          />{' '}
+          Hide events outside these areas automatically
+        </label>
+        <p className="hint" style={{ margin: '4px 0 0' }}>
+          Anything more than half as far again as an area's radius from every area is kept out of
+          sight — including what an area you have since removed brought in. Nothing is deleted:
+          add the area back and its events return. Starred events, ones you added from a link, and
+          ones with an unknown location are never hidden this way. <em>Show culled</em> on the
+          Events page lists them.
+        </p>
+
         <h4 style={{ margin: '16px 0 4px', fontSize: 13 }}>What to look for</h4>
         <p className="hint" style={{ margin: '0 0 8px' }}>
           Each topic expands to a set of search phrases, run against every area. Pick a
@@ -985,6 +1008,37 @@ export default function Settings() {
             )}{' '}
             phrases across {Math.max(1, (draft.eventAreas ?? []).length + (draft.lat != null ? 1 : 0))} area(s)
           </p>
+        )}
+
+        {categories.length > 0 && (
+          <>
+            <h4 style={{ margin: '16px 0 4px', fontSize: 13 }}>Categories to hide</h4>
+            <p className="hint" style={{ margin: '0 0 8px' }}>
+              Events filed under these are kept out of sight, wherever they are. Undone by
+              switching the category back on; a category you set on an event by hand is left alone.
+            </p>
+            <div className="chiprow">
+              {categories.map((c) => {
+                const off = (draft.excludedCategories ?? []).includes(c);
+                return (
+                  <button
+                    key={c}
+                    className={`chip ${off ? 'chip--off' : ''}`}
+                    title={off ? `Hidden. Click to show ${c} again.` : `Click to hide ${c}`}
+                    onClick={() =>
+                      set({
+                        excludedCategories: off
+                          ? (draft.excludedCategories ?? []).filter((k) => k !== c)
+                          : [...(draft.excludedCategories ?? []), c],
+                      })
+                    }
+                  >
+                    {off ? '⊘ ' : ''}{c}
+                  </button>
+                );
+              })}
+            </div>
+          </>
         )}
       </section>
   );

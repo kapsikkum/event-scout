@@ -3,6 +3,7 @@ import { MergedEvent, haversineKm } from '../api';
 import { useStore } from '../store';
 import EventDetail from '../components/EventDetail';
 import { decodeEntities } from '../text';
+import { outOfSight } from '../filtering';
 
 /**
  * The diary view.
@@ -52,13 +53,13 @@ export default function Calendar() {
   const shown = useMemo(
     () =>
       events.filter(
-        (ev) => !ev.hidden && (!category || ev.category === category) && (!starredOnly || ev.starred)
+        (ev) => !outOfSight(ev) && (!category || ev.category === category) && (!starredOnly || ev.starred)
       ),
     [events, category, starredOnly]
   );
 
   const categories = useMemo(
-    () => [...new Set(events.filter((e) => !e.hidden).map((e) => e.category).filter(Boolean))].sort(),
+    () => [...new Set(events.filter((e) => !outOfSight(e)).map((e) => e.category).filter(Boolean))].sort(),
     [events]
   );
 

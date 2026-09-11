@@ -7,6 +7,7 @@ import { flyerHref } from './flyers.js';
 import { storedPath } from './flyerStore.js';
 import { assignPlaces, hubsFromSettings } from './places.js';
 import { cachedGeocode } from './geocode.js';
+import { cullReason } from './cull.js';
 import { chooseFields, EditError, parseEditPatch } from './merge.js';
 import type { EditableField } from './merge.js';
 
@@ -62,6 +63,16 @@ export interface MergedEvent {
    * second site listing an event already known is not a new event.
    */
   firstSeenAt: string | null;
+  /**
+   * No coordinates, no venue, no address, no town: nothing to say where it is.
+   * Shown as "Unknown location", and never culled for being far away.
+   */
+  unknownLocation: boolean;
+  /**
+   * Why this is out of sight on its own — outside every area, or in a category
+   * switched off in Settings — or null when it is not. See cull.ts.
+   */
+  culled: string | null;
   sources: { source: string; url: string }[];
   /** Every distinct image across the members, best first. */
   images: string[];
@@ -203,6 +214,10 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       firstSeenAt: members.some((m) => !m.first_seen_at)
         ? null
         : members.map((m) => m.first_seen_at as string).sort()[0],
+      unknownLocation:
+        !members.some((m) => m.lat != null && m.lng != null) && !venueName && !address && !locality,
+      // Decided below, with the place.
+      culled: null,
       sources: members.map((m) => ({ source: m.source, url: m.url })),
       members: members.map((m) => ({
         id: m.id,
@@ -230,10 +245,15 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
 
   // After the past ones are gone, so that a town is offered on the strength of
   // the events still to come rather than of last month's.
-  const hubs = hubsFromSettings(getSettings(), (name) => cachedGeocode(name)?.[0] ?? null);
+  const settings = getSettings();
+  const positionOf = (name: string): { lat: number; lng: number } | null => cachedGeocode(name)?.[0] ?? null;
+  const hubs = hubsFromSettings(settings, positionOf);
   assignPlaces(live, hubs).forEach((place, i) => {
     live[i].place = place;
   });
+  // After the places, since an event that rounds to one of the towns is in it
+  // whatever its coordinates say.
+  for (const ev of live) ev.culled = cullReason(ev, hubs, settings, (name) => cachedGeocode(name) ?? []);
 
   live.sort((a, b) =>
     opts.archived ? b.startTime.localeCompare(a.startTime) : a.startTime.localeCompare(b.startTime)

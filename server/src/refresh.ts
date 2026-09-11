@@ -14,7 +14,7 @@ import { geocode, isGeocodeCached } from './geocode.js';
 import { classifyEvent } from './sources/topics.js';
 import { cleanAddress, cleanDescription, validateAddress, validateDates, validateLocation } from './validate.js';
 import { localitiesFrom, unifyVenueNames } from './venues.js';
-import { defaultRegionFrom } from './regions.js';
+import { defaultRegionFrom, localityOf } from './regions.js';
 
 export const ADAPTERS: EventSourceAdapter[] = [
   ticketmaster, seatgeek, eventbrite, facebook, websearch, icalSource, midnightspec, crawlerSource,
@@ -282,6 +282,8 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     note('Placing venues on the map');
     const placed = await geocodeMissing(locations);
     if (placed > 0) note(`Placed ${placed} venue${placed === 1 ? '' : 's'}`);
+    const towns = await lookUpTowns();
+    if (towns > 0) note(`Looked up ${towns} town${towns === 1 ? '' : 's'} for the area rule`);
 
     note('Matching duplicate listings');
     recomputeDedupeGroups();
@@ -363,6 +365,47 @@ async function geocodeMissing(locations: Location[]): Promise<number> {
     }
   }
   return placed;
+}
+
+/** Towns looked up per refresh for the area rule; the rest wait for the next. */
+const TOWN_BUDGET = 20;
+
+/**
+ * Look up the towns of events nothing could place, so the area rule can judge them.
+ *
+ * geocodeMissing keeps a position only when it lands inside an area, which is
+ * right for pins — and means "Adelaide" and "Brisbane" listings from a web
+ * search never get one, so the rule that hides far-away events could not see
+ * how far away they were. The town alone is looked up here and only cached;
+ * cull.ts reads the cache when the list is read. Only while the rule is on,
+ * since nothing else wants the answers.
+ */
+async function lookUpTowns(): Promise<number> {
+  if (!getSettings().cullOutsideAreas) return 0;
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT venue_name, address FROM events
+        WHERE lat IS NULL AND archived = 0 AND (venue_name != '' OR address != '')`
+    )
+    .all() as unknown as { venue_name: string; address: string }[];
+  const towns = new Set<string>();
+  for (const row of rows) {
+    const town = localityOf(row.address) || localityOf(row.venue_name);
+    if (town && !isGeocodeCached(town)) towns.add(town);
+  }
+  let looked = 0;
+  for (const town of towns) {
+    if (looked >= TOWN_BUDGET) break;
+    await new Promise((r) => setTimeout(r, GEOCODE_SPACING_MS));
+    try {
+      await geocode(town);
+      looked++;
+    } catch {
+      // Nominatim refusing now will refuse the next one too; try next refresh.
+      break;
+    }
+  }
+  return looked;
 }
 
 /** Attempts per event, so one stubborn venue cannot eat the whole budget. */

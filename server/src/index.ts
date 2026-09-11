@@ -43,7 +43,7 @@ import { ENRICH_JOBS } from './enrich/schema.js';
 import { tasks } from './tasks/tasks.js';
 import { runDueTasksOnStartup, startScheduler } from './tasks/scheduler.js';
 import { DEFAULT_SETTINGS, Settings } from './sources/types.js';
-import { EVENT_TOPICS } from './sources/topics.js';
+import { ALL_CATEGORIES, EVENT_TOPICS } from './sources/topics.js';
 import { versionInfo } from './version.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -213,7 +213,7 @@ app.put('/api/settings', (req, res) => {
     ...mergeSecrets(current, (req.body ?? {}) as Record<string, unknown>),
   };
   // Keep arrays sane if the client sends junk
-  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins', 'crawlerUrls'] as const) {
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'excludedCategories', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins', 'crawlerUrls'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
   saveSettings(next);
@@ -235,7 +235,8 @@ app.get('/api/version', (_req, res) => {
 });
 
 app.get('/api/topics', (_req, res) => {
-  res.json({ topics: EVENT_TOPICS });
+  // Every category an event can be filed under, for excluding some in Settings.
+  res.json({ topics: EVENT_TOPICS, categories: ALL_CATEGORIES });
 });
 
 app.get('/api/geocode', async (req, res) => {
@@ -600,7 +601,7 @@ function calendarFeed(req: express.Request, res: express.Response, download: boo
   const category = String(req.query.category ?? '').trim();
   const days = Number(req.query.days);
 
-  let events = getMergedEvents().filter((ev) => !ev.hidden);
+  let events = getMergedEvents().filter((ev) => !ev.hidden && !ev.culled);
   if (starredOnly) events = events.filter((ev) => ev.starred);
   if (category) events = events.filter((ev) => ev.category === category);
   if (Number.isFinite(days) && days > 0) {
