@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store';
 import EventCard from '../components/EventCard';
 import EventDetail from '../components/EventDetail';
@@ -64,6 +65,17 @@ export default function Events() {
   const [picked, setPicked] = useState<string[]>([]);
   const [mergeNote, setMergeNote] = useState('');
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
+
+  // "Open in Event Scout" from a notification: /events?event=<group>.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const wanted = params.get('event');
+    if (!wanted || events.length === 0) return;
+    const ev = events.find((e) => e.group === wanted);
+    if (ev) setOpen(ev);
+    params.delete('event');
+    setParams(params, { replace: true });
+  }, [events, params, setParams]);
 
   const togglePick = (group: string, on: boolean): void =>
     setPicked((prev) => (on ? [...new Set([...prev, group])] : prev.filter((g) => g !== group)));

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import CrawlerPanel from '../components/CrawlerPanel';
+import NotifyPanel from '../components/NotifyPanel';
 import { api, DensityStatus, EventTopic, GeocodeResult, LlmStatus, Settings as SettingsType, SourceStatus, VersionInfo } from '../api';
 import { useStore } from '../store';
 import Tasks from './Tasks';
@@ -21,6 +22,7 @@ const TABS = [
   { key: 'crawler', label: 'Crawler' },
   { key: 'density', label: 'Density' },
   { key: 'model', label: 'Local model' },
+  { key: 'notify', label: 'Notifications' },
   { key: 'access', label: 'Access' },
 ] as const;
 
@@ -1602,6 +1604,8 @@ export default function Settings() {
       {active === 'density' && densityPanel}
 
       {active === 'model' && <LocalModelSection draft={draft} set={set} />}
+
+      {active === 'notify' && <NotifyPanel draft={draft} set={set} dirty={dirty} />}
 
       {active === 'access' && <SecuritySection draft={draft} set={set} />}
 

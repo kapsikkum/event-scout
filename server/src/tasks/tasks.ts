@@ -6,6 +6,7 @@ import { runFlyerFetch, tidyFlyers } from '../flyerStore.js';
 import { runEnrichment } from '../enrich/pipeline.js';
 import { runVisionPass } from '../enrich/visionPipeline.js';
 import { createRegistry } from './registry.js';
+import { notifyTask } from '../notify/index.js';
 
 /**
  * Every background job, registered once.
@@ -177,6 +178,18 @@ tasks.register({
   enabled: () => !paused('flyers'),
   setEnabled: (on) => setPaused('flyers', !on),
   run: (log) => runFlyerFetch(log),
+});
+
+tasks.register({
+  name: 'notify',
+  label: 'Send notifications',
+  description:
+    'Tell the Discord webhooks and Matrix rooms set up in Settings about new events, the digest, reminders before shortlisted events, and changes to them.',
+  schedule: '*/5 * * * *',
+  intervalMinutes: () => 5,
+  enabled: () => !paused('notify'),
+  setEnabled: (on) => setPaused('notify', !on),
+  run: (log) => notifyTask(log),
 });
 
 tasks.register({

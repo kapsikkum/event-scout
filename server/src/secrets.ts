@@ -1,4 +1,5 @@
-import { Settings } from './sources/types.js';
+import { NotifyTarget, Settings } from './sources/types.js';
+import { normalizeTarget } from './notify/targets.js';
 
 /**
  * Keeping the credentials out of the settings response.
@@ -20,9 +21,15 @@ export const SECRET_KEYS = [
   'seatgeekClientId',
   'eventbriteToken',
   'fbCookie',
+  'matrixAccessToken',
 ] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];
+
+/** A notification target as the page gets it: the webhook blanked, and whether one is stored. */
+export interface RedactedTarget extends NotifyTarget {
+  webhookSet: boolean;
+}
 
 /** What the settings response says instead of the values. */
 export interface RedactedSettings extends Settings {
@@ -31,6 +38,7 @@ export interface RedactedSettings extends Settings {
    * what to. The only thing that replaces the values.
    */
   secretsSet: Record<SecretKey, boolean>;
+  notifyTargets: RedactedTarget[];
 }
 
 export function redactSettings(settings: Settings): RedactedSettings {
@@ -41,6 +49,13 @@ export function redactSettings(settings: Settings): RedactedSettings {
     out[key] = '';
   }
   out.secretsSet = secretsSet;
+  // A Discord webhook address is the whole credential — anyone holding it can
+  // post as the webhook — so each target's is treated like the keys above.
+  out.notifyTargets = (settings.notifyTargets ?? []).map((t) => ({
+    ...t,
+    webhookUrl: '',
+    webhookSet: Boolean(t.webhookUrl?.trim()),
+  }));
   return out;
 }
 
@@ -70,9 +85,19 @@ export function resolveSecret(current: string, supplied: unknown): string {
  * sense read together: this is the half that undoes what that half did.
  */
 export function mergeSecrets(current: Settings, body: Record<string, unknown>): Partial<Settings> {
-  const out: Record<string, string> = {};
+  const out: Record<string, unknown> = {};
   for (const key of SECRET_KEYS) {
     out[key] = resolveSecret(current[key] ?? '', body[key]);
+  }
+  // The targets, when sent, with each webhook resolved against the stored
+  // target of the same id by the same rule: blank keeps it, null clears it.
+  if (Array.isArray(body.notifyTargets)) {
+    out.notifyTargets = body.notifyTargets.map((raw) => {
+      const incoming = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const stored = (current.notifyTargets ?? []).find((t) => t.id === incoming.id);
+      const { webhookSet: _ignored, ...rest } = incoming;
+      return normalizeTarget({ ...rest, webhookUrl: resolveSecret(stored?.webhookUrl ?? '', incoming.webhookUrl) });
+    });
   }
   return out as Partial<Settings>;
 }

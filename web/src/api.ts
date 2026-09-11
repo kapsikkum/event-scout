@@ -126,7 +126,7 @@ export interface Settings {
   midnightspecStates: string[];
   tasksDisabled: string[];
   /** Which credentials are stored. Read-only; sending it back changes nothing. */
-  secretsSet?: Record<'ticketmasterKey' | 'seatgeekClientId' | 'eventbriteToken' | 'fbCookie', boolean>;
+  secretsSet?: Record<'ticketmasterKey' | 'seatgeekClientId' | 'eventbriteToken' | 'fbCookie' | 'matrixAccessToken', boolean>;
   /**
    * Origins allowed to read the API from a page served elsewhere. Empty means
    * none, which is what a browser does by default. "*" means any. Only ever
@@ -153,6 +153,53 @@ export interface Settings {
   densitySearches: string[];
   densityPlaces: string[];
   densityMaxVenues: number;
+  /** Discord webhooks and Matrix rooms to tell about events. */
+  notifyTargets: NotifyTarget[];
+  matrixBot: { enabled: boolean; homeserver: string; commandPrefix: string; allowedUsers: string[] };
+  /** Arrives as ''; see secretsSet. */
+  matrixAccessToken: string | null;
+  /** This app's address as notification readers reach it, for "Open in Event Scout". */
+  appUrl: string;
+}
+
+export interface NotifyFilters {
+  /** Town names, or 'unknown' for events with no place. */
+  places: string[];
+  categories: string[];
+  excludeCategories: string[];
+  minPhotoScore: number;
+  keywords: string[];
+  excludeKeywords: string[];
+  starredOnly: boolean;
+}
+
+export interface NotifyTarget {
+  id: string;
+  kind: 'discord' | 'matrix';
+  name: string;
+  enabled: boolean;
+  /** Arrives as '', with webhookSet saying whether one is stored. '' keeps it, null clears it. */
+  webhookUrl: string | null;
+  webhookSet?: boolean;
+  username: string;
+  avatarUrl: string;
+  mention: string;
+  style: 'full' | 'compact';
+  showImage: boolean;
+  roomId: string;
+  triggers: {
+    newEvents: { enabled: boolean; settleMinutes: number; maxPerRun: number };
+    digest: { enabled: boolean; cadence: 'daily' | 'weekly'; weekday: number; hour: number; daysAhead: number };
+    reminders: { enabled: boolean; hoursBefore: number[] };
+    starredChanges: { enabled: boolean };
+  };
+  filters: NotifyFilters;
+  quietHours: { enabled: boolean; from: number; to: number };
+}
+
+export interface NotifyStatus {
+  matrix: { state: 'off' | 'starting' | 'running' | 'error'; userId: string; rooms: number; lastError: string; lastSyncAt: string | null };
+  targets: Record<string, { at: string; ok: boolean; message: string } | null>;
 }
 
 export interface DensityStatus {
@@ -598,6 +645,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ev),
     }).then((r) => json<{ group: string; event: MergedEvent | null }>(r)),
+  notifyStatus: () => fetch('/api/notify/status').then((r) => json<NotifyStatus>(r)),
+  notifyTest: (id: string) =>
+    fetch('/api/notify/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).then((r) => json<{ ok: boolean; message: string }>(r)),
   authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
   login: (password: string) =>
     fetch('/api/auth/login', {

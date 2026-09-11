@@ -1140,3 +1140,17 @@ button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
 .importdlg__found { font-size: 11px; color: #86efac; }
 .importdlg__found.is-shaky { color: #fbbf24; }
 .importdlg__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* Settings → Notifications. */
+.notify__target { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin: 12px 0; background: var(--panel-2); }
+.notify__target > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.notify__target h4 { margin: 14px 0 6px; font-size: 13px; }
+.notify__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); display: inline-block; }
+.notify__dot.is-ok { background: var(--green); }
+.notify__dot.is-bad { background: var(--red); }
+.notify__last { margin-left: auto; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify__grid { display: grid; grid-template-columns: minmax(200px, auto) 1fr; gap: 6px 12px; align-items: center; }
+.notify__check { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.notify__num { width: 64px !important; display: inline-block; }
+.notify__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.notify__remove { margin-left: auto; color: var(--red); }

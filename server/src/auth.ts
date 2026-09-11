@@ -38,7 +38,7 @@ const OPEN_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/s
  * `/api/auth/token` the bearer that stands in for the password itself. Leaving
  * any of them open would hand over the thing it protects.
  */
-const GATED_READS = new Set(['/api/settings', '/api/auth/feed-token', '/api/auth/token']);
+const GATED_READS = new Set(['/api/settings', '/api/auth/feed-token', '/api/auth/token', '/api/notify/status']);
 
 /**
  * Whether a request needs a signed-in session.

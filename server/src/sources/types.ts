@@ -132,6 +132,82 @@ export interface Settings {
   densityCellMeters: number;
   densityKernelMeters: number;
   densityBrowserPath: string;
+  /**
+   * Where to tell people about events: Discord webhooks and Matrix rooms, each
+   * with its own triggers and filters. See notify/.
+   */
+  notifyTargets: NotifyTarget[];
+  /** The Matrix account that posts to the rooms above and answers commands in them. */
+  matrixBot: MatrixBotSettings;
+  /** That account's access token. A credential: never sent back. */
+  matrixAccessToken: string;
+  /**
+   * This app's own address as the people reading a notification reach it,
+   * e.g. "https://events.example.com". Blank leaves the "open in Event Scout"
+   * link off; the listing's own link is always there.
+   */
+  appUrl: string;
+}
+
+/** What a notification target lets through. An empty list means any. */
+export interface NotifyFilters {
+  /** Towns, as the location filter names them; 'unknown' for events with no place. */
+  places: string[];
+  categories: string[];
+  excludeCategories: string[];
+  /** 0 lets everything through. */
+  minPhotoScore: number;
+  /** Any one of these in the title, description or venue. */
+  keywords: string[];
+  excludeKeywords: string[];
+  starredOnly: boolean;
+}
+
+export interface NotifyTriggers {
+  /** Events first found since the last run, once they have had time to settle. */
+  newEvents: { enabled: boolean; settleMinutes: number; maxPerRun: number };
+  /** What is coming up, at a set hour, every day or on one day a week. */
+  digest: { enabled: boolean; cadence: 'daily' | 'weekly'; weekday: number; hour: number; daysAhead: number };
+  /** Before each starred event starts, this many hours ahead. */
+  reminders: { enabled: boolean; hoursBefore: number[] };
+  /** A starred event's time, place or name changing. */
+  starredChanges: { enabled: boolean };
+}
+
+export interface NotifyTarget {
+  id: string;
+  kind: 'discord' | 'matrix';
+  name: string;
+  enabled: boolean;
+  /** Discord: the webhook address. A credential: never sent back. */
+  webhookUrl: string;
+  /** Discord: the name and picture the messages are posted under. Blank for the webhook's own. */
+  username: string;
+  avatarUrl: string;
+  /** Discord: '' for nobody, '@here', '@everyone', or a role's id. */
+  mention: string;
+  /** Discord: 'full' has the blurb, the details and a large picture; 'compact' a line and a thumbnail. */
+  style: 'full' | 'compact';
+  showImage: boolean;
+  /** Matrix: the room, as '!id:server' or '#alias:server'. */
+  roomId: string;
+  triggers: NotifyTriggers;
+  filters: NotifyFilters;
+  /** Hours, local, in which nothing is sent; held until they end. */
+  quietHours: { enabled: boolean; from: number; to: number };
+}
+
+export interface MatrixBotSettings {
+  enabled: boolean;
+  /** e.g. "https://matrix.example.org". */
+  homeserver: string;
+  /** What a command starts with. */
+  commandPrefix: string;
+  /**
+   * Matrix ids that may invite the bot into a room and use the commands that
+   * change something. Anyone in a room it is in may use the ones that only read.
+   */
+  allowedUsers: string[];
 }
 
 export interface EventArea {
@@ -195,6 +271,10 @@ export const DEFAULT_SETTINGS: Settings = {
   densityCellMeters: 150,
   densityKernelMeters: 300,
   densityBrowserPath: '',
+  notifyTargets: [],
+  matrixBot: { enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [] },
+  matrixAccessToken: '',
+  appUrl: '',
   enabledSources: {
     ticketmaster: true,
     seatgeek: true,

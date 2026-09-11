@@ -34,6 +34,7 @@ import { crawlerBase, syncCrawler } from './sources/crawler.js';
 import { readFeed } from './sources/ical.js';
 import { addManualEvent, archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
 import { readEventPage } from './importer.js';
+import { notifyStatus, sendTest, startMatrix } from './notify/index.js';
 import { validateDates } from './validate.js';
 import { getPhotoConditions } from './photo.js';
 import { listAreas, renderArea, venueHistory, venueReadings } from './density/pipeline.js';
@@ -215,10 +216,20 @@ app.put('/api/settings', (req, res) => {
     ...mergeSecrets(current, (req.body ?? {}) as Record<string, unknown>),
   };
   // Keep arrays sane if the client sends junk
-  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'excludedCategories', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins', 'crawlerUrls'] as const) {
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'excludedCategories', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins', 'crawlerUrls', 'notifyTargets'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
+  const bot = (next.matrixBot && typeof next.matrixBot === 'object' ? next.matrixBot : {}) as Partial<Settings['matrixBot']>;
+  next.matrixBot = {
+    enabled: bot.enabled === true,
+    homeserver: typeof bot.homeserver === 'string' ? bot.homeserver.trim() : '',
+    commandPrefix: typeof bot.commandPrefix === 'string' && bot.commandPrefix.trim() ? bot.commandPrefix.trim().slice(0, 5) : '!',
+    allowedUsers: Array.isArray(bot.allowedUsers) ? bot.allowedUsers.map((u) => String(u).trim()).filter(Boolean) : [],
+  };
+  next.appUrl = typeof next.appUrl === 'string' ? next.appUrl.trim() : '';
   saveSettings(next);
+  // A changed token, homeserver or switch takes effect now, not at the next restart.
+  startMatrix();
   // Told at once rather than at the next refresh, which can be six hours off:
   // a site added to the crawl list, or the source switched off, should take
   // effect on the crawler's next cycle. Not awaited, and it never throws — a
@@ -613,6 +624,18 @@ app.post('/api/import', async (req, res) => {
   res.json({ group, event: getMergedEvent(group) ?? null });
 });
 
+/** How the Matrix bot and each target are getting on. Gated: it names rooms and says why they fail. */
+app.get('/api/notify/status', (_req, res) => {
+  res.json(notifyStatus());
+});
+
+/** Send a sample to one saved target now. */
+app.post('/api/notify/test', async (req, res) => {
+  const id = typeof req.body?.id === 'string' ? req.body.id : '';
+  if (!id) return res.status(400).json({ ok: false, message: 'Which target?' });
+  res.json(await sendTest(id));
+});
+
 app.post('/api/tasks/:name/run', async (req, res) => {
   const result = await tasks.run(req.params.name, { force: true });
   res.status(result.ok ? 200 : 409).json(result);
@@ -742,6 +765,7 @@ app.listen(PORT, () => {
   // The crawler keeps what it was last told, so this matters only when
   // settings changed while it was down; the next refresh would catch it up.
   void syncCrawler(getSettings());
+  startMatrix();
 });
 
 /**

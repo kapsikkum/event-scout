@@ -37,12 +37,14 @@ test('the page is told which are set, without being told what to', () => {
     seatgeekClientId: true,
     eventbriteToken: true,
     fbCookie: true,
+    matrixAccessToken: false,
   });
-  assert.deepEqual(redactSettings({ ...stored, fbCookie: '', ticketmasterKey: '   ' }).secretsSet, {
+  assert.deepEqual(redactSettings({ ...stored, fbCookie: '', ticketmasterKey: '   ', matrixAccessToken: 'syt_x' }).secretsSet, {
     ticketmasterKey: false,
     seatgeekClientId: true,
     eventbriteToken: true,
     fbCookie: false,
+    matrixAccessToken: true,
   });
 });
 

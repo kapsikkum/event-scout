@@ -202,6 +202,90 @@ hour at all; the calendar feed writes it as an all-day event. When several
 listings merge, one that states the time wins over one that does not. Listings
 already stored are corrected as their pages are next read.
 
+## Keeping the list to your areas
+
+Two switches in Settings → General. **Hide events outside these areas** keeps
+out of sight anything more than half as far again as an area's radius from every
+area — including what an area you have since removed brought in. **Categories to
+hide** does the same for whole categories. Both are worked out each time the list
+is read and never stored, so adding the area back or switching the category on
+returns everything; nothing is deleted. **Show culled** on the Events page lists
+what was hidden and why.
+
+Never hidden this way: shortlisted events, events you added from a link, events
+whose category you set by hand (for the category rule), and events with
+**Unknown location** — no coordinates, venue, address or town at all. That last is
+usually the small local thing posted only on Instagram, not something far away.
+
+Listings with a town but no coordinates — a web search's "Adelaide" — are judged
+by where that town is. While the rule is on, each refresh looks up to twenty such
+towns and caches them. A town whose name also exists inside one of your areas
+counts as inside.
+
+An Instagram post has no venue, but its caption usually names the town. When it
+names one of your areas, capitalised or shouted, the crawler gives that as the
+address and the event lands in that town.
+
+## Adding an event from a link
+
+**＋ Add from a link** on the Events page (signed in) reads one page for an event,
+like a recipe manager's import, and shows it in a form to check before saving:
+
+1. A Facebook event goes through the Facebook reader.
+2. An Instagram post goes through the crawler, which reads its caption.
+3. Any other page is read for its `schema.org/Event` data; a calendar page offers
+   each of its events to pick from.
+4. A page with none is read from its title, summary, `<time>` element and a date
+   in its text.
+5. If a title or date is still missing and the local model is on, it fills the
+   blanks.
+
+Each field says where it came from; ones read from loose text or suggested by the
+model are marked to be checked. Saved events are source `manual`, and are placed,
+de-duplicated and archived like any other. Every hop of the fetch is refused if it
+points inside the network.
+
+## Notifications
+
+Settings → Notifications. Each target is a Discord webhook or a Matrix room, with
+its own triggers and filters:
+
+| Trigger | Sends |
+|---|---|
+| New events | Events first found since the last run, once they have settled (30 min by default) — placed, read by the model, culled or not. A target's first run sends nothing, so switching one on does not post the backlog. |
+| Digest | Daily or on one weekday, at an hour: what is on in the next N days. |
+| Reminders | Some hours before each shortlisted event (24 and 2 by default), once each. |
+| Changes | A shortlisted event's time, venue or name changing. |
+
+Filters: towns (and Unknown location), categories in and out, keywords in and out,
+a minimum photo score, shortlisted only. **Quiet hours** hold messages rather than
+drop them. A repeating event arrives once, with a count of its other dates.
+
+**Discord:** paste a webhook address (Server settings → Integrations → Webhooks).
+Messages are embeds — times as Discord timestamps in each reader's own zone, a
+colour per category, the picture, the listing's link. Choose the name and avatar,
+an optional `@here`, `@everyone` or role ping, and full or compact. Only
+`discord.com` webhook addresses are posted to.
+
+**Matrix:** give the bot its own account, then set the homeserver, its access
+token and the accounts allowed to use it. Invite it to an **unencrypted** room from
+an allowed account and add the room as a target. It also answers commands, from
+anyone in the room unless noted:
+
+| Command | Does |
+|---|---|
+| `!events [today\|tomorrow\|weekend\|week\|month\|14d] [words]` | What is on, numbered. |
+| `!new` | Found in the last week. |
+| `!search <words>` | Anything upcoming that mentions them. |
+| `!event <n>` | More about item *n* of the last list. |
+| `!star <n>`, `!unstar <n>`, `!hide <n>` | Shortlist or remove — allowed accounts only. |
+| `!digest`, `!status`, `!help` | |
+
+Webhook addresses and the Matrix token are credentials: never sent back to the
+page, blank keeps them, **Remove** clears them. **Send a test** posts the next few
+matching events to a saved target. Set **This app's address** for an "Open in
+Event Scout" link in each message.
+
 ## Tasks
 
 Background jobs, on the **Tasks** page with schedule, last run, next due, last
@@ -214,6 +298,7 @@ result and a Run button.
 | `density` | your interval (default 60 min), ticked every 5 min | One page load per venue, recording how busy each is. |
 | `enrich` | your interval (default 60 min) | Read listings with a local model. Off by default. |
 | `vision` | your interval (default 60 min) | Read event flyers with a vision model. Off by default. |
+| `notify` | every 5 min | Send what the notification targets ask for. Does nothing until one is set up. |
 | `densityDiscover` | when asked | Rebuild the venue list. Slow, rarely needed. |
 
 At the foot of the tab is a **console**: every task's output in one place, in
