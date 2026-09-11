@@ -114,6 +114,7 @@ export interface Settings {
    */
   corsOrigins: string[];
   llmEnabled: boolean;
+  crawlerUrl: string;
   llmUrl: string;
   llmModel: string;
   llmJobs: string[];
@@ -359,6 +360,42 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** What the crawler says about itself, passed through by the server. */
+export interface CrawlerCycle {
+  startedAt: string;
+  finishedAt: string | null;
+  seeded: number;
+  fetched: number;
+  failed: number;
+  blocked: number;
+  events: number;
+  feeds: number;
+  lines: string[];
+}
+
+export interface CrawlerStatus {
+  reachable: boolean;
+  url?: string;
+  problem?: string;
+  enabled?: boolean;
+  running?: boolean;
+  current?: CrawlerCycle | null;
+  last?: CrawlerCycle | null;
+  pages?: Record<string, number>;
+  finds?: number;
+  feeds?: number;
+  interests?: string[];
+  config?: {
+    maxPagesPerRun: number;
+    maxDepth: number;
+    concurrency: number;
+    minHostDelayMs: number;
+    intervalMinutes: number;
+    userAgent: string;
+  };
+  feedList?: { url: string; site: string; foundOn: string }[];
+}
+
 export interface AuthStatus {
   /** Whether a password is configured at all. False means nothing is gated. */
   required: boolean;
@@ -387,6 +424,9 @@ export const api = {
   geocode: (q: string) => fetch(`/api/geocode?q=${encodeURIComponent(q)}`).then((r) => json<GeocodeResult[]>(r)),
   refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => json<StatusResponse>(r)),
   version: () => fetch('/api/version').then((r) => json<VersionInfo>(r)),
+  crawlerStatus: () => fetch('/api/crawler/status').then((r) => json<CrawlerStatus>(r)),
+  crawlerRun: () =>
+    fetch('/api/crawler/run', { method: 'POST' }).then((r) => json<{ ok: boolean; message?: string }>(r)),
   authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
   login: (password: string) =>
     fetch('/api/auth/login', {

@@ -59,6 +59,15 @@ export interface Settings {
    */
   corsOrigins: string[];
   /**
+   * Where the crawler is listening, e.g. "http://crawler:3002".
+   *
+   * A separate program, running beside this one and asked rather than trusted:
+   * it holds no credential for this app and writes nothing here. Blank falls
+   * back to `CRAWLER_URL`, which docker-compose sets; blank with no variable
+   * means the source reports missing config and is skipped.
+   */
+  crawlerUrl: string;
+  /**
    * Read scraped listings with a local model, as a background task. Off by
    * default, and nothing depends on it: every verdict is stored beside the
    * scraped value rather than over it.
@@ -147,6 +156,7 @@ export const DEFAULT_SETTINGS: Settings = {
   midnightspecStates: [],
   tasksDisabled: [],
   corsOrigins: [],
+  crawlerUrl: '',
   llmEnabled: false,
   llmUrl: '',
   llmModel: '',
@@ -175,6 +185,7 @@ export const DEFAULT_SETTINGS: Settings = {
     websearch: true,
     ical: true,
     midnightspec: true,
+    crawler: true,
   },
 };
 

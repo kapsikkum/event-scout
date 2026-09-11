@@ -48,6 +48,10 @@ services:
       # never localhost — localhost here is this container. Only a default; the
       # Settings page can point it anywhere.
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      # Where the crawler below is listening. Only a default: Settings can
+      # point it anywhere, and blank with no variable simply leaves the
+      # "Web crawler" source reporting that it has nowhere to ask.
+      CRAWLER_URL: ${CRAWLER_URL:-http://crawler:3002}
       # Affects when an event counts as past. Override in a .env file
       # alongside this one, e.g. TZ=America/Denver.
       TZ: ${TZ:-Australia/Sydney}
@@ -66,6 +70,40 @@ services:
       - chromium
     restart: unless-stopped
 
+  # The crawler. A separate program: it keeps its own database, runs on its own
+  # schedule, and is asked for what it has found rather than pushing anything
+  # here. Switch the "Web crawler" source off in Settings and the app stops
+  # asking; stop this container and the source reports that it cannot be
+  # reached, and nothing else changes.
+  crawler:
+    image: ghcr.io/kapsikkum/event-scout-crawler:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.crawler
+    init: true
+    environment:
+      CRAWLER_PORT: "3002"
+      # Set to "false" to leave the container up and idle. The switch that
+      # usually matters is the source toggle in Settings, which decides whether
+      # anything ever asks for these events.
+      CRAWLER_ENABLED: ${CRAWLER_ENABLED:-true}
+      # Pages per cycle, how far to follow a site's own links, and how long to
+      # leave between two requests to the same host. The defaults are polite;
+      # raise the first before either of the others.
+      CRAWLER_MAX_PAGES: ${CRAWLER_MAX_PAGES:-300}
+      CRAWLER_MAX_DEPTH: ${CRAWLER_MAX_DEPTH:-2}
+      CRAWLER_HOST_DELAY_MS: ${CRAWLER_HOST_DELAY_MS:-1500}
+      CRAWLER_INTERVAL_MIN: ${CRAWLER_INTERVAL_MIN:-30}
+      TZ: ${TZ:-Australia/Sydney}
+    # Deliberately not published. The app reaches it across the compose
+    # network; nothing else has any business talking to it.
+    expose:
+      - "3002"
+    volumes:
+      - crawler-data:/app/data
+    restart: unless-stopped
+
 volumes:
   event-scout-data:
   chromium-profile:
+  crawler-data:

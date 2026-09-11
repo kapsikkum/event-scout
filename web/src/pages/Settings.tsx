@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import CrawlerPanel from '../components/CrawlerPanel';
 import { api, DensityStatus, EventTopic, GeocodeResult, LlmStatus, Settings as SettingsType, SourceStatus, VersionInfo } from '../api';
 import { useStore } from '../store';
 import Tasks from './Tasks';
@@ -17,6 +18,7 @@ const TABS = [
   { key: 'general', label: 'General' },
   { key: 'sources', label: 'Sources' },
   { key: 'tasks', label: 'Tasks' },
+  { key: 'crawler', label: 'Crawler' },
   { key: 'density', label: 'Density' },
   { key: 'model', label: 'Local model' },
   { key: 'access', label: 'Access' },
@@ -1301,6 +1303,42 @@ export default function Settings() {
 
       <section>
         <h2>
+          🕷 Web crawler
+          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+            <input
+              type="checkbox"
+              checked={draft.enabledSources.crawler !== false}
+              onChange={(e) => set({ enabledSources: { ...draft.enabledSources, crawler: e.target.checked } })}
+            />{' '}
+            enabled
+          </label>
+        </h2>
+        <p className="hint">
+          A separate program that runs beside this one, following venue and council
+          sites outwards from a search and reading the <code>schema.org</code> data
+          most of them publish. It keeps its own database and is <em>asked</em> for
+          what it has found — it never writes here, so switching it off above stops
+          this app looking and changes nothing else. It obeys <code>robots.txt</code>
+          and waits between requests to the same site.
+        </p>
+        <div className="formrow">
+          <label>Crawler URL</label>
+          <input
+            value={draft.crawlerUrl}
+            placeholder="http://crawler:3002"
+            onChange={(e) => set({ crawlerUrl: e.target.value })}
+          />
+        </div>
+        <p className="hint">
+          Blank uses <code>CRAWLER_URL</code>, which docker-compose sets for you.
+          The areas above are what it searches for; there is nothing to configure
+          on its side.
+        </p>
+        <StatusLine status={statusFor('crawler')} />
+      </section>
+
+      <section>
+        <h2>
           🏁 MIDNIGHT_SPEC car meets
           <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
             <input
@@ -1465,7 +1503,10 @@ export default function Settings() {
   return (
     <div className="settings">
       <nav className="subtabs" aria-label="Settings sections">
-        {TABS.map((t) => (
+        {/* The crawler tab is only there when the source is on: it is a whole
+            panel about a program that may not be running, and an empty one is
+            worse than none. */}
+        {TABS.filter((t) => t.key !== 'crawler' || draft.enabledSources.crawler !== false).map((t) => (
           <button
             key={t.key}
             className={t.key === active ? 'active' : ''}
@@ -1482,6 +1523,18 @@ export default function Settings() {
       {active === 'sources' && <>{sourcePanels}</>}
 
       {active === 'tasks' && <Tasks />}
+
+      {active === 'crawler' &&
+        (draft.enabledSources.crawler !== false ? (
+          <CrawlerPanel />
+        ) : (
+          <section>
+            <p className="hint">
+              The crawler source is switched off on the Sources tab. Turn it on to
+              see what it has been doing.
+            </p>
+          </section>
+        ))}
 
       {active === 'density' && densityPanel}
 

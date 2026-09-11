@@ -27,8 +27,11 @@ jobs:
           # tsx strips types to run them without checking any of it.
           npx tsc --noEmit -p server/tsconfig.test.json
           npx tsc --noEmit -p web
+          npx tsc --noEmit -p crawler/tsconfig.test.json
       - name: Unit tests
-        run: npm test --workspace server
+        run: |
+          npm test --workspace server
+          npm test --workspace crawler
       - name: Build
         run: npm run build
 
@@ -108,6 +111,8 @@ jobs:
             dockerfile: Dockerfile
           - name: event-scout-chromium
             dockerfile: Dockerfile.chromium
+          - name: event-scout-crawler
+            dockerfile: Dockerfile.crawler
     steps:
       - uses: actions/checkout@v4
 

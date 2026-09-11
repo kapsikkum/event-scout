@@ -1,6 +1,7 @@
 import { db, getSettings, setKv } from './db.js';
 import { assignDedupeGroups, DedupeInput, haversineKm } from './dedupe.js';
 import { photoScore } from './photoScore.js';
+import { crawlerSource } from './sources/crawler.js';
 import { eventbrite } from './sources/eventbrite.js';
 import { facebook } from './sources/facebook.js';
 import { icalSource } from './sources/ical.js';
@@ -15,7 +16,9 @@ import { cleanAddress, cleanDescription, validateAddress, validateDates, validat
 import { localitiesFrom, unifyVenueNames } from './venues.js';
 import { defaultRegionFrom } from './regions.js';
 
-export const ADAPTERS: EventSourceAdapter[] = [ticketmaster, seatgeek, eventbrite, facebook, websearch, icalSource, midnightspec];
+export const ADAPTERS: EventSourceAdapter[] = [
+  ticketmaster, seatgeek, eventbrite, facebook, websearch, icalSource, midnightspec, crawlerSource,
+];
 
 let refreshing = false;
 let refreshStartedAt = 0;

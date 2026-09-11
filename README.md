@@ -96,6 +96,7 @@ not be walked through it.
 | Web search | Nothing | Queries DuckDuckGo/Mojeek/Bing, follows results, extracts `schema.org/Event` JSON-LD. Structured data only. |
 | iCal feeds | Feed URLs | Council, tourism, venue and university `.ics` calendars. |
 | MIDNIGHT_SPEC | Nothing | Australian car meets, track days, Cars & Coffee. Reads JSON-LD from six state pages. |
+| Web crawler | The crawler container | A separate program. Follows venue and council sites outwards from a search instead of stopping at the search results. See below. |
 
 **Facebook:** scraping facebook.com violates Meta's terms, breaks when their
 markup changes, and could get the account restricted — use a throwaway. A failed
@@ -104,6 +105,57 @@ Facebook fetch never affects the other sources.
 **MIDNIGHT_SPEC** is a national feed whose listings carry no coordinates, so
 events are kept only where the town matches one of your areas. Ticking states in
 Settings saves a request each; it does not change what is kept.
+
+## The crawler
+
+A second program, in its own container, with its own database. Web search stops
+at the page a search engine hands over; the crawler treats that page as a
+starting point and follows the site's own links, which is where the individual
+listings live — a venue's "what's on" links to thirty events, and those thirty
+pages are the ones with the detail on them.
+
+```bash
+docker compose up -d          # brings up the app, chromium and the crawler
+```
+
+Nothing to configure. It takes the areas from your Settings the first time the
+app asks it for events, and the **Crawler** tab in Settings — which appears once
+the source is enabled — shows what it has been doing: how big the frontier is,
+what the last cycle read, and any calendar feeds it found along the way.
+
+It is **asked, never trusted**. event-scout fetches from it on the normal
+refresh, and everything after that — validation, geocoding, dedupe, the model
+passes — happens exactly as for any other source. The crawler holds no
+credential for the app, writes nothing to its database, and is deliberately not
+published outside the compose network. Switch the source off and the app stops
+asking; stop the container and the source reports it cannot be reached. Nothing
+else changes either way.
+
+**It behaves itself.** `robots.txt` is fetched, parsed and obeyed, including
+`Crawl-delay`; requests to one site are never concurrent and never closer
+together than `CRAWLER_HOST_DELAY_MS`; it identifies itself honestly with a
+contactable URL. The defaults are deliberately modest — raise
+`CRAWLER_MAX_PAGES` before you touch either of the delays.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CRAWLER_ENABLED` | `true` | `false` leaves the container up and idle. |
+| `CRAWLER_MAX_PAGES` | `300` | Pages per cycle. The budget. |
+| `CRAWLER_MAX_DEPTH` | `2` | How far from a seed it follows a site's own links. |
+| `CRAWLER_MAX_PER_SITE` | `40` | So one big calendar cannot eat the budget. |
+| `CRAWLER_HOST_DELAY_MS` | `1500` | Floor on the gap between two requests to one site. |
+| `CRAWLER_CONCURRENCY` | `4` | Simultaneous fetches, always on different sites. |
+| `CRAWLER_INTERVAL_MIN` | `30` | Minutes between cycles. |
+
+Its database is churn — a frontier of URLs, rewritten constantly — and is kept
+in its own volume rather than beside the events. Delete it and the crawl rebuilds
+from the seeds.
+
+**Times are read properly here.** `new Date('2026-10-08')` means UTC midnight,
+which is mid-morning in Australia, and that one line accounts for a third of the
+listings in this database showing an invented 11:00 am start. The crawler builds
+a bare date from its parts in local time and marks it as having no clock time at
+all, so a day with no stated time stays a day.
 
 ## Tasks
 

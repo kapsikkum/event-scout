@@ -979,3 +979,67 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .confirm__q { font-size: 13px; flex: 1; min-width: 220px; }
 button.danger { background: var(--red); border-color: var(--red); color: #2a0b0b; font-weight: 600; }
 button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
+
+/* --- the crawler panel --------------------------------------------------- */
+
+/*
+ * A row of figures that wraps rather than scrolls: six of them fit a desktop
+ * and two fit a phone, and neither wants a horizontal scrollbar in a settings
+ * page.
+ */
+.crawlstats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.6rem;
+  margin: 0.75rem 0 0;
+}
+
+.crawlstat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel2, transparent);
+}
+
+.crawlstat__value { font-size: 1.45rem; font-weight: 600; line-height: 1.1; }
+.crawlstat__label { font-size: 0.8rem; opacity: 0.85; }
+.crawlstat__hint { font-size: 0.72rem; opacity: 0.55; }
+
+.crawltable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.crawltable th,
+.crawltable td {
+  text-align: left;
+  padding: 0.35rem 0.6rem 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.crawltable th { font-weight: 500; opacity: 0.8; width: 11rem; }
+.crawltable__note { opacity: 0.55; font-size: 0.82rem; }
+
+/* A feed URL is long and has nowhere to break, so it gets its own rules. */
+.crawltable--list td { word-break: break-all; }
+.crawltable--list th { width: auto; }
+
+.crawllog {
+  margin: 0.4rem 0 0;
+  padding: 0.6rem;
+  max-height: 16rem;
+  overflow: auto;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  opacity: 0.85;
+}

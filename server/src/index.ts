@@ -442,6 +442,44 @@ app.get('/api/tasks', (req, res) => {
   res.json({ tasks: tasks.statuses(), log: log.entries, seq: log.seq });
 });
 
+/**
+ * What the crawler has been doing, passed through.
+ *
+ * A proxy rather than a link, because the crawler is deliberately not published
+ * to anything but this app — the page has no route to it, and giving it one
+ * would mean exposing a second port. Read-only, and everything it returns is
+ * the crawler's own reckoning of itself.
+ */
+app.get('/api/crawler/status', async (_req, res) => {
+  const base = (getSettings().crawlerUrl.trim() || process.env.CRAWLER_URL || '').replace(/\/+$/, '');
+  if (!base) return res.status(200).json({ reachable: false, problem: 'No crawler address set.' });
+  try {
+    const [status, feeds] = await Promise.all([
+      fetch(`${base}/status`, { signal: AbortSignal.timeout(8000) }),
+      fetch(`${base}/feeds`, { signal: AbortSignal.timeout(8000) }),
+    ]);
+    if (!status.ok) throw new Error(`HTTP ${status.status}`);
+    const body = (await status.json()) as Record<string, unknown>;
+    const feedList = feeds.ok ? ((await feeds.json()) as { feeds?: unknown[] }).feeds ?? [] : [];
+    res.json({ reachable: true, url: base, ...body, feedList });
+  } catch (err) {
+    const reason = (err as Error).name === 'TimeoutError' ? 'No answer' : (err as Error).message;
+    res.status(200).json({ reachable: false, url: base, problem: `${reason} from ${base}` });
+  }
+});
+
+/** Start a crawl now. The crawler answers at once; a cycle runs for minutes. */
+app.post('/api/crawler/run', async (_req, res) => {
+  const base = (getSettings().crawlerUrl.trim() || process.env.CRAWLER_URL || '').replace(/\/+$/, '');
+  if (!base) return res.status(400).json({ ok: false, message: 'No crawler address set.' });
+  try {
+    const answer = await fetch(`${base}/run`, { method: 'POST', signal: AbortSignal.timeout(8000) });
+    res.status(answer.status).json(await answer.json());
+  } catch (err) {
+    res.status(502).json({ ok: false, message: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
 app.post('/api/tasks/:name/run', async (req, res) => {
   const result = await tasks.run(req.params.name, { force: true });
   res.status(result.ok ? 200 : 409).json(result);

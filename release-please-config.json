@@ -9,7 +9,8 @@
       "include-component-in-tag": false,
       "extra-files": [
         { "type": "json", "path": "server/package.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "web/package.json", "jsonpath": "$.version" }
+        { "type": "json", "path": "web/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "crawler/package.json", "jsonpath": "$.version" }
       ]
     }
   },
