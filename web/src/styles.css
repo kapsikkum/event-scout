@@ -115,6 +115,27 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .filterbar select { width: auto; }
 .filterbar label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 
+/* A dropdown of checkboxes (MultiSelect), made to sit beside the selects. */
+.multi { position: relative; }
+.multi__button { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 150px; }
+.multi__button.is-set { border-color: var(--accent); color: var(--accent); }
+.multi__summary { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi__caret { color: var(--muted); font-size: 11px; }
+.multi__menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 250px;
+  max-height: 380px; overflow: auto; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+.multi__head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 6px;
+  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+.multi__clear { padding: 2px 9px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.multi__option { display: flex; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 6px;
+  font-size: 13px; cursor: pointer; }
+.multi__option:hover { background: var(--panel-2); }
+.multi__option input { width: 15px; height: 15px; margin: 0; flex: none; cursor: pointer; }
+.multi__option--divider { border-top: 1px solid var(--border); border-radius: 0 0 6px 6px; margin-top: 4px; padding-top: 8px; }
+.multi__label { flex: 1; min-width: 0; }
+.multi__count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.multi__none { color: var(--muted); font-size: 13px; margin: 6px 8px; }
+
 /* ── Event cards ── */
 .grid {
   display: grid;
@@ -661,8 +682,16 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .calweek__venue { display: block; color: var(--muted); font-size: 11px; margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Month chips carry a time and a category colour now, not just a title. */
-.calcell .evchip { display: flex; align-items: center; gap: 4px; }
+/* Month chips carry a time and a category colour now, not just a title.
+   Buttons, so each opens its event: the global button padding is undone. */
+.calcell .evchip { display: flex; align-items: center; gap: 4px; width: 100%; text-align: left;
+  border: none; border-left: 2px solid var(--accent); color: var(--text); font: inherit; cursor: pointer; }
+.calcell .evchip:hover { background: #252b38; }
+.evchip__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* Days and events that are over stay readable, just quieter than what is to come. */
+.calcell.past:not(.outside) .num { opacity: 0.6; }
+.evchip.is-past, .calweek__ev.is-past, .calrow.is-past { opacity: 0.6; }
+.evchip.is-past:hover, .calweek__ev.is-past:hover, .calrow.is-past:hover { opacity: 1; }
 .evchip__dot { width: 6px; height: 6px; border-radius: 2px; flex: none; }
 .evchip__time { color: var(--accent); font-size: 10.5px; flex: none; font-variant-numeric: tabular-nums; }
 .dayevents { margin-top: 18px; background: var(--panel); border: 1px solid var(--border);

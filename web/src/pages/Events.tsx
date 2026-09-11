@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import EventCard from '../components/EventCard';
 import EventDetail from '../components/EventDetail';
 import ImportDialog from '../components/ImportDialog';
+import MultiSelect, { MultiOption } from '../components/MultiSelect';
 import { MergedEvent } from '../api';
 import { decodeEntities } from '../text';
 import {
@@ -101,6 +102,20 @@ export default function Events() {
   // town does not immediately rewrite the menu it was picked from.
   const { places, elsewhere, unknown } = useMemo(() => placesOf(events), [events]);
   const nearby = events.length - elsewhere - unknown;
+  const placeOptions = useMemo<MultiOption[]>(
+    () => [
+      ...(nearby > 0 ? [{ value: NEARBY, label: 'Nearby', count: nearby }] : []),
+      ...places.map((p, i) => ({ value: p.name, label: decodeEntities(p.name), count: p.count, divider: i === 0 && nearby > 0 })),
+      ...(elsewhere > 0 ? [{ value: ELSEWHERE, label: 'Elsewhere', count: elsewhere, divider: true }] : []),
+      ...(unknown > 0 ? [{ value: UNKNOWN, label: 'Unknown location', count: unknown, divider: elsewhere === 0 }] : []),
+    ],
+    [places, nearby, elsewhere, unknown]
+  );
+  const categoryOptions = useMemo<MultiOption[]>(() => {
+    const counts = new Map<string, number>();
+    for (const e of events) if (e.category) counts.set(e.category, (counts.get(e.category) ?? 0) + 1);
+    return categories.map((c) => ({ value: c, label: c, count: counts.get(c) ?? 0 }));
+  }, [events, categories]);
   const culledCount = useMemo(() => events.filter((e) => e.culled && !e.hidden).length, [events]);
   const sourceNames = useMemo(
     () => (status ? status.sources.filter((s) => s.state === 'ok' || s.count > 0).map((s) => s.name) : []),
@@ -131,29 +146,22 @@ export default function Events() {
         </div>
         {/* Where, rounded to the towns being searched: a Llanarth address is
             filed under Bathurst, and anything out of reach under Elsewhere. */}
-        <select
+        <MultiSelect
+          label="Towns"
+          allLabel="Anywhere"
           title="Filter by town"
-          value={filters.place}
-          onChange={(e) => set({ place: e.target.value })}
-        >
-          <option value="">Anywhere</option>
-          {nearby > 0 && <option value={NEARBY}>Nearby ({nearby})</option>}
-          {places.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.name} ({p.count})
-            </option>
-          ))}
-          {elsewhere > 0 && <option value={ELSEWHERE}>Elsewhere ({elsewhere})</option>}
-          {unknown > 0 && <option value={UNKNOWN}>Unknown location ({unknown})</option>}
-        </select>
-        <select value={filters.category} onChange={(e) => set({ category: e.target.value })}>
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+          options={placeOptions}
+          value={filters.places}
+          onChange={(places) => set({ places })}
+        />
+        <MultiSelect
+          label="Categories"
+          allLabel="All categories"
+          title="Filter by category"
+          options={categoryOptions}
+          value={filters.categories}
+          onChange={(categories) => set({ categories })}
+        />
         <select value={filters.source} onChange={(e) => set({ source: e.target.value })}>
           <option value="">All sources</option>
           {sourceNames.map((s) => (

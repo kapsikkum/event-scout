@@ -13,6 +13,8 @@ export interface MergedEvent {
    * address arrives here as Bathurst. '' means nowhere near any of them.
    */
   place: string;
+  /** The searched area it lies in, '' when none: Bathurst for a Portland event. */
+  area: string;
   lat: number | null;
   lng: number | null;
   imageUrl: string;
@@ -608,6 +610,11 @@ export interface AuthStatus {
 
 export const api = {
   events: () => fetch('/api/events').then((r) => json<MergedEvent[]>(r)),
+  /** Events that are over, starting between two instants. For the calendar's past days. */
+  pastEvents: (from: Date, to: Date) =>
+    fetch(
+      `/api/events?archived=true&from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`
+    ).then((r) => json<MergedEvent[]>(r)),
   editEvent: (group: string, patch: EventEdit) =>
     fetch(`/api/events/${encodeURIComponent(group)}`, {
       method: 'PATCH',

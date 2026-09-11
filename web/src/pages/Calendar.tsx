@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { MergedEvent, haversineKm } from '../api';
+import { useEffect, useMemo, useState } from 'react';
+import { MergedEvent, api, haversineKm } from '../api';
 import { useStore } from '../store';
 import EventDetail from '../components/EventDetail';
 import { decodeEntities } from '../text';
@@ -40,6 +40,19 @@ const timeOf = (ev: MergedEvent): string =>
 const startOfWeek = (d: Date): Date =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay());
 
+const addDays = (d: Date, n: number): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+
+/**
+ * Over and done, by the rule the server uses: the end if there is one,
+ * otherwise the whole of the day it starts on.
+ */
+function isPast(ev: MergedEvent, now = Date.now()): boolean {
+  const end = ev.endTime ? Date.parse(ev.endTime) : NaN;
+  if (Number.isFinite(end)) return end < now;
+  const start = new Date(ev.startTime);
+  return addDays(new Date(start.getFullYear(), start.getMonth(), start.getDate()), 1).getTime() <= now;
+}
+
 export default function Calendar() {
   const { events, settings } = useStore();
   const [view, setView] = useState<View>('agenda');
@@ -49,18 +62,66 @@ export default function Calendar() {
   const [category, setCategory] = useState('');
   const [starredOnly, setStarredOnly] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Past events, fetched a page at a time as the grid is paged back through.
+  // The store holds only what is still to come, which is what every other
+  // page wants; a month grid is the one place last week is worth seeing.
+  const [past, setPast] = useState<MergedEvent[]>([]);
+
+  const monthCells = useMemo(() => {
+    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+    const start = new Date(first.getFullYear(), first.getMonth(), 1 - first.getDay());
+    return Array.from({ length: 42 }, (_, i) => addDays(start, i));
+  }, [cursor]);
+
+  const weekDays = useMemo(() => {
+    const start = startOfWeek(cursor);
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  }, [cursor]);
+
+  // The days on screen, as [first, day after last]. None for the agenda,
+  // which only looks forward.
+  const range = view === 'month' ? [monthCells[0], addDays(monthCells[41], 1)] : view === 'week' ? [weekDays[0], addDays(weekDays[6], 1)] : null;
+  const rangeKey = range ? `${dayKey(range[0])}/${dayKey(range[1])}` : '';
+
+  useEffect(() => {
+    if (!range || range[0].getTime() > Date.now()) return;
+    let stale = false;
+    api
+      .pastEvents(range[0], range[1])
+      .then((found) => {
+        if (stale) return;
+        // Added to rather than replaced, so paging back and forth does not
+        // blank the days already seen while the next page loads.
+        setPast((prev) => {
+          const byGroup = new Map(prev.map((ev) => [ev.group, ev]));
+          for (const ev of found) byGroup.set(ev.group, ev);
+          return [...byGroup.values()];
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      stale = true;
+    };
+    // rangeKey stands for range, which is a fresh array every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeKey]);
+
+  const all = useMemo(() => {
+    const live = new Set(events.map((ev) => ev.group));
+    return [...events, ...past.filter((ev) => !live.has(ev.group))];
+  }, [events, past]);
 
   const shown = useMemo(
     () =>
-      events.filter(
+      all.filter(
         (ev) => !outOfSight(ev) && (!category || ev.category === category) && (!starredOnly || ev.starred)
       ),
-    [events, category, starredOnly]
+    [all, category, starredOnly]
   );
 
   const categories = useMemo(
-    () => [...new Set(events.filter((e) => !outOfSight(e)).map((e) => e.category).filter(Boolean))].sort(),
-    [events]
+    () => [...new Set(all.filter((e) => !outOfSight(e)).map((e) => e.category).filter(Boolean))].sort(),
+    [all]
   );
 
   const byDay = useMemo(() => {
@@ -106,7 +167,7 @@ export default function Calendar() {
   const EventRow = ({ ev, showDate = false }: { ev: MergedEvent; showDate?: boolean }) => {
     const distance = distanceOf(ev);
     return (
-      <button className="calrow" onClick={() => setOpen(ev)}>
+      <button className={`calrow${isPast(ev) ? ' is-past' : ''}`} onClick={() => setOpen(ev)}>
         <span className="calrow__time">
           {showDate && (
             <span className="calrow__date">
@@ -133,23 +194,6 @@ export default function Calendar() {
   };
 
   // --- views ---------------------------------------------------------------
-  const monthCells = useMemo(() => {
-    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-    const start = new Date(first.getFullYear(), first.getMonth(), 1 - first.getDay());
-    return Array.from(
-      { length: 42 },
-      (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
-    );
-  }, [cursor]);
-
-  const weekDays = useMemo(() => {
-    const start = startOfWeek(cursor);
-    return Array.from(
-      { length: 7 },
-      (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
-    );
-  }, [cursor]);
-
   const agendaDays = useMemo(() => {
     const now = Date.now() - 3600_000;
     const keys = [...byDay.keys()]
@@ -256,18 +300,30 @@ export default function Calendar() {
               const classes = [
                 'calcell',
                 d.getMonth() !== cursor.getMonth() ? 'outside' : '',
+                key < todayKey ? 'past' : '',
                 key === todayKey ? 'today' : '',
                 key === selected ? 'selected' : '',
               ].filter(Boolean).join(' ');
               return (
                 <div key={key} className={classes} onClick={() => setSelected(key === selected ? null : key)}>
                   <div className="num">{d.getDate()}</div>
+                  {/* Each chip opens its event; the rest of the cell picks
+                      the day, which lists all of them below the grid. */}
                   {dayEvents.slice(0, 3).map((ev) => (
-                    <div key={ev.group} className="evchip" title={`${timeOf(ev)} · ${decodeEntities(ev.title)}`}>
+                    <button
+                      key={ev.group}
+                      type="button"
+                      className={`evchip${isPast(ev) ? ' is-past' : ''}`}
+                      title={`${timeOf(ev)} · ${decodeEntities(ev.title)}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpen(ev);
+                      }}
+                    >
                       <span className="evchip__dot" style={{ background: categoryColour(ev.category || 'Event') }} />
                       <span className="evchip__time">{timeOf(ev)}</span>
-                      {decodeEntities(ev.title)}
-                    </div>
+                      <span className="evchip__title">{decodeEntities(ev.title)}</span>
+                    </button>
                   ))}
                   {dayEvents.length > 3 && <div className="more">+{dayEvents.length - 3} more</div>}
                 </div>
@@ -303,7 +359,11 @@ export default function Calendar() {
                   <p className="calweek__empty">—</p>
                 ) : (
                   dayEvents.map((ev) => (
-                    <button key={ev.group} className="calweek__ev" onClick={() => setOpen(ev)}>
+                    <button
+                      key={ev.group}
+                      className={`calweek__ev${isPast(ev) ? ' is-past' : ''}`}
+                      onClick={() => setOpen(ev)}
+                    >
                       <span className="calweek__time">{timeOf(ev)}</span>
                       <span
                         className="calweek__bar"
@@ -322,7 +382,7 @@ export default function Calendar() {
 
       {open && (
         <EventDetail
-          ev={events.find((e) => e.group === open.group) ?? open}
+          ev={all.find((e) => e.group === open.group) ?? open}
           onClose={() => setOpen(null)}
         />
       )}

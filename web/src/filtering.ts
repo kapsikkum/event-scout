@@ -20,13 +20,15 @@ export const outOfSight = (ev: MergedEvent): boolean => ev.hidden || Boolean(ev.
 
 export interface Filters {
   dateChip: DateChip;
-  category: string;
+  /** Any of these categories; empty for every category. */
+  categories: string[];
   source: string;
   /**
-   * A town name, NEARBY for anywhere the user searches, ELSEWHERE for
-   * everything beyond them, or '' for no location filter at all.
+   * Any of these: town names, NEARBY for anywhere the user searches,
+   * ELSEWHERE for everything beyond them, UNKNOWN for nowhere known. Empty
+   * for no location filter at all.
    */
-  place: string;
+  places: string[];
   search: string;
   hideOnline: boolean;
   showHidden: boolean;
@@ -53,9 +55,9 @@ export function isRecent(ev: MergedEvent, now = Date.now()): boolean {
 
 export const DEFAULT_FILTERS: Filters = {
   dateChip: 'all',
-  category: '',
+  categories: [],
   source: '',
-  place: '',
+  places: [],
   search: '',
   hideOnline: true,
   showHidden: false,
@@ -87,6 +89,14 @@ function dateWindow(chip: DateChip): [Date, Date] | null {
   }
 }
 
+/** Whether an event is in one location choice: a town, or one of the three above. */
+function inPlace(ev: MergedEvent, choice: string): boolean {
+  if (choice === NEARBY) return Boolean(ev.place);
+  if (choice === ELSEWHERE) return !ev.place && !ev.unknownLocation;
+  if (choice === UNKNOWN) return ev.unknownLocation;
+  return ev.place === choice;
+}
+
 export function applyFilters(events: MergedEvent[], f: Filters, settings: Settings | null): MergedEvent[] {
   const window = dateWindow(f.dateChip);
   const q = f.search.trim().toLowerCase();
@@ -96,12 +106,9 @@ export function applyFilters(events: MergedEvent[], f: Filters, settings: Settin
     if (f.starredOnly && !ev.starred) return false;
     if (f.recentOnly && !isRecent(ev)) return false;
     if (f.hideOnline && ev.isOnline) return false;
-    if (f.category && ev.category !== f.category) return false;
+    if (f.categories.length && !f.categories.includes(ev.category)) return false;
     if (f.source && !ev.sources.some((s) => s.source === f.source)) return false;
-    if (f.place === NEARBY && !ev.place) return false;
-    else if (f.place === ELSEWHERE && (ev.place || ev.unknownLocation)) return false;
-    else if (f.place === UNKNOWN && !ev.unknownLocation) return false;
-    else if (f.place && ![NEARBY, ELSEWHERE, UNKNOWN].includes(f.place) && ev.place !== f.place) return false;
+    if (f.places.length && !f.places.some((p) => inPlace(ev, p))) return false;
     if (window) {
       const t = new Date(ev.startTime);
       if (t < window[0] || t >= window[1]) return false;
