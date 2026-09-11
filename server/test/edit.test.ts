@@ -14,7 +14,7 @@ function row(over: Partial<EventRow> = {}): EventRow {
     image_url: 'https://images.example.test/enduro-cup.jpg',
     category: 'Motorsport', price_text: '', is_online: 0, date_only: 0, photo_score: 15,
     archived: 0, archived_at: null, starred: 0, hidden: 0,
-    dedupe_group: 'g1', manual_group: '',
+    dedupe_group: 'g1', manual_group: '', first_seen_at: null,
     llm_description: '', llm_category: '', llm_venue_name: '', llm_address: '',
     llm_price_text: '', llm_photo_score: null,
     vision_venue_name: '', vision_address: '', vision_price_text: '', vision_note: '',
@@ -24,6 +24,25 @@ function row(over: Partial<EventRow> = {}): EventRow {
     ...over,
   };
 }
+
+// --- children ---------------------------------------------------------------
+
+test('an event for children scores nothing for photos, whatever the model thought', () => {
+  const kids = {
+    title: 'Highland Dancing classes during school terms',
+    description: 'Ready to see your child grow with confidence?',
+    photo_score: 30, llm_photo_score: 60,
+  };
+  assert.equal(chooseFields([row(kids)]).photoScore, 0);
+  // A twin listing that never says so does not rescue it.
+  assert.equal(chooseFields([row(kids), row({ id: 2, photo_score: 70 })]).photoScore, 0);
+  // Nor does the model's own summary saying it only there.
+  assert.equal(chooseFields([row({ llm_description: 'A studio where children can learn Highland Dancing.' })]).photoScore, 0);
+});
+
+test('a photo score typed by hand still wins over the children rule', () => {
+  assert.equal(chooseFields([row({ description: 'For kids aged 5-12.', edit_photo_score: 55 })]).photoScore, 55);
+});
 
 // --- what an edit does to what you see -------------------------------------
 

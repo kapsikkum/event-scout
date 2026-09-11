@@ -1,4 +1,5 @@
 import { blendPhotoScore } from './enrich/schema.js';
+import { isForChildren } from './children.js';
 
 /**
  * An event row, and how the three opinions about it are chosen between.
@@ -36,6 +37,8 @@ export interface EventRow {
   hidden: number;
   dedupe_group: string;
   manual_group: string;
+  /** When this app first saw the row. NULL for rows older than the column. */
+  first_seen_at: string | null;
   /**
    * What a local model made of the row, kept apart from the scraped values so
    * the refresh's own repair passes cannot fight it and switching the task off
@@ -279,6 +282,18 @@ export function chooseFields(members: EventRow[]): ChosenFields {
   const editedScore = members.map((m) => m.edit_photo_score).find((v) => v != null);
   if (editedScore != null) edited.push('photoScore');
 
+  // An event for children scores nothing, and the model does not get a vote:
+  // it gave Orange's Highland Dancing classes 40. Any member saying so is
+  // enough, including the model's own summary of the listing — a twin that
+  // happens not to mention the kids is the same event. Only a score typed by
+  // hand beats it, since that is someone who has looked. See children.ts.
+  const forChildren = members.some(
+    (m) =>
+      isForChildren(m.edit_title || m.title, m.description) ||
+      isForChildren('', m.llm_description) ||
+      isForChildren('', m.edit_description)
+  );
+
   const chosen: ChosenFields = {
     title: overridden('title', (r) => r.edit_title) ?? str((r) => r.title),
     description:
@@ -301,7 +316,8 @@ export function chooseFields(members: EventRow[]): ChosenFields {
       overridden('priceText', (r) => r.edit_price_text) ??
       fillBlank('priceText', (r) => r.price_text, ['flyer', (r) => r.vision_price_text], ['model', (r) => r.llm_price_text]),
     photoScore:
-      editedScore ?? Math.max(...members.map((m) => blendPhotoScore(m.photo_score, m.llm_photo_score))),
+      editedScore ??
+      (forChildren ? 0 : Math.max(...members.map((m) => blendPhotoScore(m.photo_score, m.llm_photo_score)))),
     imageUrl: overridden('imageUrl', (r) => r.edit_image_url),
     rawDescription: longest,
     note,

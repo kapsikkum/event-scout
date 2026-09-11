@@ -1,4 +1,5 @@
 import { RawEvent } from './sources/types.js';
+import { isForChildren } from './children.js';
 
 /**
  * How much there is to shoot, guessed from the words.
@@ -107,6 +108,8 @@ const MAX_KEYWORD_BONUS = 30;
 
 export function photoScore(ev: RawEvent): number {
   if (ev.isOnline) return 0;
+  // Not a low score, no score: see children.ts.
+  if (isForChildren(ev.title, ev.description ?? '')) return 0;
   const text = `${ev.title} ${ev.description ?? ''}`.slice(0, 2000);
 
   let positive = 0;

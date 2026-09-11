@@ -1,5 +1,8 @@
 import { config } from './config.js';
-import { BlockedError, fetchPage, permitted } from './fetch.js';
+import { BlockedError, FetchError, fetchPage, permitted } from './fetch.js';
+import {
+  eventFromPost, instagramPost, instagramProfilePosts, postUrl, SOCIAL_SITES, SocialLink, socialKind, socialLinksFrom,
+} from './extract/social.js';
 import { eventsFromHtml } from './extract/jsonld.js';
 import { crawlableLinks, feedsFrom } from './extract/links.js';
 import { Interest } from './queries.js';
@@ -66,6 +69,15 @@ async function crawlOne(
   report: CycleReport,
   perSite: Map<string, number>
 ): Promise<void> {
+  // Instagram and Facebook go their own way: see readSocial.
+  const social = config.social ? socialKind(url) : null;
+  if (social?.kind === 'facebook-event') {
+    store.offerSocial(social, url);
+    store.markDone(url, 0, 'handed to event-scout');
+    return;
+  }
+  if (social) return crawlSocial(url, social, report);
+
   const site = siteOf(url);
   try {
     if (!(await permitted(url))) {
@@ -102,6 +114,10 @@ async function crawlOne(
     report.feeds++;
   }
 
+  // Links out to Instagram and Facebook. Off-site, so never followed as the
+  // site's own links are, but where most small events are actually announced.
+  if (config.social) for (const link of socialLinksFrom(page.html, page.url)) store.offerSocial(link, page.url);
+
   if (shouldFollow(depth, found.length)) {
     const budget = config.maxPagesPerSite - (perSite.get(site) ?? 0);
     for (const link of crawlableLinks(page.html, page.url).slice(0, Math.max(0, budget))) {
@@ -111,6 +127,51 @@ async function crawlOne(
   }
 
   store.markDone(url, found.length);
+}
+
+/**
+ * One Instagram page, read as a person's browser would read it.
+ *
+ * robots.txt is not asked: Instagram's says no to every crawler, and reading
+ * it anyway is the decision recorded in config.ts. It gets a real browser's
+ * headers because without them the page is an empty shell. What keeps this
+ * from being a nuisance is pace — one request every CRAWLER_SOCIAL_DELAY_MS,
+ * at most CRAWLER_SOCIAL_PER_CYCLE a cycle, profiles once a day and each post
+ * only ever once.
+ */
+async function readSocial(link: SocialLink): Promise<{ events: CrawledEvent[]; posts: number; note: string }> {
+  const site = siteOf(link.url);
+  store.setHostDelay(site, config.socialDelayMs);
+  store.touchHost(site);
+  const page = await fetchPage(link.url, { browser: true });
+
+  if (link.kind === 'instagram-profile') {
+    const codes = instagramProfilePosts(page.html);
+    for (const code of codes) store.offerSocial({ kind: 'instagram-post', id: code, url: postUrl(code) }, link.url);
+    return { events: [], posts: codes.length, note: `${codes.length} recent posts` };
+  }
+
+  const post = instagramPost(page.html, link.id);
+  if (!post) throw new FetchError('no caption on the page; Instagram may be asking for a login');
+  const event = eventFromPost(post);
+  if (event) store.keep(event);
+  return { events: event ? [event] : [], posts: 0, note: event ? '' : 'no upcoming date in the caption' };
+}
+
+async function crawlSocial(url: string, link: SocialLink, report: CycleReport): Promise<void> {
+  try {
+    const got = await readSocial(link);
+    report.fetched++;
+    report.events += got.events.length;
+    store.markDone(url, got.events.length, got.note);
+  } catch (err) {
+    const message = (err as Error).message;
+    // A post that is gone is gone; anything else is tried again tomorrow.
+    store.markFailed(url, message, err instanceof BlockedError || /HTTP 404/.test(message));
+    store.touchHost(siteOf(url), true);
+    report.failed++;
+    if (report.lines.length < 40) report.lines.push(`  ${url.slice(0, 80)}: ${message}`);
+  }
 }
 
 export async function runCycle(log: (line: string) => void = () => {}): Promise<CycleReport> {
@@ -135,6 +196,12 @@ export async function runCycle(log: (line: string) => void = () => {}): Promise<
     const pinned = store.requeueSeeds(6);
     if (pinned) log(`  ${pinned} pinned pages due again`);
 
+    // Instagram profiles once a day, for whatever they have posted since.
+    if (config.social) {
+      const profiles = store.requeueSocialProfiles(24);
+      if (profiles) log(`  ${profiles} Instagram profiles due again`);
+    }
+
     const interests = knownInterests();
     const queued = store.countPages().queued ?? 0;
     if (queued < config.maxPagesPerRun && interests.length) {
@@ -146,7 +213,9 @@ export async function runCycle(log: (line: string) => void = () => {}): Promise<
     while (report.fetched + report.failed + report.blocked < config.maxPagesPerRun) {
       // Sites that have had their share this cycle are left out of the pick,
       // so a big calendar near the top of the queue cannot stall the rest.
-      const spent = [...perSite].filter(([, n]) => n >= config.maxPagesPerSite).map(([site]) => site);
+      const spent = [...perSite]
+        .filter(([site, n]) => n >= (SOCIAL_SITES.has(site) ? config.maxSocialPerCycle : config.maxPagesPerSite))
+        .map(([site]) => site);
       const cooling = store.sitesOnCooldown(config.minHostDelayMs, config.maxHostDelayMs);
       const batch = store.nextBatch(config.concurrency, [...cooling, ...spent]);
       if (batch.length === 0) {
@@ -170,6 +239,13 @@ export async function runCycle(log: (line: string) => void = () => {}): Promise<
     running = false;
     current = null;
     last = report;
+    // Written down for the graph. A cycle is not undone by failing to record
+    // it, so a database that will not take the row is a line in the log.
+    try {
+      store.recordCycle(report);
+    } catch (err) {
+      log(`  could not record the cycle: ${(err as Error).message}`);
+    }
   }
 
   log(
@@ -187,6 +263,8 @@ export interface PageReport {
   events: CrawledEvent[];
   links: number;
   feeds: string[];
+  /** Times this page has been read, this time included. */
+  reads?: number;
 }
 
 /**
@@ -206,6 +284,8 @@ export async function crawlUrlNow(raw: string): Promise<PageReport> {
   const nothing = { events: [] as CrawledEvent[], links: 0, feeds: [] as string[] };
   const url = normalizeUrl(raw.trim());
   if (!url) return { url: raw, ok: false, message: 'That is not a web address.', ...nothing };
+  const social = config.social ? socialKind(url) : null;
+  if (social) return readSocialNow(url, social);
   store.offer(url, 0, store.PINNED_SCORE);
 
   try {
@@ -235,6 +315,7 @@ export async function crawlUrlNow(raw: string): Promise<PageReport> {
   for (const event of events) store.keep(event);
   const feeds = feedsFrom(page.html, page.url);
   for (const feed of feeds) store.rememberFeed(feed, page.url);
+  if (config.social) for (const link of socialLinksFrom(page.html, page.url)) store.offerSocial(link, page.url);
   const links = crawlableLinks(page.html, page.url, config.maxPagesPerSite).filter((l) => !isSkippedHost(l.url));
   for (const link of links) store.offer(link.url, 1, link.score);
   store.markDone(url, events.length);
@@ -250,5 +331,47 @@ export async function crawlUrlNow(raw: string): Promise<PageReport> {
     events,
     links: links.length,
     feeds,
+    reads: store.readsOf(url),
   };
+}
+
+/** "Read a page now" for an Instagram or Facebook link: see readSocial. */
+async function readSocialNow(url: string, link: SocialLink): Promise<PageReport> {
+  const nothing = { events: [] as CrawledEvent[], links: 0, feeds: [] as string[] };
+  store.offerSocial(link, url);
+  if (link.kind === 'facebook-event') {
+    return {
+      url: link.url,
+      ok: true,
+      message: 'A Facebook event. The app reads it with its Facebook reader on its next refresh.',
+      ...nothing,
+    };
+  }
+  try {
+    const got = await readSocial(link);
+    store.markDone(link.url, got.events.length, got.note);
+    if (link.kind === 'instagram-profile') {
+      return {
+        url: link.url,
+        ok: true,
+        message: `An Instagram profile: ${got.posts} recent post${got.posts === 1 ? '' : 's'} queued for the next cycle.`,
+        ...nothing,
+        links: got.posts,
+        reads: store.readsOf(link.url),
+      };
+    }
+    return {
+      url: link.url,
+      ok: true,
+      message: got.events.length
+        ? 'Found an event in the caption.'
+        : 'Read the post, but its caption names no date on or after the day it was posted.',
+      ...nothing,
+      events: got.events,
+      reads: store.readsOf(link.url),
+    };
+  } catch (err) {
+    store.markFailed(link.url, (err as Error).message);
+    return { url: link.url, ok: false, message: `Could not read it: ${(err as Error).message}`, ...nothing };
+  }
 }

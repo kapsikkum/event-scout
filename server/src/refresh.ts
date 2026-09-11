@@ -49,8 +49,8 @@ const upsertStmt = () =>
   db.prepare(`
     INSERT INTO events (source, source_id, title, description, start_time, end_time, venue_name, address,
                         lat, lng, url, image_url, category, price_text, is_online, photo_score, last_seen_at,
-                        date_only)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        date_only, first_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source, source_id) DO UPDATE SET
       title = excluded.title,
       description = excluded.description,
@@ -557,7 +557,9 @@ function insertRaw(
     ev.isOnline ? 1 : 0,
     photoScore(ev),
     now,
-    ev.dateOnly ? 1 : 0
+    ev.dateOnly ? 1 : 0,
+    // Only ever used by the INSERT: the conflict branch leaves it alone.
+    now
   );
 }
 

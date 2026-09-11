@@ -3,6 +3,7 @@ import { assertPublicUrl } from './fetch.js';
 import { Interest, queriesFor } from './queries.js';
 import * as store from './store.js';
 import { eventLikeness, isSkippedHost, normalizeUrl } from './urls.js';
+import { socialKind } from './extract/social.js';
 
 /**
  * Where a crawl starts.
@@ -73,14 +74,22 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 export async function seedFrom(interests: Interest[], log: (line: string) => void): Promise<number> {
   let added = 0;
   for (const interest of interests) {
-    for (const query of queriesFor(interest)) {
+    for (const query of queriesFor(interest, undefined, undefined, config.social)) {
       // One engine per query, rotating, so no single engine sees the lot.
       const engine = ENGINES[Math.floor(Math.random() * ENGINES.length)];
       try {
         const html = await search(engine.url(query));
         for (const raw of engine.links(html).slice(0, 10)) {
           const url = normalizeUrl(raw);
-          if (!url || isSkippedHost(url)) continue;
+          if (!url) continue;
+          // A search for "car show Bathurst" turns up the club's Instagram
+          // post as often as any website. See extract/social.ts.
+          const social = config.social ? socialKind(url) : null;
+          if (social) {
+            if (store.offerSocial(social, `search: ${query}`)) added++;
+            continue;
+          }
+          if (isSkippedHost(url)) continue;
           if (store.offer(url, 0, eventLikeness(url) + 5)) added++;
         }
       } catch (err) {

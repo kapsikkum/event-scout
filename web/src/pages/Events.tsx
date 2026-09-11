@@ -6,14 +6,18 @@ import { MergedEvent } from '../api';
 import { decodeEntities } from '../text';
 import {
   applyFilters,
+  Card,
   categoriesOf,
   DEFAULT_FILTERS,
   DateChip,
   ELSEWHERE,
   Filters,
+  foldSeries,
+  isRecent,
   NEARBY,
   placeLabel,
   placesOf,
+  RECENT_DAYS,
   SortKey,
 } from '../filtering';
 
@@ -25,14 +29,14 @@ import {
  * way. The runs are contiguous — the sort has already put a venue's events
  * side by side — so an event never appears under two headings.
  */
-function placeGroups(list: MergedEvent[], sort: SortKey): [string, MergedEvent[]][] {
+function placeGroups(list: Card[], sort: SortKey): [string, Card[]][] {
   if (sort !== 'place') return [['', list]];
-  const out: [string, MergedEvent[]][] = [];
-  for (const ev of list) {
-    const place = placeLabel(ev);
+  const out: [string, Card[]][] = [];
+  for (const card of list) {
+    const place = placeLabel(card.ev);
     const last = out[out.length - 1];
-    if (last && last[0] === place) last[1].push(ev);
-    else out.push([place, [ev]]);
+    if (last && last[0] === place) last[1].push(card);
+    else out.push([place, [card]]);
   }
   return out;
 }
@@ -72,6 +76,8 @@ export default function Events() {
   };
 
   const filtered = useMemo(() => applyFilters(events, filters, settings), [events, filters, settings]);
+  const cards = useMemo(() => foldSeries(filtered), [filtered]);
+  const folded = filtered.length - cards.length;
   const categories = useMemo(() => categoriesOf(events), [events]);
   // Counted over everything rather than over the filtered list, so picking a
   // town does not immediately rewrite the menu it was picked from.
@@ -82,6 +88,7 @@ export default function Events() {
     [status]
   );
   const starredCount = events.filter((e) => e.starred).length;
+  const recentCount = useMemo(() => events.filter((e) => !e.hidden && isRecent(e)).length, [events]);
 
   return (
     <>
@@ -149,6 +156,10 @@ export default function Events() {
           <input type="checkbox" checked={filters.starredOnly} onChange={(e) => set({ starredOnly: e.target.checked })} />
           ★ Shortlist only
         </label>
+        <label className="toggle" title={`Events first found in the last ${RECENT_DAYS} days`}>
+          <input type="checkbox" checked={filters.recentOnly} onChange={(e) => set({ recentOnly: e.target.checked })} />
+          ✦ Recently found{recentCount > 0 ? ` (${recentCount})` : ''}
+        </label>
         <label className="toggle">
           <input type="checkbox" checked={filters.showHidden} onChange={(e) => set({ showHidden: e.target.checked })} />
           Show removed
@@ -192,6 +203,7 @@ export default function Events() {
 
       <div className="count">
         {filtered.length} of {events.length} events
+        {folded > 0 && ` · ${folded} repeat date${folded === 1 ? '' : 's'} folded into ${folded === 1 ? 'its' : 'their'} series`}
       </div>
 
       {filtered.length === 0 ? (
@@ -208,7 +220,7 @@ export default function Events() {
           )}
         </div>
       ) : (
-        placeGroups(filtered, filters.sort).map(([place, list]) => (
+        placeGroups(cards, filters.sort).map(([place, list]) => (
           <section key={place} className="placegroup">
             {filters.sort === 'place' && (
               <h2 className="placegroup__head">
@@ -218,10 +230,11 @@ export default function Events() {
               </h2>
             )}
             <div className="grid">
-              {list.map((ev) => (
+              {list.map(({ ev, dates }) => (
                 <EventCard
                   key={ev.group}
                   ev={ev}
+                  dates={dates}
                   onOpen={setOpen}
                   selected={picked.includes(ev.group)}
                   onSelect={picking ? togglePick : undefined}

@@ -26,7 +26,22 @@ export interface Filters {
   hideOnline: boolean;
   showHidden: boolean;
   starredOnly: boolean;
+  /** Only events first found in the last RECENT_DAYS days. */
+  recentOnly: boolean;
   sort: SortKey;
+}
+
+/**
+ * How far back "recently found" reaches. A week, because the refresh is hourly
+ * and the list is looked at every few days: anything shorter and a find made
+ * on Monday is gone before Thursday's look.
+ */
+export const RECENT_DAYS = 7;
+
+/** First found within RECENT_DAYS. An event found before tracking began is not. */
+export function isRecent(ev: MergedEvent, now = Date.now()): boolean {
+  if (!ev.firstSeenAt) return false;
+  return now - new Date(ev.firstSeenAt).getTime() < RECENT_DAYS * 86400000;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -38,6 +53,7 @@ export const DEFAULT_FILTERS: Filters = {
   hideOnline: true,
   showHidden: false,
   starredOnly: false,
+  recentOnly: false,
   sort: 'date',
 };
 
@@ -69,6 +85,7 @@ export function applyFilters(events: MergedEvent[], f: Filters, settings: Settin
   let out = events.filter((ev) => {
     if (!f.showHidden && ev.hidden) return false;
     if (f.starredOnly && !ev.starred) return false;
+    if (f.recentOnly && !isRecent(ev)) return false;
     if (f.hideOnline && ev.isOnline) return false;
     if (f.category && ev.category !== f.category) return false;
     if (f.source && !ev.sources.some((s) => s.source === f.source)) return false;
@@ -101,6 +118,38 @@ export function applyFilters(events: MergedEvent[], f: Filters, settings: Settin
       if (!pa !== !pb) return pa ? -1 : 1;
       return pa.localeCompare(pb, undefined, { sensitivity: 'base' }) || a.startTime.localeCompare(b.startTime);
     });
+  }
+  return out;
+}
+
+/** One card on the Events page: an event, and every date of its series shown. */
+export interface Card {
+  ev: MergedEvent;
+  /** The dates of this series that survived the filters, `ev` first. */
+  dates: MergedEvent[];
+}
+
+/**
+ * Fold the dates of a repeating event into one card.
+ *
+ * A class that runs all term was twenty-seven identical cards, one per date,
+ * burying everything around it. After the filters rather than before, so the
+ * card is for the next date that matches them — "This weekend" shows this
+ * weekend's session. The first date in the sorted list is the one kept, which
+ * leaves the sort in charge of where the card goes.
+ */
+export function foldSeries(list: MergedEvent[]): Card[] {
+  const out: Card[] = [];
+  const bySeries = new Map<string, Card>();
+  for (const ev of list) {
+    const card = ev.series ? bySeries.get(ev.series) : undefined;
+    if (card) {
+      card.dates.push(ev);
+      continue;
+    }
+    const fresh: Card = { ev, dates: [ev] };
+    if (ev.series) bySeries.set(ev.series, fresh);
+    out.push(fresh);
   }
   return out;
 }

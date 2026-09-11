@@ -24,12 +24,22 @@ export interface MergedEvent {
   photoScore: number;
   starred: boolean;
   hidden: boolean;
+  /**
+   * When the first of its listings was found. null when one of them predates
+   * the app keeping track, which is never "recent".
+   */
+  firstSeenAt: string | null;
   sources: { source: string; url: string }[];
   /** Every distinct image across the merged listings, best first. */
   images: string[];
   members: EventMember[];
   /** True when a person merged these, rather than the deduper. */
   manual: boolean;
+  /**
+   * The repeating series this is one date of — same name, same place. The
+   * Events page folds a series into one card; the calendar keeps every date.
+   */
+  series: string;
   /** A line read off the flyer — when gates open, which entrance. '' when none. */
   note: string;
   /**
@@ -376,8 +386,46 @@ export interface CrawlerCycle {
   lines: string[];
 }
 
+/** One finished cycle, with the queue and the finds as they stood at its end. */
+export interface CrawlerHistoryRow {
+  startedAt: string;
+  finishedAt: string;
+  fetched: number;
+  events: number;
+  failed: number;
+  blocked: number;
+  seeded: number;
+  feeds: number;
+  queued: number;
+  finds: number;
+}
+
+/** What is in a calendar feed, read without adding it. */
+export interface IcalPreview {
+  ok: boolean;
+  url: string;
+  message?: string;
+  calendarName?: string;
+  /** Every event in the file. */
+  total?: number;
+  /** The ones the source would keep: from yesterday to six months out. */
+  upcoming?: number;
+  /** The first hundred of those, soonest first. */
+  events?: { title: string; startTime: string; dateOnly: boolean; where: string; url: string }[];
+}
+
 export interface CrawlerStatus {
   reachable: boolean;
+  /** The last day or so of finished cycles, oldest first. */
+  history?: CrawlerHistoryRow[];
+  /** Instagram read, and Facebook events noted for the app to read. */
+  social?: {
+    enabled: boolean;
+    instagramProfiles: number;
+    instagramPostsRead: number;
+    instagramEvents: number;
+    facebookEvents: number;
+  };
   url?: string;
   problem?: string;
   enabled?: boolean;
@@ -411,6 +459,19 @@ export interface CrawlPageReport {
   events: { title: string; startTime: string; dateOnly?: boolean; venueName?: string; url?: string }[];
   links: number;
   feeds: string[];
+  /** Times the crawler has read this page, this time included. */
+  reads?: number;
+}
+
+/** A page the crawler has read, and how often. */
+export interface CrawlerPageRow {
+  url: string;
+  site: string;
+  state: string;
+  reads: number;
+  events: number;
+  fetchedAt: string | null;
+  note: string;
 }
 
 export interface AuthStatus {
@@ -442,6 +503,8 @@ export const api = {
   refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => json<StatusResponse>(r)),
   version: () => fetch('/api/version').then((r) => json<VersionInfo>(r)),
   crawlerStatus: () => fetch('/api/crawler/status').then((r) => json<CrawlerStatus>(r)),
+  crawlerPages: (sort: 'reads' | 'recent') =>
+    fetch(`/api/crawler/pages?sort=${sort}`).then((r) => json<{ pages: CrawlerPageRow[]; problem?: string }>(r)),
   crawlerRun: () =>
     fetch('/api/crawler/run', { method: 'POST' }).then((r) => json<{ ok: boolean; message?: string }>(r)),
   crawlerCrawl: (url: string) =>
@@ -455,6 +518,17 @@ export const api = {
       if (r.status === 401) throw new Unauthorized();
       const body = (await r.json().catch(() => ({}))) as Partial<CrawlPageReport>;
       return { url, ok: false, message: `HTTP ${r.status}`, events: [], links: 0, feeds: [], ...body } as CrawlPageReport;
+    }),
+  icalPreview: (url: string) =>
+    fetch('/api/ical/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    }).then(async (r) => {
+      // As above: a refusal carries its reason in the body.
+      if (r.status === 401) throw new Unauthorized();
+      const body = (await r.json().catch(() => ({}))) as Partial<IcalPreview>;
+      return { url, ok: false, message: `HTTP ${r.status}`, ...body } as IcalPreview;
     }),
   authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
   login: (password: string) =>

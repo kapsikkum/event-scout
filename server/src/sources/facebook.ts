@@ -39,9 +39,10 @@ const FULL_HEADERS: Record<string, string> = { ...BROWSER_HEADERS };
 const MAX_EVENTS_PER_REFRESH = 40;
 const DETAIL_DELAY_MS = 500;
 
-class LoginWallError extends Error {}
+export class LoginWallError extends Error {}
 
-async function fetchFb(url: string, cookie: string): Promise<string> {
+/** Exported for the crawler source, which reads the Facebook events the crawl finds. */
+export async function fetchFb(url: string, cookie: string): Promise<string> {
   const headers: Record<string, string> = { ...FULL_HEADERS };
   if (cookie) headers.Cookie = cookie;
   const res = await fetch(url, { headers, redirect: 'follow' });
@@ -65,7 +66,7 @@ function extractEventIds(html: string): string[] {
   return [...ids];
 }
 
-function parseEvent(html: string, id: string): RawEvent | null {
+export function parseEvent(html: string, id: string): RawEvent | null {
   const basic = parser.getBasicData(html);
   if (!basic?.startTimestamp || basic.isCanceled) return null;
   const loc = basic.isOnline ? null : parser.getLocation(html);

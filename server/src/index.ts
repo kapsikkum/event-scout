@@ -31,6 +31,7 @@ import { filterEvents, paginate, parseEventQuery, QueryError } from './query.js'
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
 import { crawlerBase, syncCrawler } from './sources/crawler.js';
+import { readFeed } from './sources/ical.js';
 import { archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
 import { getPhotoConditions } from './photo.js';
 import { listAreas, renderArea, venueHistory, venueReadings } from './density/pipeline.js';
@@ -474,6 +475,20 @@ app.get('/api/crawler/status', async (_req, res) => {
   }
 });
 
+/** The pages the crawler has read, most-read or latest first, passed through. */
+app.get('/api/crawler/pages', async (req, res) => {
+  const base = crawlerBase(getSettings());
+  if (!base) return res.json({ pages: [], problem: 'No crawler address set.' });
+  const sort = req.query.sort === 'recent' ? 'recent' : 'reads';
+  try {
+    const answer = await fetch(`${base}/pages?sort=${sort}&limit=50`, { signal: AbortSignal.timeout(8000) });
+    if (!answer.ok) return res.json({ pages: [], problem: `HTTP ${answer.status} from the crawler` });
+    res.json(await answer.json());
+  } catch (err) {
+    res.json({ pages: [], problem: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
 /**
  * Read one page now and say what was on it.
  *
@@ -512,6 +527,42 @@ app.post('/api/crawler/run', async (_req, res) => {
     res.status(answer.status).json(await answer.json());
   } catch (err) {
     res.status(502).json({ ok: false, message: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
+/**
+ * Read a calendar feed and say what is in it, without adding it.
+ *
+ * Through the same reader the Calendar feeds source uses, so what this shows is
+ * exactly what adding the feed would bring in. A POST behind the password
+ * rather than an open GET, because it has this server fetch an address it was
+ * handed. Always 200 once the address is well-formed: the outcome is the body.
+ */
+app.post('/api/ical/preview', async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  if (!/^(https?|webcals?):\/\/\S+$/i.test(url)) {
+    return res.status(400).json({ ok: false, message: 'Give a full address, starting https:// or webcal://.' });
+  }
+  try {
+    const feed = await readFeed(url, '');
+    const events = [...feed.events].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    res.json({
+      ok: true,
+      url,
+      calendarName: feed.calendarName,
+      total: feed.total,
+      upcoming: events.length,
+      events: events.slice(0, 100).map((e) => ({
+        title: e.title,
+        startTime: e.startTime,
+        dateOnly: e.dateOnly ?? false,
+        where: e.address ?? '',
+        url: e.url ?? '',
+      })),
+    });
+  } catch (err) {
+    const reason = (err as Error).name === 'TimeoutError' ? 'no answer within 20 seconds' : (err as Error).message;
+    res.json({ ok: false, url, message: `Could not read it: ${reason}.` });
   }
 });
 

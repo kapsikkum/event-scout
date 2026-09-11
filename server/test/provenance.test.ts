@@ -39,6 +39,7 @@ function row(over: Partial<EventRow> = {}): EventRow {
     hidden: 0,
     dedupe_group: 'g1',
     manual_group: '',
+    first_seen_at: null,
     llm_description: '',
     llm_category: '',
     llm_venue_name: '',

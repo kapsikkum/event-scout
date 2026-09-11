@@ -127,6 +127,26 @@ at a search engine at once, so it takes a different handful each hour and works
 round the whole list. From every result it follows that site's own links,
 reading the pages that publish `schema.org` event data and noting any iCal feed.
 
+**Instagram and Facebook**, because most small events are only ever posted
+there. Each cycle also asks the search engines for a couple of your terms with
+`site:instagram.com` and `site:facebook.com/events` on the end, and any link to
+either site on a page it reads is picked up too. You can write your own — an
+extra search term of `site:instagram.com cars and coffee` goes to the engines as
+written.
+
+- An **Instagram post** becomes an event when its caption names a date on or
+  after the day it was posted ("Date: 13th Sept, Sunday / Time: 5am meetup").
+  The first line of the caption is the title; the venue is left for the model
+  pass to fill in. A profile is looked at once a day for its recent posts, and
+  no post is read twice.
+- A **Facebook event** link is handed to the app, which reads it with the same
+  parser the Facebook source uses — no cookie needed for an event page.
+
+Both sites' `robots.txt` tell crawlers to stay out, and this reads them anyway —
+with a real browser's headers, since Instagram serves an empty page to anything
+else. What keeps it tolerable is pace: one Instagram request every eight seconds
+and twenty a cycle at most. `CRAWLER_SOCIAL=false` turns all of it off.
+
 **Sites to crawl**, also on the Sources tab, are pages it reads every six hours
 whatever the searches turn up — a venue's what's-on, a council calendar — along
 with the pages they link to. **Read a page now**, on the Crawler tab, reads one
@@ -137,8 +157,10 @@ It is told all of this whenever settings are saved, and remembers it across
 restarts. Switching the source off tells it to go idle.
 
 The **Crawler** tab in Settings — which appears once the source is enabled —
-shows what it has been doing: how big the frontier is, what the last cycle read,
-this hour's searches, and any calendar feeds it found along the way.
+shows what it has been doing: how big the frontier is, a graph of the last day
+of cycles, this hour's searches, the pages it reads most and how many times, and
+any calendar feeds it found along the way — each of which can be previewed and
+added to Calendar feeds from there.
 
 It is **asked, never trusted**. event-scout fetches from it on the normal
 refresh, and everything after that — validation, geocoding, dedupe, the model
@@ -148,8 +170,8 @@ published outside the compose network. Switch the source off and the app stops
 asking; stop the container and the source reports it cannot be reached. Nothing
 else changes either way.
 
-**It behaves itself.** `robots.txt` is fetched, parsed and obeyed, including
-`Crawl-delay`; requests to one site are never concurrent and never closer
+**It behaves itself**, Instagram and Facebook aside (above). `robots.txt` is
+fetched, parsed and obeyed, including `Crawl-delay`; requests to one site are never concurrent and never closer
 together than `CRAWLER_HOST_DELAY_MS`; it identifies itself honestly with a
 contactable URL. The defaults are deliberately modest — raise
 `CRAWLER_MAX_PAGES` before you touch either of the delays.
@@ -163,6 +185,9 @@ contactable URL. The defaults are deliberately modest — raise
 | `CRAWLER_HOST_DELAY_MS` | `1500` | Floor on the gap between two requests to one site. |
 | `CRAWLER_CONCURRENCY` | `4` | Simultaneous fetches, always on different sites. |
 | `CRAWLER_INTERVAL_MIN` | `30` | Minutes between cycles. |
+| `CRAWLER_SOCIAL` | `true` | `false` stops it reading Instagram and noting Facebook events. |
+| `CRAWLER_SOCIAL_PER_CYCLE` | `20` | Instagram pages per cycle. |
+| `CRAWLER_SOCIAL_DELAY_MS` | `8000` | Gap between two Instagram requests. |
 
 Its database is churn — a frontier of URLs, rewritten constantly — and is kept
 in its own volume rather than beside the events. Delete it and the crawl rebuilds

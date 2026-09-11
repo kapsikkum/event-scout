@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { config, ensureDataDir } from './config.js';
 import { CrawledEvent } from './types.js';
 import { siteOf } from './urls.js';
+import { SocialLink } from './extract/social.js';
 
 /**
  * The crawler's own memory, in its own file.
@@ -73,6 +74,58 @@ CREATE TABLE IF NOT EXISTS seeds (
 );
 `);
 
+/**
+ * One row per finished cycle, for the graph on the crawler's page.
+ *
+ * The frontier says where the crawl is and nothing about how it got there;
+ * whether the pages read are turning up events, or the queue is only growing,
+ * is a question about the last day of cycles. Its own statement so databases
+ * made before it pick it up.
+ */
+db.exec(`
+CREATE TABLE IF NOT EXISTS cycles (
+  started_at TEXT PRIMARY KEY,
+  finished_at TEXT NOT NULL,
+  fetched INTEGER NOT NULL,
+  events INTEGER NOT NULL,
+  failed INTEGER NOT NULL,
+  blocked INTEGER NOT NULL,
+  seeded INTEGER NOT NULL,
+  feeds INTEGER NOT NULL,
+  queued INTEGER NOT NULL,
+  finds INTEGER NOT NULL
+);
+`);
+
+/**
+ * Facebook events the crawl came across, for event-scout to read.
+ *
+ * Not in the frontier: the crawler never fetches them. event-scout has a
+ * parser for Facebook's event pages and the crawler has no business carrying
+ * a second one, so it only writes the link down.
+ */
+db.exec(`
+CREATE TABLE IF NOT EXISTS social (
+  url TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  found_at TEXT NOT NULL,
+  found_on TEXT NOT NULL
+);
+`);
+
+/**
+ * How many times each page has been read, for the crawler's page.
+ *
+ * Added after the table was, so an existing database gets it here. A duplicate
+ * is success: two processes opening one file can both try.
+ */
+try {
+  db.exec('ALTER TABLE pages ADD COLUMN reads INTEGER NOT NULL DEFAULT 0');
+} catch (err) {
+  if (!/duplicate column/i.test((err as Error).message)) throw err;
+}
+
 const now = (): string => new Date().toISOString();
 
 // --- the frontier -----------------------------------------------------------
@@ -131,7 +184,7 @@ export function nextBatch(size: number, excludeSites: string[] = []): { url: str
 }
 
 export function markDone(url: string, events: number, note = ''): void {
-  db.prepare('UPDATE pages SET state = ?, fetched_at = ?, events = ?, note = ? WHERE url = ?')
+  db.prepare('UPDATE pages SET state = ?, fetched_at = ?, events = ?, note = ?, reads = reads + 1 WHERE url = ?')
     .run('done', now(), events, note, url);
 }
 
@@ -152,7 +205,8 @@ export function requeueProductive(olderThanHours: number): number {
   return db
     .prepare(
       `UPDATE pages SET state = 'queued'
-        WHERE state = 'done' AND events > 0 AND (fetched_at IS NULL OR fetched_at < ?)`
+        WHERE state = 'done' AND events > 0 AND site != 'instagram.com'
+          AND (fetched_at IS NULL OR fetched_at < ?)`
     )
     .run(cutoff).changes as number;
 }
@@ -346,4 +400,188 @@ export function requeueSeeds(olderThanHours: number): number {
       .run(PINNED_SCORE, url, cutoff).changes as number;
   }
   return n;
+}
+
+// --- history ----------------------------------------------------------------
+
+/** A finished cycle, with the queue and the finds as they stood at its end. */
+export interface CycleRow {
+  startedAt: string;
+  finishedAt: string;
+  fetched: number;
+  events: number;
+  failed: number;
+  blocked: number;
+  seeded: number;
+  feeds: number;
+  /** Pages waiting when it finished. */
+  queued: number;
+  /** Events held when it finished. */
+  finds: number;
+}
+
+/** Cycles kept. At the default half-hour interval, about four days. */
+const KEEP_CYCLES = 200;
+
+export function recordCycle(
+  r: Pick<CycleRow, 'startedAt' | 'fetched' | 'events' | 'failed' | 'blocked' | 'seeded' | 'feeds'> & {
+    finishedAt: string | null;
+  }
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO cycles
+       (started_at, finished_at, fetched, events, failed, blocked, seeded, feeds, queued, finds)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    r.startedAt, r.finishedAt ?? now(), r.fetched, r.events, r.failed, r.blocked, r.seeded, r.feeds,
+    countPages().queued ?? 0, countFinds()
+  );
+  db.prepare(
+    'DELETE FROM cycles WHERE started_at NOT IN (SELECT started_at FROM cycles ORDER BY started_at DESC LIMIT ?)'
+  ).run(KEEP_CYCLES);
+}
+
+/** The most recent cycles, oldest first, which is the order a graph reads in. */
+export function cycleHistory(limit = 48): CycleRow[] {
+  const rows = db
+    .prepare(
+      `SELECT started_at, finished_at, fetched, events, failed, blocked, seeded, feeds, queued, finds
+         FROM cycles ORDER BY started_at DESC LIMIT ?`
+    )
+    .all(limit) as Record<string, string | number>[];
+  return rows.reverse().map((r) => ({
+    startedAt: String(r.started_at),
+    finishedAt: String(r.finished_at),
+    fetched: Number(r.fetched),
+    events: Number(r.events),
+    failed: Number(r.failed),
+    blocked: Number(r.blocked),
+    seeded: Number(r.seeded),
+    feeds: Number(r.feeds),
+    queued: Number(r.queued),
+    finds: Number(r.finds),
+  }));
+}
+
+// --- instagram and facebook -------------------------------------------------
+
+/** Where a post and a profile go in the queue: posts first, since they are what hold events. */
+const SOCIAL_POST_SCORE = 15;
+const SOCIAL_PROFILE_SCORE = 8;
+
+/**
+ * Offer an Instagram or Facebook link.
+ *
+ * Instagram goes into the frontier at depth 0 — it is off-site from wherever
+ * it was linked, and the depth cap is about a site's own links. Facebook
+ * events are only written down, for event-scout. True when it was new.
+ */
+export function offerSocial(link: SocialLink, foundOn: string): boolean {
+  if (link.kind === 'facebook-event') {
+    return (
+      (db
+        .prepare('INSERT OR IGNORE INTO social (url, kind, ref, found_at, found_on) VALUES (?, ?, ?, ?, ?)')
+        .run(link.url, link.kind, link.id, now(), foundOn.slice(0, 500)).changes as number) > 0
+    );
+  }
+  return offer(link.url, 0, link.kind === 'instagram-post' ? SOCIAL_POST_SCORE : SOCIAL_PROFILE_SCORE);
+}
+
+export function socialLinks(kind: string, limit = 300): { url: string; id: string; foundOn: string; foundAt: string }[] {
+  return (
+    db
+      .prepare('SELECT url, ref, found_on, found_at FROM social WHERE kind = ? ORDER BY found_at DESC LIMIT ?')
+      .all(kind, limit) as { url: string; ref: string; found_on: string; found_at: string }[]
+  ).map((r) => ({ url: r.url, id: r.ref, foundOn: r.found_on, foundAt: r.found_at }));
+}
+
+export function countSocial(): {
+  instagramProfiles: number;
+  instagramPostsRead: number;
+  instagramEvents: number;
+  facebookEvents: number;
+} {
+  const ig = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN url LIKE '%/p/%' THEN 0 ELSE 1 END), 0) AS profiles,
+         COALESCE(SUM(CASE WHEN url LIKE '%/p/%' AND state = 'done' THEN 1 ELSE 0 END), 0) AS posts,
+         COALESCE(SUM(CASE WHEN url LIKE '%/p/%' THEN events ELSE 0 END), 0) AS events
+       FROM pages WHERE site = 'instagram.com'`
+    )
+    .get() as { profiles: number; posts: number; events: number };
+  const fb = db.prepare("SELECT COUNT(*) n FROM social WHERE kind = 'facebook-event'").get() as { n: number };
+  return {
+    instagramProfiles: Number(ig.profiles),
+    instagramPostsRead: Number(ig.posts),
+    instagramEvents: Number(ig.events),
+    facebookEvents: Number(fb.n),
+  };
+}
+
+/** Hold a site to a gap of its own, whatever robots.txt did or did not ask for. */
+export function setHostDelay(site: string, ms: number): void {
+  db.prepare(
+    `INSERT INTO hosts (site, crawl_delay_ms) VALUES (?, ?)
+     ON CONFLICT(site) DO UPDATE SET crawl_delay_ms = excluded.crawl_delay_ms`
+  ).run(site, ms);
+}
+
+/**
+ * Instagram profiles back in the queue once a day, for their new posts.
+ *
+ * Posts are never read twice — a caption does not change — so a profile is
+ * the only thing that needs coming back to.
+ */
+export function requeueSocialProfiles(olderThanHours: number): number {
+  const cutoff = new Date(Date.now() - olderThanHours * 3600_000).toISOString();
+  return db
+    .prepare(
+      `UPDATE pages SET state = 'queued'
+        WHERE site = 'instagram.com' AND url NOT LIKE '%/p/%' AND state != 'queued'
+          AND (fetched_at IS NULL OR fetched_at < ?)`
+    )
+    .run(cutoff).changes as number;
+}
+
+// --- pages, for the crawler's page ------------------------------------------
+
+export interface PageRow {
+  url: string;
+  site: string;
+  state: string;
+  /** Times it has been read successfully. */
+  reads: number;
+  /** Events on it the last time it was read. */
+  events: number;
+  fetchedAt: string | null;
+  note: string;
+}
+
+/** How many times one page has been read. 0 for one it has never read or never heard of. */
+export function readsOf(url: string): number {
+  const row = db.prepare('SELECT reads FROM pages WHERE url = ?').get(url) as { reads: number } | undefined;
+  return row ? Number(row.reads) : 0;
+}
+
+/** The pages read most often, or most recently. */
+export function pageList(sort: 'reads' | 'recent', limit = 50): PageRow[] {
+  const rows = db
+    .prepare(
+      sort === 'reads'
+        ? `SELECT url, site, state, reads, events, fetched_at, note FROM pages
+            WHERE reads > 0 ORDER BY reads DESC, fetched_at DESC LIMIT ?`
+        : `SELECT url, site, state, reads, events, fetched_at, note FROM pages
+            WHERE fetched_at IS NOT NULL ORDER BY fetched_at DESC LIMIT ?`
+    )
+    .all(limit) as Record<string, string | number | null>[];
+  return rows.map((r) => ({
+    url: String(r.url),
+    site: String(r.site),
+    state: String(r.state),
+    reads: Number(r.reads),
+    events: Number(r.events),
+    fetchedAt: r.fetched_at == null ? null : String(r.fetched_at),
+    note: String(r.note ?? ''),
+  }));
 }

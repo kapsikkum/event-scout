@@ -164,6 +164,12 @@ function migrate(): void {
   // "Thursday" instead of printing the midnight the day is stored as.
   addColumn(cols, 'date_only', 'INTEGER NOT NULL DEFAULT 0');
 
+  // When this app first saw the listing, for "Recently found". Written on
+  // insert and never again, so a refresh that sees it a second time does not
+  // make it new. Rows from before the column stay NULL: when they were found is
+  // not known, and calling it "now" would put every one of them in the filter.
+  addColumn(cols, 'first_seen_at', 'TEXT');
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS event_enrichment (
       event_id INTEGER PRIMARY KEY,

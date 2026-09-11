@@ -187,6 +187,11 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .badge.src-facebook { color: #8ab4f8; border-color: #2e4674; }
 .badge.src-ical { color: #9ae6b4; border-color: #2e6045; }
 .badge.src-websearch { color: #c4b5fd; border-color: #43367a; }
+.badge.src-crawler { color: #5eead4; border-color: #1f5f58; cursor: help; }
+.badge--series { color: #93c5fd; border-color: #2b4a73; cursor: help; }
+/* First found within the week. Filled rather than outlined like the sources,
+   because it is the one badge that stops being true. */
+.badge--new { color: #86efac; border-color: rgba(134, 239, 172, 0.45); background: rgba(134, 239, 172, 0.12); cursor: help; }
 .badge.unofficial { color: var(--red); border-color: #6b3030; }
 .card .actions { display: flex; gap: 6px; }
 .card .actions button { padding: 4px 10px; font-size: 13px; }
@@ -1061,3 +1066,31 @@ button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
   font-weight: 600;
   margin: 1rem 0 0.35rem;
 }
+
+/* The cycle graph. Scrolls inside itself on a phone rather than shrinking
+   its labels to nothing. */
+.crawlchart { margin: 0.9rem 0 0; overflow-x: auto; }
+.crawlchart svg { display: block; width: 100%; min-width: 30rem; height: auto; }
+.crawlchart__grid { stroke: var(--line); stroke-width: 1; }
+.crawlchart__axis { fill: var(--muted); font-size: 10px; }
+.crawlchart__read { fill: var(--blue); opacity: 0.55; }
+.crawlchart__trouble { fill: var(--red); opacity: 0.6; }
+.crawlchart__events { fill: none; stroke: var(--accent); stroke-width: 2; }
+.crawlchart__dot { fill: var(--accent); }
+.crawlchart__held { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.crawlchart__hit { fill: transparent; }
+.crawlchart__hit:hover { fill: rgba(255, 255, 255, 0.05); }
+.crawlchart__legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.4rem; font-size: 0.78rem; opacity: 0.8; }
+.crawlchart__key { display: inline-block; width: 0.9rem; height: 0.55rem; margin-right: 0.35rem; border-radius: 2px; vertical-align: middle; }
+.crawlchart__key--read { background: var(--blue); opacity: 0.55; }
+.crawlchart__key--trouble { background: var(--red); opacity: 0.6; }
+.crawlchart__key--events { height: 2px; background: var(--accent); }
+.crawlchart__key--held { height: 0; border-top: 2px dashed var(--muted); background: none; }
+
+/* A feed's preview, opened under its row. Capped, because a council calendar
+   can hold a hundred upcoming events. */
+.feedpreview { max-height: 24rem; overflow: auto; padding: 0.2rem 0 0.4rem; }
+.feedpreview .crawltable { margin-top: 0.3rem; }
+.crawlfeeds__actions { white-space: nowrap; text-align: right; }
+.crawlfeeds__actions button { margin-left: 0.35rem; }
+.crawlfeeds__added { color: var(--green, #86efac); font-size: 0.82rem; }

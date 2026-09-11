@@ -13,6 +13,8 @@ import { normalizeUrl } from './urls.js';
  *   GET  /events   what it has found, near a point if given
  *   GET  /status   what it is doing, and what it is looking for
  *   GET  /feeds    calendar feeds found along the way
+ *   GET  /social   Facebook events found along the way, for event-scout to read
+ *   GET  /pages    pages read, most-read or latest first, with how often
  *   PUT  /config   where to look, from event-scout
  *   POST /crawl    read one page now and say what was on it
  *   POST /run      start a cycle
@@ -170,9 +172,13 @@ const server = http.createServer((req, res) => {
       interests: knownInterests().map((i) => ({
         city: i.city,
         terms: i.terms.length,
-        thisCycle: queriesFor(i),
+        thisCycle: queriesFor(i, undefined, undefined, config.social),
       })),
       seeds: store.listSeeds(),
+      // The last day or so of cycles, oldest first, for the graph.
+      history: store.cycleHistory(48),
+      // Instagram read and Facebook events noted. See extract/social.ts.
+      social: { enabled: config.social, ...store.countSocial() },
       config: {
         maxPagesPerRun: config.maxPagesPerRun,
         maxDepth: config.maxDepth,
@@ -182,6 +188,22 @@ const server = http.createServer((req, res) => {
         userAgent: config.userAgent,
       },
     });
+  }
+
+  /** Pages read, with how many times: `?sort=reads` (the default) or `?sort=recent`. */
+  if (req.method === 'GET' && url.pathname === '/pages') {
+    const sort = q.get('sort') === 'recent' ? 'recent' : 'reads';
+    const limit = Math.min(200, Math.max(1, num(q.get('limit')) ?? 50));
+    return json(res, 200, { pages: store.pageList(sort, limit) });
+  }
+
+  /**
+   * Links the crawler notes but does not read — today, Facebook events, which
+   * event-scout reads with the Facebook parser it already has.
+   */
+  if (req.method === 'GET' && url.pathname === '/social') {
+    const kind = q.get('kind') ?? 'facebook-event';
+    return json(res, 200, { links: store.socialLinks(kind) });
   }
 
   /** Calendar feeds found along the way, to paste into event-scout's iCal list. */

@@ -137,13 +137,38 @@ const HTML_TYPE = /^(text\/html|application\/xhtml\+xml)/i;
 const MAX_REDIRECTS = 4;
 
 /**
+ * A real browser's navigation, for the one site that needs it.
+ *
+ * Instagram serves an empty shell to anything that does not look like a
+ * browser, the Chrome user agent alone included: the whole set is what gets
+ * the page with the caption in it. Kept in step with event-scout's
+ * server/src/useragent.ts, which the Facebook reader already uses — a UA that
+ * says one version while the client hints say another is the clearer tell.
+ */
+const BROWSER_HEADERS: Record<string, string> = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-AU,en-US;q=0.9,en;q=0.8',
+  'sec-ch-ua': '"Chromium";v="151", "Microsoft Edge";v="151", "Not=A?Brand";v="24"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'sec-ch-ua-platform-version': '"15.0.0"',
+  'sec-fetch-dest': 'document',
+  'sec-fetch-mode': 'navigate',
+  'sec-fetch-site': 'none',
+  'sec-fetch-user': '?1',
+  'upgrade-insecure-requests': '1',
+};
+
+/**
  * Fetch one page as HTML, or explain why not.
  *
  * Redirects are followed by hand so every hop is re-checked: a URL that passes
  * the address check can still redirect to one that would not, and
  * `redirect: 'follow'` would take it without asking.
  */
-export async function fetchPage(url: string): Promise<Page> {
+export async function fetchPage(url: string, opts: { browser?: boolean } = {}): Promise<Page> {
   let target = url;
   let res: Response;
 
@@ -151,11 +176,13 @@ export async function fetchPage(url: string): Promise<Page> {
     await assertPublicUrl(target);
     try {
       res = await fetch(target, {
-        headers: {
-          'User-Agent': config.userAgent,
-          Accept: 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-AU,en;q=0.9',
-        },
+        headers: opts.browser
+          ? BROWSER_HEADERS
+          : {
+              'User-Agent': config.userAgent,
+              Accept: 'text/html,application/xhtml+xml',
+              'Accept-Language': 'en-AU,en;q=0.9',
+            },
         redirect: 'manual',
         signal: AbortSignal.timeout(config.requestTimeoutMs),
       });

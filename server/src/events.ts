@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { db, getSettings } from './db.js';
 import { groupStart, isOver } from './validate.js';
+import { normalizeTitle } from './dedupe.js';
 import { localityOf } from './regions.js';
 import { flyerHref } from './flyers.js';
 import { storedPath } from './flyerStore.js';
@@ -55,6 +56,12 @@ export interface MergedEvent {
   photoScore: number;
   starred: boolean;
   hidden: boolean;
+  /**
+   * When the first of its listings was found, or null when one of them
+   * predates the app keeping track. The earliest rather than the latest: a
+   * second site listing an event already known is not a new event.
+   */
+  firstSeenAt: string | null;
   sources: { source: string; url: string }[];
   /** Every distinct image across the members, best first. */
   images: string[];
@@ -62,6 +69,12 @@ export interface MergedEvent {
   members: EventMember[];
   /** True when a person merged these rather than the deduper. */
   manual: boolean;
+  /**
+   * The repeating series this is one date of: the same name at the same place.
+   * Every date is its own event — the calendar needs them apart — and the
+   * Events page folds a series into one card. See seriesKey.
+   */
+  series: string;
   /**
    * A line of practical detail read off the flyer — when gates open, which
    * entrance to use. Shown as it is; nothing is derived from it, least of all
@@ -103,6 +116,23 @@ function groupKey(row: EventRow): string {
 }
 
 /**
+ * The same name at the same place, on whatever day.
+ *
+ * Orange council publishes a page per date for a class that runs all term —
+ * /event/highland-dancing-classes-during-school-terms/2026-09-11/, then the
+ * 15th, then the 18th — so it arrives as twenty-seven listings with twenty-
+ * seven addresses, and the deduper, rightly, keeps listings on different days
+ * apart. This is the key that says they are one thing happening repeatedly.
+ */
+function seriesKey(title: string, place: string): string {
+  return crypto
+    .createHash('sha1')
+    .update(`${normalizeTitle(title)}|${normalizeTitle(place)}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+/**
  * Merge rows sharing a group into one event, preferring the richest fields.
  * Archived (past) events are excluded unless explicitly asked for.
  */
@@ -137,6 +167,14 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       if (kept) images.push(flyerHref(kept));
     }
 
+    // Derived here rather than in the browser: reading a locality out of an
+    // address means knowing every country's postal tail, and that table
+    // belongs in one place. See regions.ts. The venue field is tried too,
+    // because a good few sources put the street address in it and leave the
+    // address empty — those are exactly the rows that need a locality most,
+    // since without one they head their own group by street number.
+    const locality = localityOf(address) || localityOf(venueName);
+
     merged.push({
       group,
       title: chosen.title,
@@ -148,13 +186,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       endTime: members.find((m) => m.end_time)?.end_time ?? null,
       venueName,
       address,
-      // Derived here rather than in the browser: reading a locality out of an
-      // address means knowing every country's postal tail, and that table
-      // belongs in one place. See regions.ts. The venue field is tried too,
-      // because a good few sources put the street address in it and leave the
-      // address empty — those are exactly the rows that need a locality most,
-      // since without one they head their own group by street number.
-      locality: localityOf(address) || localityOf(venueName),
+      locality,
       // Filled in below, once every event is known: which town an event
       // rounds to depends on what the others taught about its suburb.
       place: '',
@@ -168,6 +200,9 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       photoScore: chosen.photoScore,
       starred: members.some((m) => m.starred === 1),
       hidden: members.some((m) => m.hidden === 1),
+      firstSeenAt: members.some((m) => !m.first_seen_at)
+        ? null
+        : members.map((m) => m.first_seen_at as string).sort()[0],
       sources: members.map((m) => ({ source: m.source, url: m.url })),
       members: members.map((m) => ({
         id: m.id,
@@ -179,6 +214,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
         venueName: m.venue_name,
       })),
       manual: Boolean(members[0].manual_group),
+      series: seriesKey(chosen.title, venueName || locality || address),
       note,
       enriched,
       edited: chosen.edited,

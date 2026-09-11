@@ -1,4 +1,6 @@
-import { expandTopics } from './topics.js';
+import { haversineKm } from '../dedupe.js';
+import { fetchFb, parseEvent } from './facebook.js';
+import { expandTopics, rotateQueries } from './topics.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
 
 /**
@@ -108,6 +110,55 @@ export async function syncCrawler(settings: Settings): Promise<{ ok: boolean; me
   }
 }
 
+/** Facebook event pages read per refresh, rotating through the rest. */
+const FB_PER_REFRESH = 25;
+const FB_DELAY_MS = 500;
+/** A refresh asks once per area; an event read for the first is not read again for the next. */
+const FB_REUSE_MS = 30 * 60 * 1000;
+const fbRead = new Map<string, { at: number; event: RawEvent | null }>();
+
+/**
+ * Facebook events the crawl came across, read here.
+ *
+ * The crawler notes the links and nothing more: reading a Facebook event page
+ * takes a parser for Facebook's embedded format, and this app already has one,
+ * so the reading happens where the parser is. No cookie is needed for an event
+ * page — the one set for the Facebook source is sent if there is one.
+ */
+async function facebookFromCrawler(base: string, loc: Location, settings: Settings): Promise<RawEvent[]> {
+  let links: { id: string }[] = [];
+  try {
+    const res = await fetch(`${base}/social?kind=facebook-event`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!res.ok) return [];
+    links = ((await res.json()) as { links?: { id: string }[] }).links ?? [];
+  } catch {
+    return [];
+  }
+
+  const out: RawEvent[] = [];
+  for (const id of rotateQueries(links.map((l) => l.id).filter((id) => /^\d+$/.test(id)), FB_PER_REFRESH)) {
+    let seen = fbRead.get(id);
+    if (!seen || Date.now() - seen.at > FB_REUSE_MS) {
+      let event: RawEvent | null = null;
+      try {
+        event = parseEvent(await fetchFb(`https://www.facebook.com/events/${id}`, (settings.fbCookie ?? '').trim()), id);
+      } catch {
+        // Private, deleted, or behind a login wall: expected, and not worth a failure.
+      }
+      seen = { at: Date.now(), event };
+      fbRead.set(id, seen);
+      await new Promise((r) => setTimeout(r, FB_DELAY_MS));
+    }
+    const ev = seen.event;
+    if (!ev) continue;
+    // Placed events are kept to the area, as the Facebook source does; unplaced
+    // ones are kept, since they are usually the small local ones.
+    if (ev.lat != null && ev.lng != null && haversineKm(loc.lat, loc.lng, ev.lat, ev.lng) > loc.radiusKm * 1.5) continue;
+    out.push({ ...ev, sourceId: `crawl:fb:${id}` });
+  }
+  return out;
+}
+
 export const crawlerSource: EventSourceAdapter = {
   name: 'crawler',
   label: 'Web crawler',
@@ -145,7 +196,7 @@ export const crawlerSource: EventSourceAdapter = {
     const body = (await res.json()) as { events?: CrawledEvent[] };
     const events = Array.isArray(body.events) ? body.events : [];
 
-    return events
+    const crawled = events
       .filter((e) => e && typeof e.title === 'string' && typeof e.startTime === 'string')
       .map((e): RawEvent => ({
         // Prefixed so a crawled listing can never collide with one scraped
@@ -165,5 +216,6 @@ export const crawlerSource: EventSourceAdapter = {
         isOnline: e.isOnline,
         dateOnly: e.dateOnly === true,
       }));
+    return [...crawled, ...(await facebookFromCrawler(base, loc, settings))];
   },
 };

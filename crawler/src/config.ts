@@ -61,6 +61,20 @@ export const config = {
 
   /** How long a find is offered before it is dropped, days. */
   keepFindsDays: int('CRAWLER_KEEP_DAYS', 45),
+
+  /**
+   * Whether to read Instagram, and to note Facebook events for the app.
+   *
+   * Both sites' robots.txt say no to every crawler, and this crawler obeys
+   * robots.txt everywhere else. It reads these two anyway because most small
+   * events are only ever posted there — a decision, set here so it can be
+   * undone without a rebuild. See extract/social.ts.
+   */
+  social: process.env.CRAWLER_SOCIAL !== 'false',
+  /** Instagram pages per cycle. Low, so an address that reads too much is not flagged. */
+  maxSocialPerCycle: int('CRAWLER_SOCIAL_PER_CYCLE', 20),
+  /** Gap between two Instagram requests, milliseconds. A person scrolling, not a scraper. */
+  socialDelayMs: int('CRAWLER_SOCIAL_DELAY_MS', 8000),
 };
 
 export function ensureDataDir(): string {
