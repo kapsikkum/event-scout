@@ -1148,7 +1148,10 @@ button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
 .notify__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); display: inline-block; }
 .notify__dot.is-ok { background: var(--green); }
 .notify__dot.is-bad { background: var(--red); }
-.notify__last { margin-left: auto; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The Settings hint carries a bottom margin for paragraphs; in a row it only pushes the text up. */
+.notify__target summary .hint, .notify__grid .hint, .notify__actions .hint, .notify__target .formrow .hint { margin: 0; }
+.notify__last { margin-left: auto !important; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify__last.is-bad { color: var(--red); }
 .notify__grid { display: grid; grid-template-columns: minmax(200px, auto) 1fr; gap: 6px 12px; align-items: center; }
 .notify__check { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
 .notify__num { width: 64px !important; display: inline-block; }

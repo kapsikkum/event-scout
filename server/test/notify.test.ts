@@ -65,10 +65,22 @@ test('a long run of new events is split within Discord’s limits, the ping on t
   assert.deepEqual((payloads[0].allowed_mentions as { roles: string[] }).roles, ['123456789012345678']);
 });
 
+test('entities in a title come out as the characters they stand for', () => {
+  const e = ev({ title: 'Father&#8217;s Day Out', venueName: 'Volunteers&#8217; Pavillion' });
+  const [payload] = discordPayloads({ kind: 'new', heading: 'h', items: [{ ev: e }] }, normalizeTarget({}), '');
+  const embed = (payload.embeds as { title: string; description: string }[])[0];
+  assert.equal(embed.title, 'Father’s Day Out');
+  assert.match(embed.description, /Volunteers’ Pavillion/);
+  assert.match(matrixList('h', [{ ev: e }], '').body, /Father’s Day Out/);
+});
+
 test('Matrix HTML is escaped', () => {
-  const content = matrixList('<b>heading</b>', [{ ev: ev({ title: '<script>x</script>' }) }], '');
-  assert.ok(!content.formatted_body!.includes('<script>'));
-  assert.ok(content.formatted_body!.includes('&lt;script&gt;'));
+  const content = matrixList('<b>heading</b>', [{ ev: ev({ title: 'Cars < Coffee & "Co"' }) }], '');
+  assert.ok(content.formatted_body!.includes('&lt;b&gt;heading&lt;/b&gt;'));
+  assert.ok(content.formatted_body!.includes('Cars &lt; Coffee &amp; &quot;Co&quot;'));
+  // Markup in a title is dropped before it gets that far.
+  const tagged = matrixList('h', [{ ev: ev({ title: '<script>x</script>Swap meet' }) }], '');
+  assert.ok(!tagged.formatted_body!.includes('<script'));
 });
 
 test('new events: the first run only sets the watermark, then settled finds are sent once', () => {

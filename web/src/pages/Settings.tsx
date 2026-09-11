@@ -1605,7 +1605,7 @@ export default function Settings() {
 
       {active === 'model' && <LocalModelSection draft={draft} set={set} />}
 
-      {active === 'notify' && <NotifyPanel draft={draft} set={set} dirty={dirty} />}
+      {active === 'notify' && <NotifyPanel draft={draft} set={set} dirty={dirty} save={save} />}
 
       {active === 'access' && <SecuritySection draft={draft} set={set} />}
 

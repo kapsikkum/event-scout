@@ -1,5 +1,6 @@
 import type { MergedEvent } from '../events.js';
 import type { NotifyTarget } from '../sources/types.js';
+import { cleanDescription } from '../validate.js';
 
 /**
  * What a notification says, for Discord and for Matrix.
@@ -36,6 +37,27 @@ export interface Notice {
 const CHANGE_LABEL: Record<Change['field'], string> = {
   title: 'Name', start: 'Starts', end: 'Ends', venue: 'Venue', address: 'Address',
 };
+
+/**
+ * An event's words as a reader should see them.
+ *
+ * Titles and venues are stored as the source wrote them, entities and all —
+ * "Father&#8217;s Day Out" — and the web page decodes them as it draws. A
+ * message is drawn by Discord or a Matrix client, which do not, so it is done
+ * here.
+ */
+export function readable(ev: MergedEvent): MergedEvent {
+  return {
+    ...ev,
+    title: cleanDescription(ev.title),
+    description: cleanDescription(ev.description),
+    venueName: cleanDescription(ev.venueName),
+    address: cleanDescription(ev.address),
+    locality: cleanDescription(ev.locality),
+    place: cleanDescription(ev.place),
+    priceText: cleanDescription(ev.priceText),
+  };
+}
 
 const cut = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`);
 const isHttp = (url: string): boolean => /^https?:\/\/\S+$/i.test(url);
@@ -97,7 +119,7 @@ function sourcesText(ev: MergedEvent): string {
 }
 
 function eventEmbed(item: NoticeItem, target: NotifyTarget, appUrl: string): Embed {
-  const { ev } = item;
+  const ev = readable(item.ev);
   const full = target.style === 'full';
   const link = linkFor(ev, appUrl);
   const own = appLink(ev, appUrl);
@@ -132,7 +154,9 @@ function eventEmbed(item: NoticeItem, target: NotifyTarget, appUrl: string): Emb
 
 /** A digest is a list, one line an event, split across embeds as the limits require. */
 function digestEmbeds(notice: Notice, appUrl: string): Embed[] {
-  const lines = notice.items.map(({ ev, moreDates }) => {
+  const lines = notice.items.map((item) => {
+    const ev = readable(item.ev);
+    const { moreDates } = item;
     const link = linkFor(ev, appUrl);
     const title = link ? `[${cut(ev.title, 90).replace(/[[\]]/g, '')}](${link})` : cut(ev.title, 90);
     const again = moreDates ? ` · ↻ +${moreDates}` : '';
@@ -208,7 +232,7 @@ export function escapeHtml(text: string): string {
 
 /** One event as a line, plain and HTML. `n` numbers it, for the commands that refer back. */
 export function matrixLine(item: NoticeItem, appUrl: string, n?: number): { text: string; html: string } {
-  const { ev } = item;
+  const ev = readable(item.ev);
   const link = linkFor(ev, appUrl);
   const when = whenText(ev.startTime, ev.dateOnly);
   const where = whereText(ev);

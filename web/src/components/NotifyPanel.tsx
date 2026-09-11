@@ -91,7 +91,7 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
   );
 }
 
-function TargetCard({ target, update, remove, places, categories, status, dirty }: {
+function TargetCard({ target, update, remove, places, categories, status, dirty, save }: {
   target: NotifyTarget;
   update: (t: NotifyTarget) => void;
   remove: () => void;
@@ -99,6 +99,7 @@ function TargetCard({ target, update, remove, places, categories, status, dirty 
   categories: string[];
   status: NotifyStatus['targets'][string] | undefined;
   dirty: boolean;
+  save: () => Promise<void>;
 }) {
   const [test, setTest] = useState('');
   const t = target;
@@ -109,9 +110,15 @@ function TargetCard({ target, update, remove, places, categories, status, dirty 
     set({ triggers: { ...tr, [key]: { ...tr[key], ...patch } } });
   const filt = (patch: Partial<NotifyTarget['filters']>): void => set({ filters: { ...f, ...patch } });
 
+  // A test goes to the saved target — the server's copy, webhook and all — so
+  // unsaved changes are saved first rather than the button sitting greyed out.
   const sendTest = async (): Promise<void> => {
-    setTest('Sending…');
     try {
+      if (dirty) {
+        setTest('Saving…');
+        await save();
+      }
+      setTest('Sending…');
       setTest((await api.notifyTest(t.id)).message);
     } catch (err) {
       setTest((err as Error).message);
@@ -122,11 +129,16 @@ function TargetCard({ target, update, remove, places, categories, status, dirty 
     <details className="notify__target" open={!t.webhookSet && !t.roomId}>
       <summary>
         <span className={`notify__dot ${status ? (status.ok ? 'is-ok' : 'is-bad') : ''}`} />
-        <strong>{t.kind === 'discord' ? 'Discord' : 'Matrix'}</strong> · {t.name || 'unnamed'}
-        {!t.enabled && <span className="hint"> (off)</span>}
+        <strong>{t.kind === 'discord' ? 'Discord' : 'Matrix'}</strong>
+        {/* The name only when it says more than the kind already does. */}
+        {t.name && !['discord', 'matrix', 'matrix room'].includes(t.name.trim().toLowerCase()) && <span>· {t.name}</span>}
+        {!t.enabled && <span className="hint">(off)</span>}
         {status && (
-          <span className="hint notify__last" title={status.at}>
-            {status.ok ? '' : '⚠ '}{status.message}
+          <span
+            className={`hint notify__last${status.ok ? '' : ' is-bad'}`}
+            title={`${status.message} — ${new Date(status.at).toLocaleString()}`}
+          >
+            {status.ok ? '' : '⚠ '}{status.message} · {new Date(status.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
           </span>
         )}
       </summary>
@@ -263,8 +275,11 @@ function TargetCard({ target, update, remove, places, categories, status, dirty 
       </div>
 
       <div className="notify__actions">
-        <button disabled={dirty} title={dirty ? 'Save first: a test goes to the saved target' : ''} onClick={() => void sendTest()}>
-          Send a test
+        <button
+          title={dirty ? 'Saves your changes, then sends a test to this target' : 'Sends the next few matching events to this target'}
+          onClick={() => void sendTest()}
+        >
+          {dirty ? 'Save & send a test' : 'Send a test'}
         </button>
         {test && <span className="hint">{test}</span>}
         <button className="notify__remove" onClick={remove}>Remove target</button>
@@ -273,10 +288,12 @@ function TargetCard({ target, update, remove, places, categories, status, dirty 
   );
 }
 
-export default function NotifyPanel({ draft, set, dirty }: {
+export default function NotifyPanel({ draft, set, dirty, save }: {
   draft: SettingsType;
   set: (patch: Partial<SettingsType>) => void;
   dirty: boolean;
+  /** The page's own Save, so a test can save first. */
+  save: () => Promise<void>;
 }) {
   const [status, setStatus] = useState<NotifyStatus | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
@@ -323,6 +340,7 @@ export default function NotifyPanel({ draft, set, dirty }: {
             categories={categories}
             status={status?.targets[t.id] ?? undefined}
             dirty={dirty}
+            save={save}
             update={(next) => set({ notifyTargets: targets.map((x) => (x.id === t.id ? next : x)) })}
             remove={() => set({ notifyTargets: targets.filter((x) => x.id !== t.id) })}
           />
