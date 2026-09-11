@@ -240,7 +240,7 @@ export interface MatrixChatSettings {
   eventContext: boolean;
   /** An installed Ollama model. Blank uses the one the listing pass uses. */
   model: string;
-  /** Blank uses the built-in one. See notify/chat.ts. */
+  /** Who the model is and how it talks. How the room works is always added; see howItWorks in notify/chat.ts. */
   systemPrompt: string;
   /** Earlier messages in the room it is shown, so it can follow a conversation. */
   historyMessages: number;

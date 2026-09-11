@@ -570,7 +570,7 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
               <textarea
                 rows={5}
                 value={chat.systemPrompt}
-                placeholder="Blank for the built-in one: a friendly assistant that talks only about the listed events, names their date and place, and keeps answers short."
+                placeholder="Who it is and how it talks — a helpful guide, a pirate, anything. Blank for no persona. How the room works (names, commands, that it only reads) is always added."
                 onChange={(e) => setChat({ systemPrompt: e.target.value })}
               />
             </div>

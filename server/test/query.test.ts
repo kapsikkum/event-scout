@@ -26,6 +26,8 @@ function event(over: Partial<MergedEvent> = {}): MergedEvent {
     starred: false,
     hidden: false,
     firstSeenAt: null,
+    unknownLocation: false,
+    culled: null,
     sources: [{ source: 'MIDNIGHT_SPEC', url: 'https://example.test/1' }],
     images: [],
     members: [],

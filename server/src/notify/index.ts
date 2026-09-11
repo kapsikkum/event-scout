@@ -9,6 +9,7 @@ import { matchesFilters } from './filters.js';
 import { markdownToMatrix, matrixText, type BusyVenue, type MatrixContent } from './format.js';
 import {
   batchQuestion, buildChatMessages, busyText, chatReply, chatStillOn, conditionsText, eventsForChat, parseChatCommand,
+  stripSpeakerLabel,
   type ChatLine, type ChatSession,
 } from './chat.js';
 import { resolveAreas } from '../density/areas.js';
@@ -163,7 +164,7 @@ function effectiveChat(roomId: string): { model: string; context: boolean; syste
     from: {
       model: s.model ? 'this chat' : chat?.model ? 'Settings' : 'the listing pass',
       context: s.context !== undefined ? 'this chat' : 'Settings',
-      systemPrompt: s.systemPrompt !== undefined ? 'this chat' : chat?.systemPrompt ? 'Settings' : 'built in',
+      systemPrompt: s.systemPrompt !== undefined ? 'this chat' : chat?.systemPrompt ? 'Settings' : 'none set',
     },
   };
 }
@@ -224,7 +225,7 @@ async function chatCommand(msg: IncomingMessage): Promise<MatrixContent> {
   const describe = (): string =>
     `Model: ${now.model || '(none)'} (${now.from.model}). ` +
     `Events, weather and busy places: ${now.context ? 'on' : 'off, bare model'} (${now.from.context}). ` +
-    `System prompt (${now.from.systemPrompt}): ${now.systemPrompt ? `“${now.systemPrompt.slice(0, 300)}${now.systemPrompt.length > 300 ? '…' : ''}”` : 'the built-in one'}.`;
+    `System prompt (${now.from.systemPrompt}): ${now.systemPrompt ? `“${now.systemPrompt.slice(0, 300)}${now.systemPrompt.length > 300 ? '…' : ''}”` : 'none, just how the room works'}.`;
 
   if (action.kind === 'status') {
     return matrixText(on ? `Chat is on here. ${describe()}` : `Chat is off here. ${p}chat start to begin.`);
@@ -242,7 +243,7 @@ async function chatCommand(msg: IncomingMessage): Promise<MatrixContent> {
   const session = { ...(sessions.get(room) ?? {}) };
 
   if (action.kind === 'system') {
-    if (asking) return matrixText(`System prompt (${now.from.systemPrompt}): ${now.systemPrompt || 'the built-in one'}`);
+    if (asking) return matrixText(`System prompt (${now.from.systemPrompt}): ${now.systemPrompt || 'none, just how the room works'}`);
     if (action.value === null) delete session.systemPrompt;
     else session.systemPrompt = action.value;
     sessions.set(room, session);
@@ -337,7 +338,7 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
     const messages = buildChatMessages({
       settings,
       context,
-      // Only a prompt this chat set overrides; otherwise Settings' (or the built-in one).
+      // Only a prompt this chat set overrides; otherwise Settings' (or none).
       systemPrompt: session?.systemPrompt !== undefined ? systemPrompt : undefined,
       events: context ? eventsForChat(getMergedEvents(), lines.map((l) => l.body).join('\n'), filters, now) : [],
       // qwen3 ignores Ollama's think switch on some versions and reasons out
@@ -349,7 +350,12 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
       conditions,
       busy: context ? busyText(busyVenues(), now) : '',
     });
-    const answer = await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000, numCtx: 8192 });
+    // Without the "Kapsikkum:" it likes to open with, and kept that way in the
+    // history, so the next answer is not taught to do it again.
+    const answer = stripSpeakerLabel(
+      await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000, numCtx: 8192 }),
+      lines
+    );
     await sendMatrix(conn, roomId, chatReply(answer, lines));
     // Still talking: the hour of quiet that ends a chat starts again from here.
     if (chatOn(roomId)) setKv(chatKey(roomId), new Date().toISOString());
