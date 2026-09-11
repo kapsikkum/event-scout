@@ -9,6 +9,12 @@ import type { NotifyFilters, NotifyTarget, NotifyTriggers } from '../sources/typ
  * defended against at each place a target is read.
  */
 
+/** The ways a Matrix room can lay events out, in the order Settings offers them. */
+export const MATRIX_LOOKS = ['cards', 'minimal', 'table', 'plain'] as const;
+export const MATRIX_LOOK_LABEL: Record<(typeof MATRIX_LOOKS)[number], string> = {
+  cards: 'cards', minimal: 'minimal lines', table: 'table', plain: 'plain text',
+};
+
 export const DEFAULT_TRIGGERS: NotifyTriggers = {
   newEvents: { enabled: true, settleMinutes: 30, maxPerRun: 10 },
   digest: { enabled: false, cadence: 'weekly', weekday: 4, hour: 18, daysAhead: 7 },
@@ -67,6 +73,10 @@ export function normalizeTarget(raw: unknown): NotifyTarget {
     // Ordinary messages unless asked otherwise: clients draw notices greyed out.
     matrixLoud: bool(t.matrixLoud, true),
     commands: bool(t.commands, true),
+    matrixLook: (MATRIX_LOOKS as readonly string[]).includes(String(t.matrixLook))
+      ? (t.matrixLook as NotifyTarget['matrixLook'])
+      : 'minimal',
+    chat: bool(t.chat, false),
     triggers: {
       newEvents: {
         enabled: bool(ne.enabled, d.newEvents.enabled),

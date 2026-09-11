@@ -200,7 +200,7 @@ export const deliver: Deliver = async (target, notice, settings) => {
   const conn = connFromSettings(settings);
   if (!conn) throw new Error('The Matrix bot has no homeserver or access token in Settings');
   if (!target.roomId) throw new Error('No room set for this target');
-  const pictures = target.showImage && target.style === 'full' && notice.kind !== 'digest'
+  const pictures = target.showImage && (target.matrixLook === 'cards' || target.matrixLook === 'minimal') && notice.kind !== 'digest'
     ? await imagesFor(conn, notice.items.map((i) => i.ev.imageUrl))
     : {};
   for (const content of matrixMessages(notice, target, settings.appUrl ?? '', pictures)) {

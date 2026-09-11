@@ -361,23 +361,111 @@ export function matrixImage(picture: MatrixPicture, title: string): MatrixConten
   return { msgtype: 'm.image', body: cut(title, 100), url: picture.uri, info: { mimetype: picture.mimetype, size: picture.size } };
 }
 
+/** One line of facts under a title: when, where, category, price. */
+function factsOf(ev: MergedEvent): string {
+  return [whenText(ev.startTime, ev.dateOnly), whereText(ev), ev.category, ev.priceText].filter(Boolean).join(' · ');
+}
+
+/** Minimal: the title in bold as a link, one plain line of facts under it, a blank line between events. */
+function minimalBody(notice: Notice, appUrl: string, ping: boolean): MatrixContent {
+  const blocks = notice.items.map((item) => {
+    const ev = readable(item.ev);
+    const link = linkFor(ev, appUrl);
+    const title = escapeHtml(cut(ev.title, 200));
+    const again = item.moreDates ? ` · ↻ +${item.moreDates} more date${item.moreDates === 1 ? '' : 's'}` : '';
+    const changes = changesOf(item);
+    return {
+      text: [ev.title, factsOf(ev) + again, ...changes.text, link].filter(Boolean).join('\n'),
+      html:
+        `<p><b>${link ? `<a href="${escapeHtml(link)}">${title}</a>` : title}</b><br>${escapeHtml(factsOf(ev) + again)}` +
+        changes.html.map((c) => `<br>${c}`).join('') + '</p>',
+    };
+  });
+  const more = notice.more ? `…and ${notice.more} more` : '';
+  return {
+    msgtype: 'm.text',
+    body: [`${ping ? '@room ' : ''}${notice.heading}`, ...blocks.map((b) => b.text), more].filter(Boolean).join('\n\n'),
+    format: HTML,
+    formatted_body: `<p>${ping ? '@room ' : ''}<b>${escapeHtml(notice.heading)}</b></p>${blocks.map((b) => b.html).join('')}${more ? `<p><i>${escapeHtml(more)}</i></p>` : ''}`,
+    'm.mentions': ping ? { room: true } : {},
+  };
+}
+
+/** Table: a row an event. Tidy on a desktop client; the plain body is what a phone may show instead. */
+function tableBody(notice: Notice, appUrl: string, ping: boolean): MatrixContent {
+  const rows = notice.items.map((item) => {
+    const ev = readable(item.ev);
+    const link = linkFor(ev, appUrl);
+    const title = escapeHtml(cut(ev.title, 120));
+    const changes = changesOf(item);
+    return {
+      text: `${whenText(ev.startTime, ev.dateOnly)} — ${ev.title} — ${whereText(ev)}${ev.category ? ` — ${ev.category}` : ''}`,
+      html:
+        `<tr><td>${escapeHtml(whenText(ev.startTime, ev.dateOnly))}</td>` +
+        `<td>${link ? `<a href="${escapeHtml(link)}">${title}</a>` : title}${item.moreDates ? ` (+${item.moreDates})` : ''}${changes.html.map((c) => `<br>${c}`).join('')}</td>` +
+        `<td>${escapeHtml(whereText(ev))}</td><td>${escapeHtml(ev.category)}</td></tr>`,
+    };
+  });
+  const more = notice.more ? `…and ${notice.more} more` : '';
+  return {
+    msgtype: 'm.text',
+    body: [`${ping ? '@room ' : ''}${notice.heading}`, ...rows.map((r) => r.text), more].filter(Boolean).join('\n'),
+    format: HTML,
+    formatted_body:
+      `<p>${ping ? '@room ' : ''}<b>${escapeHtml(notice.heading)}</b></p>` +
+      (rows.length
+        ? `<table><thead><tr><th>When</th><th>Event</th><th>Where</th><th>Category</th></tr></thead><tbody>${rows.map((r) => r.html).join('')}</tbody></table>`
+        : '') +
+      (more ? `<p><i>${escapeHtml(more)}</i></p>` : ''),
+    'm.mentions': ping ? { room: true } : {},
+  };
+}
+
+/** Plain: no markup at all, so every client shows it the same. */
+function plainBody(notice: Notice, appUrl: string, ping: boolean): MatrixContent {
+  const blocks = notice.items.map((item) => {
+    const ev = readable(item.ev);
+    return [ev.title, `${whenText(ev.startTime, ev.dateOnly)} — ${whereText(ev)}`, ...changesOf(item).text, linkFor(ev, appUrl)]
+      .filter(Boolean).join('\n');
+  });
+  return {
+    msgtype: 'm.text',
+    body: [`${ping ? '@room ' : ''}${notice.heading}`, ...blocks, notice.more ? `…and ${notice.more} more` : ''].filter(Boolean).join('\n\n'),
+    'm.mentions': ping ? { room: true } : {},
+  };
+}
+
 /**
- * A notice as the messages a target asks for.
+ * A notice as the messages a target asks for, in the room's look.
  *
- * Full: a heading, then a card for each event followed by its flyer as an
- * image. Compact, and every digest: one message, a line an event. Quiet
- * targets send notices, which clients draw greyed out and do not alert for;
- * the rest send ordinary messages.
+ *   cards    a heading, then a card for each event and its flyer as an image
+ *   minimal  one message, a bold title and a line of facts an event, then the flyers
+ *   table    one message with a table; no pictures
+ *   plain    one message of plain text; no pictures
+ *
+ * A digest in the cards look comes as minimal lines: a card each is too much
+ * for a list of the week. Quiet targets send notices, which clients draw
+ * greyed out and do not alert for; the rest send ordinary messages.
  */
 export function matrixMessages(
   notice: Notice, target: NotifyTarget, appUrl: string, pictures: Record<string, MatrixPicture> = {}, now = new Date()
 ): MatrixContent[] {
   const quiet = (c: MatrixContent): MatrixContent =>
     target.matrixLoud || c.msgtype === 'm.image' ? c : { ...c, msgtype: 'm.notice' };
-  const full = target.style === 'full' && notice.kind !== 'digest';
-  if (!full) return [quiet(matrixList(notice.heading, notice.items, appUrl, { more: notice.more, mention: target.mention }))];
-
   const ping = target.mention === '@room';
+  const look = notice.kind === 'digest' && target.matrixLook === 'cards' ? 'minimal' : target.matrixLook;
+  const flyers = (): MatrixContent[] =>
+    target.showImage
+      ? notice.items.flatMap((item) => {
+          const picture = pictures[item.ev.imageUrl];
+          return picture ? [matrixImage(picture, readable(item.ev).title)] : [];
+        })
+      : [];
+
+  if (look === 'table') return [quiet(tableBody(notice, appUrl, ping))];
+  if (look === 'plain') return [quiet(plainBody(notice, appUrl, ping))];
+  if (look === 'minimal') return [quiet(minimalBody(notice, appUrl, ping)), ...flyers()];
+
   const out: MatrixContent[] = [
     quiet({
       msgtype: 'm.text',
@@ -394,6 +482,47 @@ export function matrixMessages(
   }
   if (notice.more) out.push(quiet({ msgtype: 'm.text', body: `…and ${notice.more} more` }));
   return out;
+}
+
+/**
+ * A model's answer, which comes as Markdown, as a Matrix message.
+ *
+ * Only the handful of things a chat answer uses: paragraphs, line breaks,
+ * bullet and numbered lines, **bold**, *italic*, `code`, fenced code and
+ * [links](https://…). Everything is escaped first, so nothing the model says
+ * can become markup it did not mean.
+ */
+export function markdownToMatrix(md: string): MatrixContent {
+  const text = md.replace(/\r\n/g, '\n').trim();
+  const inline = (s: string): string =>
+    escapeHtml(s)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>')
+      .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>')
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
+  const parts = text.split(/```[^\n]*\n?/);
+  const html = parts
+    .map((part, i) => {
+      if (i % 2 === 1) return `<pre><code>${escapeHtml(part.replace(/\n$/, ''))}</code></pre>`;
+      return part
+        .split(/\n{2,}/)
+        .map((para) => para.trim())
+        .filter(Boolean)
+        .map((para) => {
+          const lines = para.split('\n').map((line) => {
+            const heading = /^#{1,6}\s+(.*)$/.exec(line);
+            if (heading) return `<b>${inline(heading[1])}</b>`;
+            const bullet = /^\s*[-*•]\s+(.*)$/.exec(line);
+            if (bullet) return `• ${inline(bullet[1])}`;
+            return inline(line);
+          });
+          return `<p>${lines.join('<br>')}</p>`;
+        })
+        .join('');
+    })
+    .join('');
+  return { msgtype: 'm.text', body: text, format: HTML, formatted_body: html, 'm.mentions': {} };
 }
 
 /** Plain words, for a command's reply. */

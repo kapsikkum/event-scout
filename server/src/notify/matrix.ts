@@ -342,6 +342,8 @@ async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop
       for (const [roomId, room] of Object.entries(sync.rooms?.join ?? {})) {
         for (const ev of room.timeline?.events ?? []) {
           if (ev.type !== 'm.room.message' || ev.sender === me || typeof ev.content?.body !== 'string') continue;
+          // Bots speak in notices by convention; answering one is how two bots end up talking forever.
+          if ((ev.content as { msgtype?: string }).msgtype === 'm.notice') continue;
           try {
             const reply = await handler({ roomId, sender: ev.sender, body: ev.content.body });
             if (reply && live()) await sendMatrix(conn, roomId, reply);
@@ -359,4 +361,13 @@ async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop
       backoff = Math.min(backoff * 2, 300000);
     }
   }
+}
+
+/** "Typing…" in a room while an answer is worked out, or not. */
+export async function setTyping(conn: MatrixConn, roomId: string, userId: string, typing: boolean): Promise<void> {
+  if (!userId) return;
+  await call(
+    conn, 'PUT', `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(userId)}`,
+    typing ? { typing: true, timeout: 120000 } : { typing: false }
+  );
 }

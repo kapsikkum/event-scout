@@ -34,7 +34,7 @@ import { crawlerBase, syncCrawler } from './sources/crawler.js';
 import { readFeed } from './sources/ical.js';
 import { addManualEvent, archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
 import { readEventPage } from './importer.js';
-import { notifyStatus, sendTest, startMatrix } from './notify/index.js';
+import { notifyStatus, sendLooks, sendTest, startMatrix } from './notify/index.js';
 import { validateDates } from './validate.js';
 import { getPhotoConditions } from './photo.js';
 import { listAreas, renderArea, venueHistory, venueReadings } from './density/pipeline.js';
@@ -226,6 +226,12 @@ app.put('/api/settings', (req, res) => {
     commandPrefix: typeof bot.commandPrefix === 'string' && bot.commandPrefix.trim() ? bot.commandPrefix.trim().slice(0, 5) : '!',
     allowedUsers: Array.isArray(bot.allowedUsers) ? bot.allowedUsers.map((u) => String(u).trim()).filter(Boolean) : [],
     commandsEverywhere: bot.commandsEverywhere !== false,
+    chat: {
+      enabled: bot.chat?.enabled === true,
+      model: typeof bot.chat?.model === 'string' ? bot.chat.model.trim() : '',
+      systemPrompt: typeof bot.chat?.systemPrompt === 'string' ? bot.chat.systemPrompt.slice(0, 4000) : '',
+      historyMessages: Math.min(40, Math.max(0, Math.round(Number(bot.chat?.historyMessages ?? 12)) || 0)),
+    },
   };
   next.appUrl = typeof next.appUrl === 'string' ? next.appUrl.trim() : '';
   saveSettings(next);
@@ -635,6 +641,13 @@ app.post('/api/notify/test', async (req, res) => {
   const id = typeof req.body?.id === 'string' ? req.body.id : '';
   if (!id) return res.status(400).json({ ok: false, message: 'Which target?' });
   res.json(await sendTest(id));
+});
+
+/** One sample per Matrix look to a saved room, to pick from. */
+app.post('/api/notify/looks', async (req, res) => {
+  const id = typeof req.body?.id === 'string' ? req.body.id : '';
+  if (!id) return res.status(400).json({ ok: false, message: 'Which target?' });
+  res.json(await sendLooks(id));
 });
 
 app.post('/api/tasks/:name/run', async (req, res) => {

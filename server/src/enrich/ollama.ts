@@ -71,6 +71,60 @@ export interface ChatOptions {
   numCtx?: number;
 }
 
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * One free-text answer to a conversation, for the Matrix bot's chat rooms.
+ *
+ * The same `think: false` as below, for the same reason: a reasoning preamble
+ * is not something to post in a room. A larger context than the listing pass
+ * asks for, because the upcoming events travel in the system message.
+ */
+export async function chatText(opts: {
+  url: string;
+  model: string;
+  messages: ChatMessage[];
+  timeoutMs: number;
+  numCtx?: number;
+}): Promise<string> {
+  const res = await withTimeout(opts.timeoutMs, (signal) =>
+    fetch(`${base(opts.url)}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        model: opts.model,
+        stream: false,
+        think: false,
+        keep_alive: '30m',
+        options: { temperature: 0.4, num_ctx: opts.numCtx ?? 16384 },
+        messages: opts.messages,
+      }),
+    }).catch((err: Error) => {
+      throw new OllamaError(err.name === 'AbortError' ? 'timed out' : `cannot reach ${opts.url}`);
+    })
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    let detail = text.slice(0, 200);
+    try {
+      const parsed = JSON.parse(text) as { error?: string };
+      if (parsed.error) detail = parsed.error;
+    } catch {
+      /* keep the raw text */
+    }
+    throw new OllamaError(detail);
+  }
+  const content = (JSON.parse(text) as { message?: { content?: string } }).message?.content ?? '';
+  // A model that thinks anyway puts it in a <think> block; that is not the answer.
+  const answer = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  if (!answer) throw new OllamaError('answered nothing');
+  return answer;
+}
+
 /**
  * One structured answer from the model.
  *

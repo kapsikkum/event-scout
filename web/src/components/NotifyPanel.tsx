@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { api, NotifyStatus, NotifyTarget, Settings as SettingsType } from '../api';
+import { api, LlmStatus, NotifyStatus, NotifyTarget, Settings as SettingsType } from '../api';
 
 /**
  * Settings → Notifications: Discord webhooks, Matrix rooms, and the Matrix bot.
@@ -29,6 +29,8 @@ function blankTarget(kind: NotifyTarget['kind']): NotifyTarget {
     roomId: '',
     matrixLoud: true,
     commands: true,
+    matrixLook: 'minimal',
+    chat: false,
     triggers: {
       newEvents: { enabled: true, settleMinutes: 30, maxPerRun: 10 },
       digest: { enabled: false, cadence: 'weekly', weekday: 4, hour: 18, daysAhead: 7 },
@@ -93,8 +95,10 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
   );
 }
 
-function TargetCard({ target, update, remove, places, categories, status, dirty, save, rooms }: {
+function TargetCard({ target, update, remove, places, categories, status, dirty, save, rooms, chatOn }: {
   rooms: { roomId: string; name: string }[];
+  /** Whether the bot's chat is switched on, for the chat-room switch to say so. */
+  chatOn: boolean;
   target: NotifyTarget;
   update: (t: NotifyTarget) => void;
   remove: () => void;
@@ -115,14 +119,14 @@ function TargetCard({ target, update, remove, places, categories, status, dirty,
 
   // A test goes to the saved target — the server's copy, webhook and all — so
   // unsaved changes are saved first rather than the button sitting greyed out.
-  const sendTest = async (): Promise<void> => {
+  const sendTest = async (what: 'test' | 'looks' = 'test'): Promise<void> => {
     try {
       if (dirty) {
         setTest('Saving…');
         await save();
       }
       setTest('Sending…');
-      setTest((await api.notifyTest(t.id)).message);
+      setTest((await (what === 'looks' ? api.notifyLooks(t.id) : api.notifyTest(t.id))).message);
     } catch (err) {
       setTest((err as Error).message);
     }
@@ -210,11 +214,15 @@ function TargetCard({ target, update, remove, places, categories, status, dirty,
           </div>
           <div className="formrow">
             <label>Look</label>
-            <select value={t.style} onChange={(e) => set({ style: e.target.value as NotifyTarget['style'] })}>
-              <option value="full">Full: details, blurb and picture</option>
-              <option value="compact">Compact: a line each</option>
+            <select value={t.matrixLook} onChange={(e) => set({ matrixLook: e.target.value as NotifyTarget['matrixLook'] })}>
+              <option value="minimal">Minimal: a bold title and a line of facts each</option>
+              <option value="cards">Cards: a message each, with the blurb</option>
+              <option value="table">Table: a row each (best on desktop)</option>
+              <option value="plain">Plain text: no formatting at all</option>
             </select>
-            <Check checked={t.showImage} onChange={(v) => set({ showImage: v })}>Pictures</Check>
+            {(t.matrixLook === 'minimal' || t.matrixLook === 'cards') && (
+              <Check checked={t.showImage} onChange={(v) => set({ showImage: v })}>Flyers</Check>
+            )}
           </div>
           <div className="formrow">
             <label>Mention</label>
@@ -228,6 +236,10 @@ function TargetCard({ target, update, remove, places, categories, status, dirty,
           </div>
           <Check checked={t.commands} onChange={(v) => set({ commands: v })}>
             Answer commands here, listing only what the filters below let through
+          </Check>
+          <Check checked={t.chat} onChange={(v) => set({ chat: v })}>
+            Chat room: the local model answers every other message, about the events the filters below let through
+            {t.chat && !chatOn && <span className="hint"> — switch chat on under Matrix bot</span>}
           </Check>
         </>
       )}
@@ -319,6 +331,11 @@ function TargetCard({ target, update, remove, places, categories, status, dirty,
         >
           {dirty ? 'Save & send a test' : 'Send a test'}
         </button>
+        {t.kind === 'matrix' && (
+          <button title="Posts one sample of each look to this room, to compare in your own client" onClick={() => void sendTest('looks')}>
+            {dirty ? 'Save & compare looks' : 'Compare looks'}
+          </button>
+        )}
         {test && <span className="hint">{test}</span>}
         <button className="notify__remove" onClick={remove}>Remove target</button>
       </div>
@@ -335,9 +352,11 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
 }) {
   const [status, setStatus] = useState<NotifyStatus | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const [llm, setLlm] = useState<LlmStatus | null>(null);
 
   useEffect(() => {
     api.topics().then((r) => setCategories(r.categories ?? [])).catch(() => undefined);
+    api.llmStatus().then(setLlm).catch(() => setLlm(null));
     let alive = true;
     const tick = (): void => {
       api.notifyStatus().then((s) => alive && setStatus(s)).catch(() => undefined);
@@ -351,7 +370,12 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
   }, []);
 
   const targets = draft.notifyTargets ?? [];
-  const bot = draft.matrixBot ?? { enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true };
+  const bot = draft.matrixBot ?? {
+    enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true,
+    chat: { enabled: false, model: '', systemPrompt: '', historyMessages: 12 },
+  };
+  const chat = bot.chat ?? { enabled: false, model: '', systemPrompt: '', historyMessages: 12 };
+  const setChat = (patch: Partial<typeof chat>): void => setBot({ chat: { ...chat, ...patch } });
   const setBot = (patch: Partial<typeof bot>): void => set({ matrixBot: { ...bot, ...patch } });
   const places = [...new Set([draft.city, ...(draft.eventAreas ?? []).map((a) => a.name)].map((p) => town(p ?? '')).filter(Boolean))];
   const m = status?.matrix;
@@ -380,6 +404,7 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
             dirty={dirty}
             save={save}
             rooms={m?.joinedRooms ?? []}
+            chatOn={Boolean(draft.matrixBot?.chat?.enabled)}
             update={(next) => set({ notifyTargets: targets.map((x) => (x.id === t.id ? next : x)) })}
             remove={() => set({ notifyTargets: targets.filter((x) => x.id !== t.id) })}
           />
@@ -485,6 +510,55 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
         <Check checked={bot.commandsEverywhere !== false} onChange={(v) => setBot({ commandsEverywhere: v })}>
           Answer commands in rooms with nothing set up above, listing everything
         </Check>
+
+        <h4 className="notify__sub">Chat</h4>
+        <p className="hint">
+          In rooms marked <em>Chat room</em> above, the local model answers every message that is not a command,
+          using the upcoming events that room’s filters let through, today’s weather and light, and the last few
+          messages. It can only read: it cannot shortlist or change anything.
+        </p>
+        {llm && !llm.reachable ? (
+          <div className="status-line error">No Ollama reachable{llm.problem ? ` — ${llm.problem}` : ''}. Set it up under Local model.</div>
+        ) : (
+          <>
+            <Check checked={chat.enabled} onChange={(v) => setChat({ enabled: v })}>Chat on</Check>
+            <div className="formrow">
+              <label>Model</label>
+              <select value={chat.model} onChange={(e) => setChat({ model: e.target.value })}>
+                <option value="">{draft.llmModel ? `Same as the listing pass (${draft.llmModel})` : 'Choose a model…'}</option>
+                {(llm?.models ?? []).map((mdl) => (
+                  <option key={mdl.name} value={mdl.name}>
+                    {mdl.name} ({Math.round(mdl.size / 1e9)} GB)
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="formrow notify__prompt">
+              <label>System prompt</label>
+              <textarea
+                rows={5}
+                value={chat.systemPrompt}
+                placeholder="Blank for the built-in one: a friendly assistant that talks only about the listed events, names their date and place, and keeps answers short."
+                onChange={(e) => setChat({ systemPrompt: e.target.value })}
+              />
+            </div>
+            <p className="hint" style={{ marginTop: -4 }}>
+              The date, your areas, the weather and the event list are added after it, whatever it says.
+            </p>
+            <div className="formrow">
+              <label>Remembers</label>
+              <input
+                className="notify__num"
+                type="number"
+                min={0}
+                max={40}
+                value={chat.historyMessages}
+                onChange={(e) => setChat({ historyMessages: Number(e.target.value) })}
+              />
+              <span className="hint">earlier messages per room</span>
+            </div>
+          </>
+        )}
       </section>
     </>
   );

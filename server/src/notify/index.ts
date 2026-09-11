@@ -3,10 +3,15 @@ import { getMergedEvents, setGroupFlag } from '../events.js';
 import { runCommand, parseCommand } from './commands.js';
 import { deliver, runNotifications } from './run.js';
 import { dbStore, setTargetStatus, targetStatus, tidyNotifyState } from './store.js';
-import { IncomingMessage, knownRoomId, matrixStatus, restartMatrixBot } from './matrix.js';
-import { normalizeTarget } from './targets.js';
+import { connFromSettings, IncomingMessage, knownRoomId, matrixStatus, restartMatrixBot, sendMatrix, setTyping } from './matrix.js';
+import { MATRIX_LOOK_LABEL, MATRIX_LOOKS, normalizeTarget } from './targets.js';
 import { matchesFilters } from './filters.js';
-import type { MatrixContent } from './format.js';
+import { markdownToMatrix, matrixText, type MatrixContent } from './format.js';
+import { buildChatMessages, conditionsText, eventsForChat, speaker } from './chat.js';
+import { chatText, type ChatMessage } from '../enrich/ollama.js';
+import { ollamaUrl } from '../enrich/pipeline.js';
+import { getPhotoConditions } from '../photo.js';
+import type { NotifyFilters } from '../sources/types.js';
 import type { TaskLog, TaskResult } from '../tasks/registry.js';
 
 /**
@@ -65,17 +70,97 @@ export function notifyStatus(): {
   return { matrix: matrixStatus(), targets };
 }
 
+/**
+ * One sample per Matrix look to a saved room, with real events, so the looks
+ * can be compared in the client the room is actually read in.
+ */
+export async function sendLooks(id: string): Promise<{ ok: boolean; message: string }> {
+  const settings = getSettings();
+  const raw = (settings.notifyTargets ?? []).find((t) => t.id === id);
+  if (!raw) return { ok: false, message: 'Save the target first; there is no saved target with that id.' };
+  const target = normalizeTarget(raw);
+  if (target.kind !== 'matrix') return { ok: false, message: 'Looks are for Matrix rooms.' };
+  const events = getMergedEvents()
+    .filter((ev) => !ev.hidden && !ev.culled && matchesFilters(ev, target.filters, { ignoreStarredOnly: true }))
+    .slice(0, 3);
+  try {
+    for (const [i, look] of MATRIX_LOOKS.entries()) {
+      await deliver(
+        { ...target, matrixLook: look },
+        {
+          kind: 'test',
+          heading: `🎨 Look ${i + 1} of ${MATRIX_LOOKS.length}: ${MATRIX_LOOK_LABEL[look]}`,
+          items: events.map((ev) => ({ ev })),
+        },
+        settings
+      );
+    }
+    return { ok: true, message: `Sent ${MATRIX_LOOKS.length} samples. Pick one under Look.` };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
+}
+
+/** Rooms with an answer being worked out, so a burst of messages is one answer, not five. */
+const thinking = new Set<string>();
+/** The last few turns in each chat room, oldest first. Kept in memory: a restart starts the conversation over. */
+const histories = new Map<string, ChatMessage[]>();
+
+/** Answer a message in a chat room with the local model, showing "typing…" meanwhile. */
+async function answerChat(msg: IncomingMessage, filters: NotifyFilters): Promise<void> {
+  const settings = getSettings();
+  const chat = settings.matrixBot.chat;
+  const conn = connFromSettings(settings);
+  if (!conn || thinking.has(msg.roomId)) return;
+  const model = chat.model || settings.llmModel;
+  if (!model) {
+    await sendMatrix(conn, msg.roomId, matrixText('Chat is on, but no model is chosen. Pick one in Settings → Notifications.'));
+    return;
+  }
+  thinking.add(msg.roomId);
+  const me = matrixStatus().userId;
+  try {
+    await setTyping(conn, msg.roomId, me, true).catch(() => undefined);
+    const now = new Date();
+    const question = `${speaker(msg.sender)}: ${msg.body.slice(0, 2000)}`;
+    const history = histories.get(msg.roomId) ?? [];
+    const conditions = await getPhotoConditions().then(conditionsText).catch(() => '');
+    const messages = buildChatMessages({
+      settings,
+      events: eventsForChat(getMergedEvents(), msg.body, filters, now),
+      question,
+      history,
+      now,
+      conditions,
+    });
+    const answer = await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000 });
+    await sendMatrix(conn, msg.roomId, markdownToMatrix(answer));
+    const kept = Math.max(0, chat.historyMessages);
+    histories.set(msg.roomId, kept ? [...history, { role: 'user' as const, content: question }, { role: 'assistant' as const, content: answer }].slice(-kept) : []);
+  } catch (err) {
+    await sendMatrix(conn, msg.roomId, matrixText(`I couldn’t answer that: ${(err as Error).message}`)).catch(() => undefined);
+  } finally {
+    thinking.delete(msg.roomId);
+    await setTyping(conn, msg.roomId, me, false).catch(() => undefined);
+  }
+}
+
 /** The bot's answer to one message in one of its rooms, or nothing if it was not a command. */
 function handleMatrixMessage(msg: IncomingMessage): MatrixContent | null {
   const settings = getSettings();
   const prefix = settings.matrixBot?.commandPrefix || '!';
   const cmd = parseCommand(msg.body, prefix);
-  if (!cmd) return null;
   // The room's own target decides whether commands are answered there and
   // what they may list; a room with none follows the bot-wide switch.
   const target = (settings.notifyTargets ?? [])
     .map(normalizeTarget)
     .find((t) => t.kind === 'matrix' && t.roomId && knownRoomId(t.roomId) === msg.roomId);
+  if (!cmd) {
+    // Not a command: a chat room answers it, in the background so the sync
+    // loop is not held up for the minute a model can take.
+    if (target?.chat && settings.matrixBot?.chat?.enabled) void answerChat(msg, target.filters);
+    return null;
+  }
   if (target ? !target.commands : settings.matrixBot?.commandsEverywhere === false) return null;
   return runCommand(cmd, msg, {
     filters: target?.filters,

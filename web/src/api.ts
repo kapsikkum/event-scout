@@ -155,7 +155,15 @@ export interface Settings {
   densityMaxVenues: number;
   /** Discord webhooks and Matrix rooms to tell about events. */
   notifyTargets: NotifyTarget[];
-  matrixBot: { enabled: boolean; homeserver: string; commandPrefix: string; allowedUsers: string[]; commandsEverywhere: boolean };
+  matrixBot: {
+    enabled: boolean;
+    homeserver: string;
+    commandPrefix: string;
+    allowedUsers: string[];
+    commandsEverywhere: boolean;
+    /** Chat rooms: the local model answering. Blank model uses the listing pass's; blank prompt the built-in one. */
+    chat: { enabled: boolean; model: string; systemPrompt: string; historyMessages: number };
+  };
   /** Arrives as ''; see secretsSet. */
   matrixAccessToken: string | null;
   /** This app's address as notification readers reach it, for "Open in Event Scout". */
@@ -191,6 +199,10 @@ export interface NotifyTarget {
   matrixLoud: boolean;
   /** Matrix: answer commands in this room, listing only what this target's filters let through. */
   commands: boolean;
+  /** Matrix: a card each, a line each, a table, or plain text. */
+  matrixLook: 'cards' | 'minimal' | 'table' | 'plain';
+  /** Matrix: the local model answers every message that is not a command. */
+  chat: boolean;
   triggers: {
     newEvents: { enabled: boolean; settleMinutes: number; maxPerRun: number };
     digest: { enabled: boolean; cadence: 'daily' | 'weekly'; weekday: number; hour: number; daysAhead: number };
@@ -660,6 +672,12 @@ export const api = {
       body: JSON.stringify(ev),
     }).then((r) => json<{ group: string; event: MergedEvent | null }>(r)),
   notifyStatus: () => fetch('/api/notify/status').then((r) => json<NotifyStatus>(r)),
+  notifyLooks: (id: string) =>
+    fetch('/api/notify/looks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).then((r) => json<{ ok: boolean; message: string }>(r)),
   notifyTest: (id: string) =>
     fetch('/api/notify/test', {
       method: 'POST',

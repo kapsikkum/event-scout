@@ -272,10 +272,21 @@ token and the accounts allowed to use it. Invite it to an **unencrypted** room f
 an allowed account — an invite from anyone else is declined, and Settings says so
 with a button to allow them. The rooms it is in are listed with **Set up
 notifications here**. Each room target has the same triggers and filters as a
-webhook, plus: full (details, blurb, picture — uploaded to your homeserver, since
-Matrix shows only images it holds) or compact; an optional `@room` ping; ordinary
-messages that notify phones, or quiet bot notices; and the bot's display name in
-that room.
+webhook, plus a **look** — minimal (a bold title and a line of facts an event),
+cards (a message an event with its blurb), a table, or plain text; **Compare
+looks** posts one of each to the room so you can pick in your own client. Matrix
+has no embeds: messages are a small subset of HTML that each client draws its own
+way. Flyers go as image messages, uploaded to your homeserver since Matrix shows
+only images it holds. Also: an optional `@room` ping; ordinary messages, or quiet
+notices (drawn greyed out, no alert); and the bot's display name in that room.
+
+**Chat rooms.** With an Ollama set up under Local model, switch on Chat under
+Matrix bot, pick a model and, if you like, a system prompt, and mark a room as a
+chat room. Every message there that is not a command is answered by the model,
+which is shown the date, your areas, today's and tomorrow's weather and light,
+the next 45 days of events that room's filters let through (plus anything further
+out the question names), and the last few messages. It shows as typing while it
+thinks and can only read — it cannot shortlist or change anything.
 
 It also answers commands. In a room with a target, commands can be switched off,
 and they list only what that target's filters let through — a cars room answers
