@@ -7,6 +7,19 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.4.0](https://github.com/kapsikkum/event-scout/compare/v0.3.0...v0.4.0) (2026-09-11)
+
+
+### Features
+
+* **crawler:** crawl venue sites for events, as a separate program ([f7a5e23](https://github.com/kapsikkum/event-scout/commit/f7a5e2321d1473b05c94847077ec2ec96467964f))
+* stop inventing start times, and point the crawler at chosen pages ([baf976b](https://github.com/kapsikkum/event-scout/commit/baf976bdd5e40fb76cfd120ee721acaf24a3ad2d))
+
+
+### Build and packaging
+
+* **nix:** run the crawler beside the app on data-server ([8fefb4e](https://github.com/kapsikkum/event-scout/commit/8fefb4e217329fdc0520d9c528cec01d55841ac3))
+
 ## [0.3.0](https://github.com/kapsikkum/event-scout/compare/v0.2.0...v0.3.0) (2026-09-10)
 
 
