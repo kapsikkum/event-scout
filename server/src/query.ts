@@ -132,7 +132,8 @@ export function filterEvents(events: MergedEvent[], q: EventQuery): MergedEvent[
   return events.filter((ev) => {
     if (!matches(q.category, ev.category)) return false;
     if (!matches(q.locality, ev.locality)) return false;
-    if (!matches(q.place, ev.place)) return false;
+    // By area as well as by name, so ?place=Bathurst takes in Portland.
+    if (q.place && !matches(q.place, ev.place) && !matches(q.place, ev.area)) return false;
     if (q.source && !ev.sources.some((s) => matches(q.source, s.source))) return false;
     if (q.from && ev.startTime < q.from) return false;
     if (q.to && ev.startTime > q.to) return false;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { assignPlaces, hubsFromSettings, Hub, Placeable } from '../src/places.js';
+import { assignPlaces, hubsFromSettings, Hub, Placeable, placeEvents } from '../src/places.js';
 import { isOver } from '../src/validate.js';
 
 /**
@@ -115,6 +115,22 @@ test('somewhere with enough events of its own is named rather than swallowed', (
 
   const few = Array.from({ length: 4 }, () => at(null, null, 'Sydney'));
   assert.deepEqual(assignPlaces(few, HUBS), Array(4).fill(''), 'below the threshold it is just elsewhere');
+});
+
+test('a town of its own inside an area keeps its name, and says which area it is in', () => {
+  // Bathurst's search radius reaches Portland and Newbridge. Neither is
+  // Bathurst; Perthville, nine kilometres out, is as good as.
+  const found = placeEvents(
+    [
+      at(-33.354, 149.982, 'Portland'),
+      at(null, null, 'Portland'),
+      at(-33.583, 149.367, 'Newbridge'),
+      at(-33.49, 149.55, 'Perthville'),
+    ],
+    HUBS
+  );
+  assert.deepEqual(found.map((p) => p.place), ['Portland', 'Portland', 'Newbridge', 'Bathurst']);
+  assert.deepEqual(found.map((p) => p.area), Array(4).fill('Bathurst'));
 });
 
 test('a listing with no locality at all stays elsewhere', () => {

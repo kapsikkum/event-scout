@@ -5,7 +5,7 @@ import { normalizeTitle } from './dedupe.js';
 import { localityOf } from './regions.js';
 import { flyerHref } from './flyers.js';
 import { storedPath } from './flyerStore.js';
-import { assignPlaces, hubsFromSettings } from './places.js';
+import { hubsFromSettings, placeEvents } from './places.js';
 import { cachedGeocode } from './geocode.js';
 import { cullReason } from './cull.js';
 import { chooseFields, EditError, parseEditPatch } from './merge.js';
@@ -39,10 +39,13 @@ export interface MergedEvent {
   /** The suburb or town the address names, '' when it names none. */
   locality: string;
   /**
-   * The town this rounds to, out of the ones the user searches. '' means
-   * nowhere near any of them. See places.ts.
+   * The town this rounds to, out of the ones the user searches — or, further
+   * out inside one of their areas, its own town. '' means nowhere near any of
+   * them. See places.ts.
    */
   place: string;
+  /** The searched area it lies in, '' when none: Bathurst for a Portland event. */
+  area: string;
   lat: number | null;
   lng: number | null;
   imageUrl: string;
@@ -145,13 +148,16 @@ function seriesKey(title: string, place: string): string {
 
 /**
  * Merge rows sharing a group into one event, preferring the richest fields.
- * Archived (past) events are excluded unless explicitly asked for.
+ *
+ * Upcoming events by default; `archived` asks for the past ones instead —
+ * everything archived, and everything over that the archive timer has not
+ * reached yet, which would otherwise be in neither list for up to a day.
  */
 export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[] {
-  const archived = opts.archived ? 1 : 0;
   const rows = db
-    .prepare('SELECT * FROM events WHERE archived = ? ORDER BY start_time ASC')
-    .all(archived) as unknown as EventRow[];
+    .prepare(`SELECT * FROM events ${opts.archived ? '' : 'WHERE archived = 0 '}ORDER BY start_time ASC`)
+    .all() as unknown as EventRow[];
+  const archivedGroups = new Set<string>();
 
   const byGroup = new Map<string, EventRow[]>();
   for (const row of rows) {
@@ -163,6 +169,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
 
   const merged: MergedEvent[] = [];
   for (const [group, members] of byGroup) {
+    if (members.every((m) => m.archived === 1)) archivedGroups.add(group);
     const chosen = chooseFields(members);
     const bestDescription = chosen.description;
     const { venueName, address, note, enriched } = chosen;
@@ -201,6 +208,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       // Filled in below, once every event is known: which town an event
       // rounds to depends on what the others taught about its suburb.
       place: '',
+      area: '',
       lat: members.find((m) => m.lat != null)?.lat ?? null,
       lng: members.find((m) => m.lng != null)?.lng ?? null,
       imageUrl: chosen.imageUrl ?? images[0] ?? '',
@@ -241,15 +249,18 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
   // the only thing that removed them and it only ran inside a refresh — so a
   // refresh that failed, or simply was not due, left yesterday at the top of
   // the page. See isOver and archivePastEvents.
-  const live = opts.archived ? merged : merged.filter((ev) => !isOver(ev.startTime, ev.endTime));
+  const live = opts.archived
+    ? merged.filter((ev) => archivedGroups.has(ev.group) || isOver(ev.startTime, ev.endTime))
+    : merged.filter((ev) => !isOver(ev.startTime, ev.endTime));
 
   // After the past ones are gone, so that a town is offered on the strength of
   // the events still to come rather than of last month's.
   const settings = getSettings();
   const positionOf = (name: string): { lat: number; lng: number } | null => cachedGeocode(name)?.[0] ?? null;
   const hubs = hubsFromSettings(settings, positionOf);
-  assignPlaces(live, hubs).forEach((place, i) => {
+  placeEvents(live, hubs).forEach(({ place, area }, i) => {
     live[i].place = place;
+    live[i].area = area;
   });
   // After the places, since an event that rounds to one of the towns is in it
   // whatever its coordinates say.

@@ -15,6 +15,7 @@ function event(over: Partial<MergedEvent> = {}): MergedEvent {
     address: '1 Mountain Straight, Bathurst NSW',
     locality: 'Bathurst',
     place: 'Bathurst',
+    area: 'Bathurst',
     lat: null,
     lng: null,
     imageUrl: '',

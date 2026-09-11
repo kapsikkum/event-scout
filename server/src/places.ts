@@ -62,6 +62,29 @@ const OWN_BUCKET_MIN = 5;
  */
 const SUBURB_SPREAD_KM = 15;
 
+/**
+ * How far from an area's centre a locality may sit and still be filed under it.
+ *
+ * An area's radius is how far to search, not how big the town is: Bathurst's
+ * reaches Portland, fifty minutes up the road and a town with a name of its
+ * own. Llanarth, Kelso and Perthville sit inside a dozen kilometres and are
+ * what anyone there means by Bathurst; Newbridge at twenty-seven and Portland
+ * at thirty-eight are not. Past this a locality keeps its own name, and the
+ * area it lies in is kept alongside for anything that asks by area.
+ */
+const TOWN_REACH_KM = 12;
+
+/** Where an event is, as a name to show and the searched area it lies in. */
+export interface Placed {
+  /** The town it rounds to, or its own town when that is further out. '' for elsewhere. */
+  place: string;
+  /** The searched area it is inside, '' when none. Equal to `place` for a suburb. */
+  area: string;
+}
+
+const NOWHERE: Placed = { place: ELSEWHERE, area: ELSEWHERE };
+const inArea = (name: string): Placed => ({ place: name, area: name });
+
 /** Lowercase, unaccented, punctuation-free words: the comparable form of a name. */
 function words(text: string): string[] {
   return text
@@ -156,6 +179,8 @@ export function hubsFromSettings(
  * 2. Where its positioned listings landed, if they sit close enough together
  *    to be one suburb. This is what rounds Llanarth to Bathurst and
  *    Jamisontown to Penrith without either being written down anywhere.
+ *    Further out than TOWN_REACH_KM it is a town of its own inside the area,
+ *    and keeps its name: Portland is in the Bathurst area, not in Bathurst.
  * 3. A town named in the tail of the address. Only the components after the
  *    first are read: streets lead an address and towns follow one, so this
  *    cannot mistake Penrith Grove in Liverpool for Penrith.
@@ -165,6 +190,11 @@ export function hubsFromSettings(
  * Sydney stay findable instead of disappearing into the far-away bucket.
  */
 export function assignPlaces(events: Placeable[], hubs: Hub[], ownBucketMin = OWN_BUCKET_MIN): string[] {
+  return placeEvents(events, hubs, ownBucketMin).map((p) => p.place);
+}
+
+/** assignPlaces, with the area each event lies in as well as the name it goes by. */
+export function placeEvents(events: Placeable[], hubs: Hub[], ownBucketMin = OWN_BUCKET_MIN): Placed[] {
   const positioned = hubs.filter((h) => h.lat != null && h.lng != null);
 
   // The nearest town an event's own coordinates put it in, if any is close
@@ -193,11 +223,11 @@ export function assignPlaces(events: Placeable[], hubs: Hub[], ownBucketMin = OW
   });
 
   const byName = new Map(hubs.map((h) => [key(h.name), h.name]));
-  const settled = new Map<string, string>();
+  const settled = new Map<string, Placed>();
   for (const [k, indices] of byLocality) {
     const named = byName.get(k);
     if (named) {
-      settled.set(k, named);
+      settled.set(k, inArea(named));
       continue;
     }
     const placed = indices.filter((i) => byCoords[i]);
@@ -206,25 +236,32 @@ export function assignPlaces(events: Placeable[], hubs: Hub[], ownBucketMin = OW
     // address, and the positions behind it were invented by the geocoder. It
     // gets to stand on its own rather than filing a city under a town.
     if (spreadKm(placed.map((i) => events[i])) > SUBURB_SPREAD_KM) {
-      settled.set(k, ELSEWHERE);
+      settled.set(k, NOWHERE);
       continue;
     }
-    settled.set(k, commonest(placed.map((i) => byCoords[i])));
+    const area = commonest(placed.map((i) => byCoords[i]));
+    const hub = positioned.find((h) => h.name === area) as Hub;
+    const km =
+      placed.reduce(
+        (sum, i) => sum + haversineKm(events[i].lat as number, events[i].lng as number, hub.lat as number, hub.lng as number),
+        0
+      ) / placed.length;
+    settled.set(k, km > TOWN_REACH_KM ? { place: events[indices[0]].locality.trim(), area } : inArea(area));
   }
 
-  const places = events.map((ev, i) => {
+  const places = events.map((ev, i): Placed => {
     const k = key(ev.locality);
     const known = k ? settled.get(k) : undefined;
     if (known !== undefined) return known;
     // Coordinates have already had their say, whichever way it went; only a
     // listing that never had any falls through to matching on name.
-    return byCoords[i] || (ev.lat == null ? hubNamedIn(ev, hubs) : ELSEWHERE);
+    return inArea(byCoords[i] || (ev.lat == null ? hubNamedIn(ev, hubs) : ELSEWHERE));
   });
 
   const leftovers = new Map<string, { label: string; count: number }>();
   events.forEach((ev, i) => {
     const k = key(ev.locality);
-    if (places[i] || !k) return;
+    if (places[i].place || !k) return;
     const entry = leftovers.get(k) ?? { label: ev.locality.trim(), count: 0 };
     entry.count++;
     leftovers.set(k, entry);
@@ -232,7 +269,7 @@ export function assignPlaces(events: Placeable[], hubs: Hub[], ownBucketMin = OW
   for (const [k, { label, count }] of leftovers) {
     if (count < ownBucketMin) continue;
     events.forEach((ev, i) => {
-      if (!places[i] && key(ev.locality) === k) places[i] = label;
+      if (!places[i].place && key(ev.locality) === k) places[i] = { place: label, area: ELSEWHERE };
     });
   }
 

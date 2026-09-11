@@ -21,7 +21,7 @@ function ev(over: Partial<MergedEvent> = {}): MergedEvent {
   const id = nextId++;
   return {
     group: `g${id}`, title: `Event ${id}`, description: '', startTime: '2026-09-20T09:00:00.000Z', endTime: null,
-    venueName: 'Mount Panorama', address: '', locality: 'Bathurst', place: 'Bathurst', lat: null, lng: null,
+    venueName: 'Mount Panorama', address: '', locality: 'Bathurst', place: 'Bathurst', area: 'Bathurst', lat: null, lng: null,
     imageUrl: '', category: 'Motorsport', priceText: '', isOnline: false, dateOnly: false, photoScore: 50,
     starred: false, hidden: false, firstSeenAt: '2026-09-10T00:00:00.000Z', unknownLocation: false, culled: null,
     sources: [{ source: 'crawler', url: `https://example.com/${id}` }], images: [],
@@ -46,7 +46,7 @@ function memoryStore(): NotifyStore {
 }
 
 test('filters narrow, and an empty one lets everything through', () => {
-  const e = ev({ title: 'Cars & Coffee', place: 'Penrith', category: 'Cars & bikes', photoScore: 40 });
+  const e = ev({ title: 'Cars & Coffee', place: 'Penrith', area: 'Penrith', category: 'Cars & bikes', photoScore: 40 });
   assert.ok(matchesFilters(e, DEFAULT_FILTERS));
   assert.ok(matchesFilters(e, { ...DEFAULT_FILTERS, places: ['Penrith NSW'] }), 'the region does not matter');
   assert.ok(!matchesFilters(e, { ...DEFAULT_FILTERS, places: ['Bathurst'] }));
@@ -55,6 +55,13 @@ test('filters narrow, and an empty one lets everything through', () => {
   assert.ok(!matchesFilters(e, { ...DEFAULT_FILTERS, excludeCategories: ['cars & bikes'] }));
   assert.ok(!matchesFilters(e, { ...DEFAULT_FILTERS, starredOnly: true }));
   assert.ok(matchesFilters(ev({ unknownLocation: true, place: '' }), { ...DEFAULT_FILTERS, places: ['unknown'] }));
+});
+
+test('a town of its own inside an area is found by the area and by its own name', () => {
+  const portland = ev({ place: 'Portland', area: 'Bathurst', locality: 'Portland' });
+  assert.ok(matchesFilters(portland, { ...DEFAULT_FILTERS, places: ['Bathurst'] }));
+  assert.ok(matchesFilters(portland, { ...DEFAULT_FILTERS, places: ['Portland'] }));
+  assert.ok(!matchesFilters(portland, { ...DEFAULT_FILTERS, places: ['Penrith'] }));
 });
 
 test('a long run of new events is split within Discord’s limits, the ping on the first only', () => {

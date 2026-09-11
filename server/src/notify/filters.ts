@@ -4,7 +4,7 @@ import type { NotifyFilters } from '../sources/types.js';
 /** What a filter needs to know about an event. */
 export type Filterable = Pick<
   MergedEvent,
-  'title' | 'description' | 'venueName' | 'category' | 'photoScore' | 'place' | 'unknownLocation' | 'starred'
+  'title' | 'description' | 'venueName' | 'category' | 'photoScore' | 'place' | 'area' | 'unknownLocation' | 'starred'
 >;
 
 /** "Penrith NSW", "Penrith, NSW" and "penrith" are one town. */
@@ -21,8 +21,10 @@ const town = (name: string): string =>
 export function matchesFilters(ev: Filterable, f: NotifyFilters, opts: { ignoreStarredOnly?: boolean } = {}): boolean {
   if (f.starredOnly && !opts.ignoreStarredOnly && !ev.starred) return false;
   if (f.places.length) {
-    const here = ev.unknownLocation ? 'unknown' : town(ev.place);
-    if (!f.places.some((p) => (p.toLowerCase() === 'unknown' ? 'unknown' : town(p)) === here)) return false;
+    // The area as well as the town: a target for Bathurst still hears about
+    // Portland, which is in the Bathurst area but goes by its own name.
+    const here = ev.unknownLocation ? ['unknown'] : [town(ev.place), town(ev.area)].filter(Boolean);
+    if (!f.places.some((p) => here.includes(p.toLowerCase() === 'unknown' ? 'unknown' : town(p)))) return false;
   }
   const category = ev.category.toLowerCase();
   if (f.categories.length && !f.categories.some((c) => c.toLowerCase() === category)) return false;
