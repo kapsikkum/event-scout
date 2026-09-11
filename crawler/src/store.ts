@@ -11,7 +11,7 @@ import { SocialLink } from './extract/social.js';
  * Separate from event-scout's database on purpose. This one is churn — a
  * frontier of hundreds of thousands of URLs, rewritten constantly — and it has
  * no business sharing a file with the thing that holds a year of history and
- * gets copied to the NAS every night. Nothing here is precious: delete it and
+ * gets backed up every night. Nothing here is precious: delete it and
  * the crawler rebuilds it from the seeds.
  *
  * The memory is also the point. event-scout's websearch pass re-searches from

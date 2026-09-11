@@ -18,7 +18,7 @@ The entries below 0.2.0 were written by hand, since they predate the convention.
 
 ### Build and packaging
 
-* **nix:** run the crawler beside the app on data-server ([8fefb4e](https://github.com/kapsikkum/event-scout/commit/8fefb4e217329fdc0520d9c528cec01d55841ac3))
+* **nix:** run the crawler beside the app ([8fefb4e](https://github.com/kapsikkum/event-scout/commit/8fefb4e217329fdc0520d9c528cec01d55841ac3))
 
 ## [0.3.0](https://github.com/kapsikkum/event-scout/compare/v0.2.0...v0.3.0) (2026-09-10)
 
@@ -85,7 +85,7 @@ The entries below 0.2.0 were written by hand, since they predate the convention.
 ### Build and packaging
 
 * derive versions and image tags from the commits ([53a46fc](https://github.com/kapsikkum/event-scout/commit/53a46fccf83778eacc5b8b5682e3129004c7e0da))
-* point the deployed container at squareeyes for Ollama ([9400488](https://github.com/kapsikkum/event-scout/commit/9400488fcf5e232a2de586d1fe8acdde1fcd2a29))
+* point the deployed container at a separate Ollama host ([9400488](https://github.com/kapsikkum/event-scout/commit/9400488fcf5e232a2de586d1fe8acdde1fcd2a29))
 * publish images even when the release pull request cannot be opened ([8a3798e](https://github.com/kapsikkum/event-scout/commit/8a3798e751bbab977387522d32e192cfdf9042b4))
 
 ## 0.1.0
