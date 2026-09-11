@@ -406,56 +406,6 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
           One Matrix account posts to every Matrix room above and answers commands in them — <code>{bot.commandPrefix || '!'}help</code> lists
           them. Give it its own account, invite it from an allowed account, and use an unencrypted room: it cannot read encrypted ones.
         </p>
-        {m && (
-          <div className={`status-line ${m.state === 'running' ? 'ok' : m.state === 'error' ? 'error' : ''}`}>
-            ● {m.state === 'running' ? `Connected as ${m.userId}, in ${m.rooms} room${m.rooms === 1 ? '' : 's'}` : m.state}
-            {m.lastError && ` — ${m.lastError}`}
-          </div>
-        )}
-        {(m?.ignoredInvites ?? []).map((i) => (
-          <div key={i.roomId} className="status-line error">
-            ⚠ Invited to {i.roomId} by {i.from}, who is not on the allowed list, so it did not join.{' '}
-            {!bot.allowedUsers.includes(i.from) && (
-              <button className="linky" onClick={() => setBot({ allowedUsers: [...bot.allowedUsers, i.from] })}>
-                Allow {i.from}
-              </button>
-            )}{' '}
-            Then save, and it joins.
-          </div>
-        ))}
-        {bot.enabled && bot.allowedUsers.length === 0 && !(m?.ignoredInvites ?? []).length && (
-          <p className="hint">
-            No accounts are allowed yet, so it will not accept any invite. Add yours below.
-          </p>
-        )}
-        {(m?.joinedRooms ?? []).length > 0 && (
-          <div className="notify__rooms">
-            <label className="hint">It is in</label>
-            {m!.joinedRooms!.map((r) => {
-              const has = targets.some((t) => t.kind === 'matrix' && t.roomId === r.roomId);
-              return (
-                <div key={r.roomId} className="formrow">
-                  <span>{r.name || 'Unnamed room'}</span>
-                  <code className="hint">{r.roomId}</code>
-                  {has ? (
-                    <span className="hint">set up above</span>
-                  ) : (
-                    <button
-                      onClick={() =>
-                        set({ notifyTargets: [...targets, { ...blankTarget('matrix'), name: r.name || 'Matrix room', roomId: r.roomId }] })
-                      }
-                    >
-                      Set up notifications here
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        <Check checked={bot.commandsEverywhere !== false} onChange={(v) => setBot({ commandsEverywhere: v })}>
-          Answer commands in rooms with nothing set up above, listing everything
-        </Check>
         <div className="formrow">
           <label>Homeserver</label>
           <input value={bot.homeserver} placeholder="https://matrix.example.org" onChange={(e) => setBot({ homeserver: e.target.value })} />
@@ -484,6 +434,57 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
         <p className="hint" style={{ marginTop: -4 }}>
           May invite the bot and use <code>star</code>, <code>unstar</code> and <code>hide</code>. Anyone in the room may list and search.
         </p>
+
+        {/* How it is getting on, after the fields that decide it. */}
+        {m && (
+          <div className={`status-line ${m.state === 'running' ? 'ok' : m.state === 'error' ? 'error' : ''}`}>
+            ● {m.state === 'running' ? `Connected as ${m.userId}, in ${m.rooms} room${m.rooms === 1 ? '' : 's'}` : m.state}
+            {m.lastError && ` — ${m.lastError}`}
+          </div>
+        )}
+        {(m?.ignoredInvites ?? []).map((i) => (
+          <div key={i.roomId} className="status-line error">
+            ⚠ Invited to {i.roomId} by {i.from}, who is not on the allowed list, so it did not join.{' '}
+            {!bot.allowedUsers.includes(i.from) && (
+              <button className="linky" onClick={() => setBot({ allowedUsers: [...bot.allowedUsers, i.from] })}>
+                Allow {i.from}
+              </button>
+            )}{' '}
+            Then save, and it joins.
+          </div>
+        ))}
+        {bot.enabled && bot.allowedUsers.length === 0 && !(m?.ignoredInvites ?? []).length && (
+          <div className="status-line">No accounts are allowed yet, so it will not accept any invite. Add yours above.</div>
+        )}
+
+        {(m?.joinedRooms ?? []).length > 0 && (
+          <div className="notify__rooms">
+            <h4>Rooms it is in</h4>
+            {m!.joinedRooms!.map((r) => {
+              const has = targets.some((t) => t.kind === 'matrix' && t.roomId === r.roomId);
+              return (
+                <div key={r.roomId} className="notify__room">
+                  <span className="notify__room-name">{r.name || 'Unnamed room'}</span>
+                  <code className="notify__room-id" title={r.roomId}>{r.roomId}</code>
+                  {has ? (
+                    <span className="notify__room-state">✓ Set up above</span>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        set({ notifyTargets: [...targets, { ...blankTarget('matrix'), name: r.name || 'Matrix room', roomId: r.roomId }] })
+                      }
+                    >
+                      Set up notifications here
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <Check checked={bot.commandsEverywhere !== false} onChange={(v) => setBot({ commandsEverywhere: v })}>
+          Answer commands in rooms with nothing set up above, listing everything
+        </Check>
       </section>
     </>
   );

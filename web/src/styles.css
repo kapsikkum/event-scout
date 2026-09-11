@@ -1157,3 +1157,13 @@ button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
 .notify__num { width: 64px !important; display: inline-block; }
 .notify__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
 .notify__remove { margin-left: auto; color: var(--red); }
+/* The rooms the Matrix bot is in: one aligned row each. */
+.notify__rooms { margin: 14px 0 10px; display: flex; flex-direction: column; gap: 6px; }
+.notify__rooms h4 { margin: 0 0 2px; font-size: 13px; }
+.notify__room { display: grid; grid-template-columns: minmax(90px, max-content) minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); font-size: 14px; }
+.notify__room-name { font-weight: 600; }
+.notify__room-id { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify__room-state { color: var(--green); font-size: 13px; }
+.notify__room button { padding: 4px 10px; font-size: 13px; }
+section > .notify__check { margin-top: 10px; }
