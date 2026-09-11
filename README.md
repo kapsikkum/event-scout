@@ -269,8 +269,18 @@ an optional `@here`, `@everyone` or role ping, and full or compact. Only
 
 **Matrix:** give the bot its own account, then set the homeserver, its access
 token and the accounts allowed to use it. Invite it to an **unencrypted** room from
-an allowed account and add the room as a target. It also answers commands, from
-anyone in the room unless noted:
+an allowed account — an invite from anyone else is declined, and Settings says so
+with a button to allow them. The rooms it is in are listed with **Set up
+notifications here**. Each room target has the same triggers and filters as a
+webhook, plus: full (details, blurb, picture — uploaded to your homeserver, since
+Matrix shows only images it holds) or compact; an optional `@room` ping; ordinary
+messages that notify phones, or quiet bot notices; and the bot's display name in
+that room.
+
+It also answers commands. In a room with a target, commands can be switched off,
+and they list only what that target's filters let through — a cars room answers
+`!events` with cars. Rooms with no target answer with everything, unless that is
+switched off too. From anyone in the room unless noted:
 
 | Command | Does |
 |---|---|

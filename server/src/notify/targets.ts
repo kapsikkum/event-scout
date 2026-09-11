@@ -60,10 +60,12 @@ export function normalizeTarget(raw: unknown): NotifyTarget {
     webhookUrl: str(t.webhookUrl, 500),
     username: str(t.username, 80),
     avatarUrl: str(t.avatarUrl, 500),
-    mention: /^(@here|@everyone|\d{5,25})$/.test(str(t.mention, 40)) ? str(t.mention, 40) : '',
+    mention: /^(@here|@everyone|@room|\d{5,25})$/.test(str(t.mention, 40)) ? str(t.mention, 40) : '',
     style: t.style === 'compact' ? 'compact' : 'full',
     showImage: bool(t.showImage, true),
     roomId: str(t.roomId, 255),
+    matrixLoud: bool(t.matrixLoud, false),
+    commands: bool(t.commands, true),
     triggers: {
       newEvents: {
         enabled: bool(ne.enabled, d.newEvents.enabled),

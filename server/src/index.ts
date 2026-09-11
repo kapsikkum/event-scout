@@ -225,6 +225,7 @@ app.put('/api/settings', (req, res) => {
     homeserver: typeof bot.homeserver === 'string' ? bot.homeserver.trim() : '',
     commandPrefix: typeof bot.commandPrefix === 'string' && bot.commandPrefix.trim() ? bot.commandPrefix.trim().slice(0, 5) : '!',
     allowedUsers: Array.isArray(bot.allowedUsers) ? bot.allowedUsers.map((u) => String(u).trim()).filter(Boolean) : [],
+    commandsEverywhere: bot.commandsEverywhere !== false,
   };
   next.appUrl = typeof next.appUrl === 'string' ? next.appUrl.trim() : '';
   saveSettings(next);

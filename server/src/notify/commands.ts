@@ -1,4 +1,6 @@
 import type { MergedEvent } from '../events.js';
+import type { NotifyFilters } from '../sources/types.js';
+import { matchesFilters } from './filters.js';
 import { foldSeries } from './run.js';
 import { matrixLine, matrixList, matrixText, MatrixContent, whenText, whereText, linkFor, escapeHtml } from './format.js';
 
@@ -57,6 +59,8 @@ export function windowFor(word: string | undefined, now: Date): { from: number; 
 
 export interface CommandDeps {
   events(): MergedEvent[];
+  /** The filters of the target set up for this room, if any: its commands list only what they let through. */
+  filters?: NotifyFilters;
   setFlag(group: string, flag: 'starred' | 'hidden', value: boolean): void;
   status(): string;
   allowed(sender: string): boolean;
@@ -107,7 +111,11 @@ export function runCommand(
   cmd: Command, ctx: { roomId: string; sender: string }, deps: CommandDeps, now = new Date()
 ): MatrixContent | null {
   const upcoming = (): MergedEvent[] =>
-    deps.events().filter((e) => !e.hidden && !e.culled && Date.parse(e.startTime) >= now.getTime() - 3600_000);
+    deps.events().filter(
+      (e) =>
+        !e.hidden && !e.culled && Date.parse(e.startTime) >= now.getTime() - 3600_000 &&
+        (!deps.filters || matchesFilters(e, deps.filters))
+    );
   const p = deps.prefix;
 
   switch (cmd.name) {

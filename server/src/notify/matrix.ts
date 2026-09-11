@@ -1,4 +1,6 @@
 import { getSettings } from '../db.js';
+import { assertPublicUrl } from '../nethost.js';
+import { USER_AGENT } from '../useragent.js';
 import type { MatrixContent } from './format.js';
 
 /**
@@ -79,6 +81,62 @@ export async function joinRoom(conn: MatrixConn, room: string): Promise<string> 
   return joined.room_id;
 }
 
+/** A room's id for a target's room field, if already known: an id is its own, an alias once looked up. */
+export function knownRoomId(room: string): string | undefined {
+  const r = room.trim();
+  return r.startsWith('!') ? r : rooms.get(r);
+}
+
+const media = new Map<string, string>();
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * A picture copied onto the homeserver, for a message to show it inline.
+ *
+ * Matrix clients show only images the homeserver holds (mxc://), never an
+ * address on the open web, so each flyer is fetched and uploaded once. The
+ * address comes from a listing, so it is checked before it is fetched, and
+ * anything that is not an image, or is larger than a flyer has any reason to
+ * be, is left out rather than failing the message.
+ */
+export async function uploadImage(conn: MatrixConn, url: string): Promise<string | null> {
+  const known = media.get(url);
+  if (known) return known;
+  if (!/^https?:\/\/\S+$/i.test(url)) return null;
+  try {
+    await assertPublicUrl(url);
+    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(15000) });
+    const type = (res.headers.get('content-type') ?? '').split(';')[0].trim();
+    if (!res.ok || !type.startsWith('image/')) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) return null;
+    const up = await fetch(`${conn.homeserver}/_matrix/media/v3/upload?filename=flyer`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${conn.token}`, 'Content-Type': type },
+      body: bytes,
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!up.ok) return null;
+    const uri = ((await up.json()) as { content_uri?: string }).content_uri;
+    if (!uri) return null;
+    if (media.size > 500) media.clear();
+    media.set(url, uri);
+    return uri;
+  } catch {
+    return null;
+  }
+}
+
+/** The pictures for a message, uploaded; a handful at most, since one message shows them all. */
+export async function imagesFor(conn: MatrixConn, urls: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const url of [...new Set(urls.filter(Boolean))].slice(0, 6)) {
+    const uri = await uploadImage(conn, url);
+    if (uri) out[url] = uri;
+  }
+  return out;
+}
+
 let txn = 0;
 export async function sendMatrix(conn: MatrixConn, room: string, content: MatrixContent): Promise<void> {
   const id = await resolveRoom(conn, room);
@@ -108,6 +166,8 @@ export interface BotStatus {
    * looks exactly like a bot that is not working.
    */
   ignoredInvites: { roomId: string; from: string; at: string }[];
+  /** The rooms it is in, with their names, so Settings can offer them. */
+  joinedRooms: { roomId: string; name: string }[];
 }
 
 interface SyncEvent {
@@ -136,7 +196,7 @@ const FILTER = JSON.stringify({
   },
 });
 
-let status: BotStatus = { state: 'off', userId: '', rooms: 0, lastError: '', lastSyncAt: null, ignoredInvites: [] };
+let status: BotStatus = { state: 'off', userId: '', rooms: 0, lastError: '', lastSyncAt: null, ignoredInvites: [], joinedRooms: [] };
 let generation = 0;
 let stopCurrent: AbortController | null = null;
 
@@ -165,7 +225,7 @@ export function restartMatrixBot(handler: CommandHandler): void {
   const conn = connFromSettings(settings);
   if (!settings.matrixBot?.enabled || !conn) {
     status = {
-      state: 'off', userId: '', rooms: 0, lastSyncAt: null, ignoredInvites: [],
+      state: 'off', userId: '', rooms: 0, lastSyncAt: null, ignoredInvites: [], joinedRooms: [],
       lastError: settings.matrixBot?.enabled ? 'No homeserver or access token set' : '',
     };
     return;
@@ -175,8 +235,53 @@ export function restartMatrixBot(handler: CommandHandler): void {
   void loop(generation, conn, handler, ctl.signal);
 }
 
+const enc = encodeURIComponent;
+
+/** A room's name, or failing that its alias, or '' when it has neither. */
+async function roomName(conn: MatrixConn, id: string): Promise<string> {
+  for (const [type, key] of [['m.room.name', 'name'], ['m.room.canonical_alias', 'alias']] as const) {
+    try {
+      const state = await call<Record<string, string>>(conn, 'GET', `/_matrix/client/v3/rooms/${enc(id)}/state/${type}/`);
+      if (state[key]) return state[key];
+    } catch {
+      // No such state: try the next.
+    }
+  }
+  return '';
+}
+
+async function refreshRooms(conn: MatrixConn): Promise<void> {
+  const { joined_rooms: ids = [] } = await call<{ joined_rooms?: string[] }>(conn, 'GET', '/_matrix/client/v3/joined_rooms');
+  const list: BotStatus['joinedRooms'] = [];
+  for (const id of ids.slice(0, 50)) list.push({ roomId: id, name: await roomName(conn, id) });
+  status.joinedRooms = list;
+  status.rooms = list.length;
+}
+
+/**
+ * The bot's name in each target's room, where the target gives one.
+ *
+ * A per-room display name is the bot's own membership event with a different
+ * name on it, so the current one is read and only the name changed — leaving
+ * its avatar and anything else as they were.
+ */
+async function applyRoomNames(conn: MatrixConn, me: string): Promise<void> {
+  for (const t of getSettings().notifyTargets ?? []) {
+    if (t.kind !== 'matrix' || !t.roomId || !t.username?.trim()) continue;
+    try {
+      const id = await resolveRoom(conn, t.roomId);
+      const path = `/_matrix/client/v3/rooms/${enc(id)}/state/m.room.member/${enc(me)}`;
+      const current = await call<Record<string, unknown>>(conn, 'GET', path);
+      if (current.displayname === t.username.trim()) continue;
+      await call(conn, 'PUT', path, { ...current, membership: 'join', displayname: t.username.trim() });
+    } catch {
+      // Not in the room yet, or not allowed to: the next start tries again.
+    }
+  }
+}
+
 async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop: AbortSignal): Promise<void> {
-  status = { state: 'starting', userId: '', rooms: 0, lastError: '', lastSyncAt: null, ignoredInvites: [] };
+  status = { state: 'starting', userId: '', rooms: 0, lastError: '', lastSyncAt: null, ignoredInvites: [], joinedRooms: [] };
   let since: string | null = null;
   let me = '';
   let backoff = 5000;
@@ -198,6 +303,8 @@ async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop
             // Invite-only: an invite from an allowed user will get it in.
           }
         }
+        await refreshRooms(conn).catch(() => undefined);
+        await applyRoomNames(conn, me);
       }
 
       const params = new URLSearchParams({ filter: FILTER, timeout: since ? '30000' : '0' });
@@ -208,7 +315,6 @@ async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop
       if (!live()) return;
       const first = since === null;
       since = sync.next_batch;
-      if (first) status.rooms = Object.keys(sync.rooms?.join ?? {}).length;
       status = { ...status, state: 'running', lastSyncAt: new Date().toISOString(), lastError: '' };
       backoff = 5000;
 
@@ -222,7 +328,8 @@ async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop
         }
         try {
           await joinRoom(conn, roomId);
-          status.rooms++;
+          await refreshRooms(conn).catch(() => undefined);
+          await applyRoomNames(conn, me);
           status.ignoredInvites = status.ignoredInvites.filter((i) => i.roomId !== roomId);
         } catch (err) {
           status.lastError = `could not join ${roomId}: ${(err as Error).message}`;

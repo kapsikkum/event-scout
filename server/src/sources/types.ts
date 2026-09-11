@@ -181,16 +181,24 @@ export interface NotifyTarget {
   enabled: boolean;
   /** Discord: the webhook address. A credential: never sent back. */
   webhookUrl: string;
-  /** Discord: the name and picture the messages are posted under. Blank for the webhook's own. */
+  /**
+   * Discord: the name the messages are posted under; blank for the webhook's
+   * own. Matrix: the bot's display name in this room; blank for its account's.
+   */
   username: string;
+  /** Discord: the picture the messages are posted under. */
   avatarUrl: string;
-  /** Discord: '' for nobody, '@here', '@everyone', or a role's id. */
+  /** Discord: '' for nobody, '@here', '@everyone', or a role's id. Matrix: '' or '@room'. */
   mention: string;
-  /** Discord: 'full' has the blurb, the details and a large picture; 'compact' a line and a thumbnail. */
+  /** 'full' has the blurb, the details and the picture; 'compact' a line each (and, on Discord, a thumbnail). */
   style: 'full' | 'compact';
   showImage: boolean;
   /** Matrix: the room, as '!id:server' or '#alias:server'. */
   roomId: string;
+  /** Matrix: ordinary messages, which notify phones, rather than quiet bot notices. */
+  matrixLoud: boolean;
+  /** Matrix: answer commands in this room, listing only what this target's filters let through. */
+  commands: boolean;
   triggers: NotifyTriggers;
   filters: NotifyFilters;
   /** Hours, local, in which nothing is sent; held until they end. */
@@ -208,6 +216,8 @@ export interface MatrixBotSettings {
    * change something. Anyone in a room it is in may use the ones that only read.
    */
   allowedUsers: string[];
+  /** Answer commands in rooms no target is set up for, with nothing filtered. */
+  commandsEverywhere: boolean;
 }
 
 export interface EventArea {
@@ -272,7 +282,7 @@ export const DEFAULT_SETTINGS: Settings = {
   densityKernelMeters: 300,
   densityBrowserPath: '',
   notifyTargets: [],
-  matrixBot: { enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [] },
+  matrixBot: { enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true },
   matrixAccessToken: '',
   appUrl: '',
   enabledSources: {

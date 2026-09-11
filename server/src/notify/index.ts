@@ -3,7 +3,7 @@ import { getMergedEvents, setGroupFlag } from '../events.js';
 import { runCommand, parseCommand } from './commands.js';
 import { deliver, runNotifications } from './run.js';
 import { dbStore, setTargetStatus, targetStatus, tidyNotifyState } from './store.js';
-import { IncomingMessage, matrixStatus, restartMatrixBot } from './matrix.js';
+import { IncomingMessage, knownRoomId, matrixStatus, restartMatrixBot } from './matrix.js';
 import { normalizeTarget } from './targets.js';
 import { matchesFilters } from './filters.js';
 import type { MatrixContent } from './format.js';
@@ -71,7 +71,14 @@ function handleMatrixMessage(msg: IncomingMessage): MatrixContent | null {
   const prefix = settings.matrixBot?.commandPrefix || '!';
   const cmd = parseCommand(msg.body, prefix);
   if (!cmd) return null;
+  // The room's own target decides whether commands are answered there and
+  // what they may list; a room with none follows the bot-wide switch.
+  const target = (settings.notifyTargets ?? [])
+    .map(normalizeTarget)
+    .find((t) => t.kind === 'matrix' && t.roomId && knownRoomId(t.roomId) === msg.roomId);
+  if (target ? !target.commands : settings.matrixBot?.commandsEverywhere === false) return null;
   return runCommand(cmd, msg, {
+    filters: target?.filters,
     events: () => getMergedEvents(),
     setFlag: setGroupFlag,
     allowed: (sender) => (getSettings().matrixBot?.allowedUsers ?? []).includes(sender),

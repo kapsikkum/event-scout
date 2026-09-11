@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { MergedEvent } from '../src/events.js';
 import { matchesFilters } from '../src/notify/filters.js';
-import { discordPayloads, matrixList } from '../src/notify/format.js';
+import { discordPayloads, matrixContent, matrixList } from '../src/notify/format.js';
 import { digestSlot, inQuietHours, planTarget } from '../src/notify/run.js';
 import type { NotifyStore, Snapshot } from '../src/notify/store.js';
 import { DEFAULT_FILTERS, normalizeTarget } from '../src/notify/targets.js';
@@ -72,6 +72,39 @@ test('entities in a title come out as the characters they stand for', () => {
   assert.equal(embed.title, 'Father’s Day Out');
   assert.match(embed.description, /Volunteers’ Pavillion/);
   assert.match(matrixList('h', [{ ev: e }], '').body, /Father’s Day Out/);
+});
+
+test('a Matrix room can have the full look, a ping, and ordinary messages', () => {
+  const e = ev({ description: 'Bring the car.', priceText: 'Free', imageUrl: 'https://x.example/y.jpg' });
+  const notice = { kind: 'new' as const, heading: 'new', items: [{ ev: e }] };
+  const pics = { 'https://x.example/y.jpg': 'mxc://hs/abc' };
+  const loud = matrixContent(notice, normalizeTarget({ kind: 'matrix', style: 'full', mention: '@room', matrixLoud: true }), '', pics);
+  assert.equal(loud.msgtype, 'm.text');
+  assert.deepEqual(loud['m.mentions'], { room: true });
+  assert.match(loud.body, /^@room new/);
+  assert.match(loud.formatted_body!, /Bring the car\./);
+  assert.match(loud.formatted_body!, /Motorsport · Free · 📷 50/);
+  assert.match(loud.formatted_body!, /<img src="mxc:\/\/hs\/abc"/);
+  const quiet = matrixContent(notice, normalizeTarget({ kind: 'matrix', style: 'compact' }), '', pics);
+  assert.equal(quiet.msgtype, 'm.notice');
+  assert.deepEqual(quiet['m.mentions'], {}, 'nobody pinged by accident');
+  assert.ok(!quiet.formatted_body!.includes('<img'));
+  assert.ok(!quiet.formatted_body!.includes('Bring the car'));
+});
+
+test('commands in a room with a target list only what its filters let through', () => {
+  const soon = new Date(Date.now() + 86400_000).toISOString();
+  const list = [
+    ev({ title: 'Hillclimb', category: 'Motorsport', startTime: soon }),
+    ev({ title: 'Farmers market', category: 'Markets', startTime: soon }),
+  ];
+  const deps = {
+    events: () => list, setFlag: () => undefined, status: () => '', allowed: () => false, appUrl: '', prefix: '!',
+    filters: { ...DEFAULT_FILTERS, categories: ['Motorsport'] },
+  };
+  const body = runCommand({ name: 'events', args: ['week'] }, { roomId: '!cars', sender: '@a:x' }, deps)!.body;
+  assert.match(body, /Hillclimb/);
+  assert.doesNotMatch(body, /Farmers market/);
 });
 
 test('Matrix HTML is escaped', () => {

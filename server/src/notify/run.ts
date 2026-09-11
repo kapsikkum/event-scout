@@ -3,7 +3,7 @@ import type { NotifyTarget, Settings } from '../sources/types.js';
 import { matchesFilters } from './filters.js';
 import { Change, discordPayloads, matrixContent, Notice, NoticeItem, whenText } from './format.js';
 import { sendDiscord } from './discord.js';
-import { connFromSettings, sendMatrix } from './matrix.js';
+import { connFromSettings, imagesFor, sendMatrix } from './matrix.js';
 import { NotifyStore, Snapshot } from './store.js';
 import { normalizeTarget } from './targets.js';
 
@@ -200,7 +200,10 @@ export const deliver: Deliver = async (target, notice, settings) => {
   const conn = connFromSettings(settings);
   if (!conn) throw new Error('The Matrix bot has no homeserver or access token in Settings');
   if (!target.roomId) throw new Error('No room set for this target');
-  await sendMatrix(conn, target.roomId, matrixContent(notice, settings.appUrl ?? ''));
+  const pictures = target.showImage && target.style === 'full' && notice.kind !== 'digest'
+    ? await imagesFor(conn, notice.items.map((i) => i.ev.imageUrl))
+    : {};
+  await sendMatrix(conn, target.roomId, matrixContent(notice, target, settings.appUrl ?? '', pictures));
 };
 
 export interface RunResult {

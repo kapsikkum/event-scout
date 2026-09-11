@@ -155,7 +155,7 @@ export interface Settings {
   densityMaxVenues: number;
   /** Discord webhooks and Matrix rooms to tell about events. */
   notifyTargets: NotifyTarget[];
-  matrixBot: { enabled: boolean; homeserver: string; commandPrefix: string; allowedUsers: string[] };
+  matrixBot: { enabled: boolean; homeserver: string; commandPrefix: string; allowedUsers: string[]; commandsEverywhere: boolean };
   /** Arrives as ''; see secretsSet. */
   matrixAccessToken: string | null;
   /** This app's address as notification readers reach it, for "Open in Event Scout". */
@@ -187,6 +187,10 @@ export interface NotifyTarget {
   style: 'full' | 'compact';
   showImage: boolean;
   roomId: string;
+  /** Matrix: ordinary messages, which notify phones, rather than quiet notices. */
+  matrixLoud: boolean;
+  /** Matrix: answer commands in this room, listing only what this target's filters let through. */
+  commands: boolean;
   triggers: {
     newEvents: { enabled: boolean; settleMinutes: number; maxPerRun: number };
     digest: { enabled: boolean; cadence: 'daily' | 'weekly'; weekday: number; hour: number; daysAhead: number };
@@ -206,6 +210,8 @@ export interface NotifyStatus {
     lastSyncAt: string | null;
     /** Invites turned down because the inviter is not on the allowed list. */
     ignoredInvites?: { roomId: string; from: string; at: string }[];
+    /** The rooms the bot is in, with their names. */
+    joinedRooms?: { roomId: string; name: string }[];
   };
   targets: Record<string, { at: string; ok: boolean; message: string } | null>;
 }

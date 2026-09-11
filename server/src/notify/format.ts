@@ -224,6 +224,7 @@ export interface MatrixContent {
   body: string;
   format?: 'org.matrix.custom.html';
   formatted_body?: string;
+  'm.mentions'?: { room?: boolean; user_ids?: string[] };
 }
 
 export function escapeHtml(text: string): string {
@@ -231,7 +232,9 @@ export function escapeHtml(text: string): string {
 }
 
 /** One event as a line, plain and HTML. `n` numbers it, for the commands that refer back. */
-export function matrixLine(item: NoticeItem, appUrl: string, n?: number): { text: string; html: string } {
+export function matrixLine(
+  item: NoticeItem, appUrl: string, n?: number, opts: { full?: boolean; image?: string } = {}
+): { text: string; html: string } {
   const ev = readable(item.ev);
   const link = linkFor(ev, appUrl);
   const when = whenText(ev.startTime, ev.dateOnly);
@@ -243,29 +246,65 @@ export function matrixLine(item: NoticeItem, appUrl: string, n?: number): { text
     html: `<br>✎ <b>${CHANGE_LABEL[c.field]}:</b> ${c.before ? `<del>${escapeHtml(c.before)}</del> → ` : ''}${escapeHtml(c.after || '(removed)')}`,
   }));
   const title = escapeHtml(cut(ev.title, 140));
+  const details = opts.full
+    ? [ev.category, ev.priceText, ev.photoScore > 0 ? `📷 ${Math.round(ev.photoScore)}` : ''].filter(Boolean).join(' · ')
+    : '';
+  const blurb = opts.full && ev.description ? cut(ev.description, 280) : '';
   return {
-    text: `${num}${cut(ev.title, 140)} — ${when} · ${where}${again}${link ? ` ${link}` : ''}${changes.map((c) => `\n   ✎ ${c.text}`).join('')}`,
-    html: `${num}${link ? `<a href="${escapeHtml(link)}">${title}</a>` : `<b>${title}</b>`} — ${escapeHtml(when)} · ${escapeHtml(where)}${escapeHtml(again)}${changes.map((c) => c.html).join('')}`,
+    text:
+      `${num}${cut(ev.title, 140)} — ${when} · ${where}${again}${link ? ` ${link}` : ''}` +
+      `${changes.map((c) => `\n   ✎ ${c.text}`).join('')}${details ? `\n   ${details}` : ''}${blurb ? `\n   ${blurb}` : ''}`,
+    html:
+      `${num}${link ? `<a href="${escapeHtml(link)}">${title}</a>` : `<b>${title}</b>`} — ${escapeHtml(when)} · ${escapeHtml(where)}${escapeHtml(again)}` +
+      `${changes.map((c) => c.html).join('')}${details ? `<br><i>${escapeHtml(details)}</i>` : ''}${blurb ? `<br>${escapeHtml(blurb)}` : ''}` +
+      `${opts.image ? `<br><img src="${escapeHtml(opts.image)}" alt="" height="220">` : ''}`,
   };
+}
+
+export interface MatrixListOptions {
+  numbered?: boolean;
+  more?: number;
+  /** The details and blurb under each event, as Discord's full style has. */
+  full?: boolean;
+  /** Pictures already uploaded to the homeserver (mxc://), by the event's own image address. */
+  images?: Record<string, string>;
+  /** An ordinary message, which notifies, rather than a quiet bot notice. */
+  loud?: boolean;
+  /** '@room' pings everyone in the room. */
+  mention?: string;
 }
 
 /** A heading and a list of events, as one Matrix message. */
-export function matrixList(heading: string, items: NoticeItem[], appUrl: string, opts: { numbered?: boolean; more?: number } = {}): MatrixContent {
-  const lines = items.map((item, i) => matrixLine(item, appUrl, opts.numbered ? i + 1 : undefined));
+export function matrixList(heading: string, items: NoticeItem[], appUrl: string, opts: MatrixListOptions = {}): MatrixContent {
+  const lines = items.map((item, i) =>
+    matrixLine(item, appUrl, opts.numbered ? i + 1 : undefined, { full: opts.full, image: opts.images?.[item.ev.imageUrl] })
+  );
   const more = opts.more ? `…and ${opts.more} more` : '';
+  const ping = opts.mention === '@room';
   return {
-    msgtype: 'm.notice',
-    body: [heading, ...lines.map((l) => `• ${l.text}`), more].filter(Boolean).join('\n'),
+    msgtype: opts.loud ? 'm.text' : 'm.notice',
+    body: [`${ping ? '@room ' : ''}${heading}`, ...lines.map((l) => `• ${l.text}`), more].filter(Boolean).join('\n'),
     format: 'org.matrix.custom.html',
     formatted_body:
-      `<p><b>${escapeHtml(heading)}</b></p>` +
+      `<p>${ping ? '@room ' : ''}<b>${escapeHtml(heading)}</b></p>` +
       (lines.length ? `<ul>${lines.map((l) => `<li>${l.html}</li>`).join('')}</ul>` : '') +
       (more ? `<p>${escapeHtml(more)}</p>` : ''),
+    // Said outright, so a title that happens to contain someone's name pings nobody.
+    'm.mentions': ping ? { room: true } : {},
   };
 }
 
-export function matrixContent(notice: Notice, appUrl: string): MatrixContent {
-  return matrixList(notice.heading, notice.items, appUrl, { more: notice.more });
+/** A notice as one Matrix message, in the look the target asks for. */
+export function matrixContent(notice: Notice, target: NotifyTarget, appUrl: string, images: Record<string, string> = {}): MatrixContent {
+  // A digest is a list to scan; the details are for events being announced.
+  const full = target.style === 'full' && notice.kind !== 'digest';
+  return matrixList(notice.heading, notice.items, appUrl, {
+    more: notice.more,
+    full,
+    images: full && target.showImage ? images : {},
+    loud: target.matrixLoud,
+    mention: target.mention,
+  });
 }
 
 /** Plain words, for a command's reply. */

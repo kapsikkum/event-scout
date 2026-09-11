@@ -27,6 +27,8 @@ function blankTarget(kind: NotifyTarget['kind']): NotifyTarget {
     style: 'full',
     showImage: true,
     roomId: '',
+    matrixLoud: false,
+    commands: true,
     triggers: {
       newEvents: { enabled: true, settleMinutes: 30, maxPerRun: 10 },
       digest: { enabled: false, cadence: 'weekly', weekday: 4, hour: 18, daysAhead: 7 },
@@ -91,7 +93,8 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
   );
 }
 
-function TargetCard({ target, update, remove, places, categories, status, dirty, save }: {
+function TargetCard({ target, update, remove, places, categories, status, dirty, save, rooms }: {
+  rooms: { roomId: string; name: string }[];
   target: NotifyTarget;
   update: (t: NotifyTarget) => void;
   remove: () => void;
@@ -188,10 +191,45 @@ function TargetCard({ target, update, remove, places, categories, status, dirty,
           </div>
         </>
       ) : (
-        <div className="formrow">
-          <label>Room</label>
-          <input value={t.roomId} placeholder="!abc123:example.org or #events:example.org" onChange={(e) => set({ roomId: e.target.value })} />
-        </div>
+        <>
+          <div className="formrow">
+            <label>Room</label>
+            <input
+              list="matrix-rooms"
+              value={t.roomId}
+              placeholder="!abc123:example.org or #events:example.org"
+              onChange={(e) => set({ roomId: e.target.value })}
+            />
+            {rooms.find((r) => r.roomId === t.roomId)?.name && (
+              <span className="hint">{rooms.find((r) => r.roomId === t.roomId)!.name}</span>
+            )}
+          </div>
+          <div className="formrow">
+            <label>Bot’s name here</label>
+            <input value={t.username} placeholder="its account’s own name" onChange={(e) => set({ username: e.target.value })} />
+          </div>
+          <div className="formrow">
+            <label>Look</label>
+            <select value={t.style} onChange={(e) => set({ style: e.target.value as NotifyTarget['style'] })}>
+              <option value="full">Full: details, blurb and picture</option>
+              <option value="compact">Compact: a line each</option>
+            </select>
+            <Check checked={t.showImage} onChange={(v) => set({ showImage: v })}>Pictures</Check>
+          </div>
+          <div className="formrow">
+            <label>Mention</label>
+            <select value={t.mention === '@room' ? '@room' : ''} onChange={(e) => set({ mention: e.target.value })}>
+              <option value="">Nobody</option>
+              <option value="@room">@room (the bot needs permission to)</option>
+            </select>
+            <Check checked={t.matrixLoud} onChange={(v) => set({ matrixLoud: v })}>
+              Ordinary messages, which notify phones
+            </Check>
+          </div>
+          <Check checked={t.commands} onChange={(v) => set({ commands: v })}>
+            Answer commands here, listing only what the filters below let through
+          </Check>
+        </>
       )}
 
       <h4>When</h4>
@@ -313,7 +351,7 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
   }, []);
 
   const targets = draft.notifyTargets ?? [];
-  const bot = draft.matrixBot ?? { enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [] };
+  const bot = draft.matrixBot ?? { enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true };
   const setBot = (patch: Partial<typeof bot>): void => set({ matrixBot: { ...bot, ...patch } });
   const places = [...new Set([draft.city, ...(draft.eventAreas ?? []).map((a) => a.name)].map((p) => town(p ?? '')).filter(Boolean))];
   const m = status?.matrix;
@@ -341,6 +379,7 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
             status={status?.targets[t.id] ?? undefined}
             dirty={dirty}
             save={save}
+            rooms={m?.joinedRooms ?? []}
             update={(next) => set({ notifyTargets: targets.map((x) => (x.id === t.id ? next : x)) })}
             remove={() => set({ notifyTargets: targets.filter((x) => x.id !== t.id) })}
           />
@@ -349,6 +388,11 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
           <button onClick={() => set({ notifyTargets: [...targets, blankTarget('discord')] })}>+ Discord webhook</button>
           <button onClick={() => set({ notifyTargets: [...targets, blankTarget('matrix')] })}>+ Matrix room</button>
         </div>
+        <datalist id="matrix-rooms">
+          {(m?.joinedRooms ?? []).map((r) => (
+            <option key={r.roomId} value={r.roomId}>{r.name}</option>
+          ))}
+        </datalist>
       </section>
 
       <section>
@@ -384,6 +428,34 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
             No accounts are allowed yet, so it will not accept any invite. Add yours below.
           </p>
         )}
+        {(m?.joinedRooms ?? []).length > 0 && (
+          <div className="notify__rooms">
+            <label className="hint">It is in</label>
+            {m!.joinedRooms!.map((r) => {
+              const has = targets.some((t) => t.kind === 'matrix' && t.roomId === r.roomId);
+              return (
+                <div key={r.roomId} className="formrow">
+                  <span>{r.name || 'Unnamed room'}</span>
+                  <code className="hint">{r.roomId}</code>
+                  {has ? (
+                    <span className="hint">set up above</span>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        set({ notifyTargets: [...targets, { ...blankTarget('matrix'), name: r.name || 'Matrix room', roomId: r.roomId }] })
+                      }
+                    >
+                      Set up notifications here
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <Check checked={bot.commandsEverywhere !== false} onChange={(v) => setBot({ commandsEverywhere: v })}>
+          Answer commands in rooms with nothing set up above, listing everything
+        </Check>
         <div className="formrow">
           <label>Homeserver</label>
           <input value={bot.homeserver} placeholder="https://matrix.example.org" onChange={(e) => setBot({ homeserver: e.target.value })} />
