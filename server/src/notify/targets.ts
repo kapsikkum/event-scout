@@ -64,7 +64,8 @@ export function normalizeTarget(raw: unknown): NotifyTarget {
     style: t.style === 'compact' ? 'compact' : 'full',
     showImage: bool(t.showImage, true),
     roomId: str(t.roomId, 255),
-    matrixLoud: bool(t.matrixLoud, false),
+    // Ordinary messages unless asked otherwise: clients draw notices greyed out.
+    matrixLoud: bool(t.matrixLoud, true),
     commands: bool(t.commands, true),
     triggers: {
       newEvents: {

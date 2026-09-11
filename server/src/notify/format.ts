@@ -219,11 +219,21 @@ export function discordPayloads(notice: Notice, target: NotifyTarget, appUrl: st
 
 // --- Matrix ----------------------------------------------------------------------
 
+/** A picture on the homeserver, as an m.image event wants it. */
+export interface MatrixPicture {
+  uri: string;
+  mimetype: string;
+  size: number;
+}
+
 export interface MatrixContent {
-  msgtype: 'm.text' | 'm.notice';
+  msgtype: 'm.text' | 'm.notice' | 'm.image';
   body: string;
   format?: 'org.matrix.custom.html';
   formatted_body?: string;
+  /** m.image: the picture on the homeserver, and what it is. */
+  url?: string;
+  info?: { mimetype: string; size: number };
   'm.mentions'?: { room?: boolean; user_ids?: string[] };
 }
 
@@ -231,83 +241,162 @@ export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
 }
 
-/** One event as a line, plain and HTML. `n` numbers it, for the commands that refer back. */
-export function matrixLine(
-  item: NoticeItem, appUrl: string, n?: number, opts: { full?: boolean; image?: string } = {}
-): { text: string; html: string } {
+const HTML = 'org.matrix.custom.html' as const;
+const MUTED = '#98a1b3';
+
+/** "today", "tomorrow", "in 3 days", "in 2 weeks"; '' once the day has gone. */
+export function relativeDay(iso: string, now: Date): string {
+  const day = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(new Date(iso)) - day(now)) / 86400_000);
+  if (days < 0) return '';
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  return days < 14 ? `in ${days} days` : `in ${Math.round(days / 7)} weeks`;
+}
+
+const hexFor = (category: string): string => `#${colourFor(category).toString(16).padStart(6, '0')}`;
+
+function changesOf(item: NoticeItem): { text: string[]; html: string[] } {
+  const list = item.changes ?? [];
+  return {
+    text: list.map((c) => `✎ ${CHANGE_LABEL[c.field]}: ${c.before ? `${c.before} → ` : ''}${c.after || '(removed)'}`),
+    html: list.map(
+      (c) => `✎ <b>${CHANGE_LABEL[c.field]}:</b> ${c.before ? `<del>${escapeHtml(c.before)}</del> → ` : ''}${escapeHtml(c.after || '(removed)')}`
+    ),
+  };
+}
+
+/**
+ * One event as a line: the date first, since that is what a list is scanned
+ * by, then the title and the place. `n` numbers it for the commands that
+ * refer back to a list.
+ */
+export function matrixLine(item: NoticeItem, appUrl: string, n?: number): { text: string; html: string } {
   const ev = readable(item.ev);
   const link = linkFor(ev, appUrl);
   const when = whenText(ev.startTime, ev.dateOnly);
   const where = whereText(ev);
   const again = item.moreDates ? ` (+${item.moreDates} more date${item.moreDates === 1 ? '' : 's'})` : '';
-  const num = n != null ? `${n}. ` : '';
-  const changes = (item.changes ?? []).map((c) => ({
-    text: `${CHANGE_LABEL[c.field]}: ${c.before ? `${c.before} → ` : ''}${c.after || '(removed)'}`,
-    html: `<br>✎ <b>${CHANGE_LABEL[c.field]}:</b> ${c.before ? `<del>${escapeHtml(c.before)}</del> → ` : ''}${escapeHtml(c.after || '(removed)')}`,
-  }));
   const title = escapeHtml(cut(ev.title, 140));
-  const details = opts.full
-    ? [ev.category, ev.priceText, ev.photoScore > 0 ? `📷 ${Math.round(ev.photoScore)}` : ''].filter(Boolean).join(' · ')
-    : '';
-  const blurb = opts.full && ev.description ? cut(ev.description, 280) : '';
+  const changes = changesOf(item);
   return {
     text:
-      `${num}${cut(ev.title, 140)} — ${when} · ${where}${again}${link ? ` ${link}` : ''}` +
-      `${changes.map((c) => `\n   ✎ ${c.text}`).join('')}${details ? `\n   ${details}` : ''}${blurb ? `\n   ${blurb}` : ''}`,
+      `${n != null ? `${n}. ` : ''}${cut(ev.title, 140)} — ${when} · ${where}${again}${link ? ` ${link}` : ''}` +
+      changes.text.map((c) => `\n   ${c}`).join(''),
     html:
-      `${num}${link ? `<a href="${escapeHtml(link)}">${title}</a>` : `<b>${title}</b>`} — ${escapeHtml(when)} · ${escapeHtml(where)}${escapeHtml(again)}` +
-      `${changes.map((c) => c.html).join('')}${details ? `<br><i>${escapeHtml(details)}</i>` : ''}${blurb ? `<br>${escapeHtml(blurb)}` : ''}` +
-      `${opts.image ? `<br><img src="${escapeHtml(opts.image)}" alt="" height="220">` : ''}`,
+      `${n != null ? `<code>${n}</code> ` : ''}<b>${escapeHtml(when)}</b> · ` +
+      `${link ? `<a href="${escapeHtml(link)}">${title}</a>` : title} · ` +
+      `<font data-mx-color="${MUTED}">${escapeHtml(where)}${escapeHtml(again)}</font>` +
+      changes.html.map((c) => `<br>&nbsp;&nbsp;${c}`).join(''),
   };
 }
 
-export interface MatrixListOptions {
-  numbered?: boolean;
-  more?: number;
-  /** The details and blurb under each event, as Discord's full style has. */
-  full?: boolean;
-  /** Pictures already uploaded to the homeserver (mxc://), by the event's own image address. */
-  images?: Record<string, string>;
-  /** An ordinary message, which notifies, rather than a quiet bot notice. */
-  loud?: boolean;
-  /** '@room' pings everyone in the room. */
-  mention?: string;
-}
-
-/** A heading and a list of events, as one Matrix message. */
-export function matrixList(heading: string, items: NoticeItem[], appUrl: string, opts: MatrixListOptions = {}): MatrixContent {
-  const lines = items.map((item, i) =>
-    matrixLine(item, appUrl, opts.numbered ? i + 1 : undefined, { full: opts.full, image: opts.images?.[item.ev.imageUrl] })
-  );
+/** A heading and a list of events, one line each, as one message. */
+export function matrixList(
+  heading: string, items: NoticeItem[], appUrl: string,
+  opts: { numbered?: boolean; more?: number; mention?: string } = {}
+): MatrixContent {
+  const lines = items.map((item, i) => matrixLine(item, appUrl, opts.numbered ? i + 1 : undefined));
   const more = opts.more ? `…and ${opts.more} more` : '';
   const ping = opts.mention === '@room';
   return {
-    msgtype: opts.loud ? 'm.text' : 'm.notice',
-    body: [`${ping ? '@room ' : ''}${heading}`, ...lines.map((l) => `• ${l.text}`), more].filter(Boolean).join('\n'),
-    format: 'org.matrix.custom.html',
+    msgtype: 'm.text',
+    body: [`${ping ? '@room ' : ''}${heading}`, ...lines.map((l) => l.text), more].filter(Boolean).join('\n'),
+    format: HTML,
     formatted_body:
       `<p>${ping ? '@room ' : ''}<b>${escapeHtml(heading)}</b></p>` +
-      (lines.length ? `<ul>${lines.map((l) => `<li>${l.html}</li>`).join('')}</ul>` : '') +
-      (more ? `<p>${escapeHtml(more)}</p>` : ''),
+      (lines.length ? `<p>${lines.map((l) => l.html).join('<br>')}</p>` : '') +
+      (more ? `<p><i>${escapeHtml(more)}</i></p>` : ''),
     // Said outright, so a title that happens to contain someone's name pings nobody.
     'm.mentions': ping ? { room: true } : {},
   };
 }
 
-/** A notice as one Matrix message, in the look the target asks for. */
-export function matrixContent(notice: Notice, target: NotifyTarget, appUrl: string, images: Record<string, string> = {}): MatrixContent {
-  // A digest is a list to scan; the details are for events being announced.
+/**
+ * One event as a card, the way a Discord embed shows it: the title as a link,
+ * when and where, the blurb as a quote, and the details in a small muted line
+ * after a mark in the category's colour.
+ */
+export function matrixCard(item: NoticeItem, appUrl: string, now = new Date()): MatrixContent {
+  const ev = readable(item.ev);
+  const link = linkFor(ev, appUrl);
+  const own = appLink(ev, appUrl);
+  const when = whenText(ev.startTime, ev.dateOnly);
+  const soon = relativeDay(ev.startTime, now);
+  const where = whereText(ev);
+  const again = item.moreDates ? `↻ and ${item.moreDates} more date${item.moreDates === 1 ? '' : 's'}` : '';
+  const blurb = ev.description ? cut(ev.description, 300) : '';
+  const details = [ev.category, ev.priceText, ev.photoScore > 0 ? `📷 ${Math.round(ev.photoScore)}` : ''].filter(Boolean);
+  const changes = changesOf(item);
+  const title = escapeHtml(cut(ev.title, 200));
+  const extraLink = own && own !== link ? own : '';
+
+  const html = [
+    `<h4>${link ? `<a href="${escapeHtml(link)}">${title}</a>` : title}</h4>`,
+    `<p>📅 <b>${escapeHtml(when)}</b>${soon ? ` <font data-mx-color="${MUTED}">· ${soon}</font>` : ''}<br>` +
+      `📍 ${escapeHtml(where)}${again ? `<br>${escapeHtml(again)}` : ''}` +
+      changes.html.map((c) => `<br>${c}`).join('') +
+      `</p>`,
+    blurb ? `<blockquote>${escapeHtml(blurb)}</blockquote>` : '',
+    details.length || extraLink
+      ? `<p><font data-mx-color="${hexFor(ev.category)}">■</font> <font data-mx-color="${MUTED}">${escapeHtml(details.join(' · '))}` +
+        `${extraLink ? `${details.length ? ' · ' : ''}<a href="${escapeHtml(extraLink)}">Open in Event Scout</a>` : ''}</font></p>`
+      : '',
+  ].join('');
+  const text = [
+    ev.title,
+    `📅 ${when}${soon ? ` · ${soon}` : ''}`,
+    `📍 ${where}`,
+    again,
+    ...changes.text,
+    blurb,
+    details.join(' · '),
+    link,
+  ].filter(Boolean).join('\n');
+  return { msgtype: 'm.text', body: text, format: HTML, formatted_body: html, 'm.mentions': {} };
+}
+
+/** A picture as its own message, which clients show at a sensible size with a way to open it. */
+export function matrixImage(picture: MatrixPicture, title: string): MatrixContent {
+  return { msgtype: 'm.image', body: cut(title, 100), url: picture.uri, info: { mimetype: picture.mimetype, size: picture.size } };
+}
+
+/**
+ * A notice as the messages a target asks for.
+ *
+ * Full: a heading, then a card for each event followed by its flyer as an
+ * image. Compact, and every digest: one message, a line an event. Quiet
+ * targets send notices, which clients draw greyed out and do not alert for;
+ * the rest send ordinary messages.
+ */
+export function matrixMessages(
+  notice: Notice, target: NotifyTarget, appUrl: string, pictures: Record<string, MatrixPicture> = {}, now = new Date()
+): MatrixContent[] {
+  const quiet = (c: MatrixContent): MatrixContent =>
+    target.matrixLoud || c.msgtype === 'm.image' ? c : { ...c, msgtype: 'm.notice' };
   const full = target.style === 'full' && notice.kind !== 'digest';
-  return matrixList(notice.heading, notice.items, appUrl, {
-    more: notice.more,
-    full,
-    images: full && target.showImage ? images : {},
-    loud: target.matrixLoud,
-    mention: target.mention,
-  });
+  if (!full) return [quiet(matrixList(notice.heading, notice.items, appUrl, { more: notice.more, mention: target.mention }))];
+
+  const ping = target.mention === '@room';
+  const out: MatrixContent[] = [
+    quiet({
+      msgtype: 'm.text',
+      body: `${ping ? '@room ' : ''}${notice.heading}`,
+      format: HTML,
+      formatted_body: `${ping ? '@room ' : ''}<b>${escapeHtml(notice.heading)}</b>`,
+      'm.mentions': ping ? { room: true } : {},
+    }),
+  ];
+  for (const item of notice.items) {
+    out.push(quiet(matrixCard(item, appUrl, now)));
+    const picture = target.showImage ? pictures[item.ev.imageUrl] : undefined;
+    if (picture) out.push(matrixImage(picture, readable(item.ev).title));
+  }
+  if (notice.more) out.push(quiet({ msgtype: 'm.text', body: `…and ${notice.more} more` }));
+  return out;
 }
 
 /** Plain words, for a command's reply. */
 export function matrixText(text: string): MatrixContent {
-  return { msgtype: 'm.notice', body: text };
+  return { msgtype: 'm.text', body: text };
 }

@@ -2,7 +2,7 @@ import type { MergedEvent } from '../events.js';
 import type { NotifyFilters } from '../sources/types.js';
 import { matchesFilters } from './filters.js';
 import { foldSeries } from './run.js';
-import { matrixLine, matrixList, matrixText, MatrixContent, whenText, whereText, linkFor, escapeHtml } from './format.js';
+import { matrixCard, matrixList, matrixText, MatrixContent, whenText, whereText, linkFor, escapeHtml } from './format.js';
 
 /**
  * What the Matrix bot answers.
@@ -100,7 +100,7 @@ function help(p: string): MatrixContent {
     `${p}status — when it last looked`,
   ];
   return {
-    msgtype: 'm.notice',
+    msgtype: 'm.text',
     body: `Event Scout\n${lines.join('\n')}`,
     format: 'org.matrix.custom.html',
     formatted_body: `<p><b>Event Scout</b></p><ul>${lines.map((l) => `<li><code>${escapeHtml(l.split(' — ')[0])}</code> — ${escapeHtml(l.split(' — ')[1])}</li>`).join('')}</ul>`,
@@ -157,15 +157,7 @@ export function runCommand(
     case 'event': {
       const ev = picked(ctx.roomId, cmd.args[0], deps);
       if (typeof ev === 'string') return matrixText(ev);
-      const line = matrixLine({ ev }, deps.appUrl);
-      const blurb = ev.description ? ev.description.slice(0, 600) : '';
-      const extra = [ev.category, ev.priceText, ev.photoScore > 0 ? `📷 ${Math.round(ev.photoScore)}` : ''].filter(Boolean).join(' · ');
-      return {
-        msgtype: 'm.notice',
-        body: [line.text, extra, blurb].filter(Boolean).join('\n'),
-        format: 'org.matrix.custom.html',
-        formatted_body: `<p>${line.html}</p>${extra ? `<p>${escapeHtml(extra)}</p>` : ''}${blurb ? `<blockquote>${escapeHtml(blurb)}</blockquote>` : ''}`,
-      };
+      return matrixCard({ ev }, deps.appUrl, now);
     }
 
     case 'star':

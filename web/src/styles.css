@@ -1167,3 +1167,7 @@ button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
 .notify__room-state { color: var(--green); font-size: 13px; }
 .notify__room button { padding: 4px 10px; font-size: 13px; }
 section > .notify__check { margin-top: 10px; }
+/* In a target's rows the fields give way to their checkboxes, and a long label wraps inside the card. */
+.notify__target .formrow { flex-wrap: wrap; }
+.notify__target .formrow > input, .notify__target .formrow > select { flex: 1 1 220px; min-width: 0; width: auto; }
+.notify__target .formrow > .notify__check { white-space: normal; flex: 0 1 auto; }

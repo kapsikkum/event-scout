@@ -195,7 +195,7 @@ export interface NotifyTarget {
   showImage: boolean;
   /** Matrix: the room, as '!id:server' or '#alias:server'. */
   roomId: string;
-  /** Matrix: ordinary messages, which notify phones, rather than quiet bot notices. */
+  /** Matrix: ordinary messages (the default), or quiet bot notices, which clients grey out and do not alert for. */
   matrixLoud: boolean;
   /** Matrix: answer commands in this room, listing only what this target's filters let through. */
   commands: boolean;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { MergedEvent } from '../src/events.js';
 import { matchesFilters } from '../src/notify/filters.js';
-import { discordPayloads, matrixContent, matrixList } from '../src/notify/format.js';
+import { discordPayloads, matrixList, matrixMessages } from '../src/notify/format.js';
 import { digestSlot, inQuietHours, planTarget } from '../src/notify/run.js';
 import type { NotifyStore, Snapshot } from '../src/notify/store.js';
 import { DEFAULT_FILTERS, normalizeTarget } from '../src/notify/targets.js';
@@ -74,22 +74,26 @@ test('entities in a title come out as the characters they stand for', () => {
   assert.match(matrixList('h', [{ ev: e }], '').body, /Father’s Day Out/);
 });
 
-test('a Matrix room can have the full look, a ping, and ordinary messages', () => {
+test('a Matrix room gets a card an event, its flyer as an image, and a ping when asked', () => {
   const e = ev({ description: 'Bring the car.', priceText: 'Free', imageUrl: 'https://x.example/y.jpg' });
   const notice = { kind: 'new' as const, heading: 'new', items: [{ ev: e }] };
-  const pics = { 'https://x.example/y.jpg': 'mxc://hs/abc' };
-  const loud = matrixContent(notice, normalizeTarget({ kind: 'matrix', style: 'full', mention: '@room', matrixLoud: true }), '', pics);
-  assert.equal(loud.msgtype, 'm.text');
-  assert.deepEqual(loud['m.mentions'], { room: true });
-  assert.match(loud.body, /^@room new/);
-  assert.match(loud.formatted_body!, /Bring the car\./);
-  assert.match(loud.formatted_body!, /Motorsport · Free · 📷 50/);
-  assert.match(loud.formatted_body!, /<img src="mxc:\/\/hs\/abc"/);
-  const quiet = matrixContent(notice, normalizeTarget({ kind: 'matrix', style: 'compact' }), '', pics);
-  assert.equal(quiet.msgtype, 'm.notice');
-  assert.deepEqual(quiet['m.mentions'], {}, 'nobody pinged by accident');
-  assert.ok(!quiet.formatted_body!.includes('<img'));
-  assert.ok(!quiet.formatted_body!.includes('Bring the car'));
+  const pics = { 'https://x.example/y.jpg': { uri: 'mxc://hs/abc', mimetype: 'image/jpeg', size: 1234 } };
+  const msgs = matrixMessages(notice, normalizeTarget({ kind: 'matrix', style: 'full', mention: '@room' }), '', pics, new Date('2026-09-18T00:00:00.000Z'));
+  assert.equal(msgs.length, 3, 'heading, card, picture');
+  assert.deepEqual(msgs[0]['m.mentions'], { room: true });
+  assert.match(msgs[0].body, /^@room new/);
+  assert.equal(msgs[1].msgtype, 'm.text', 'ordinary messages by default: notices are drawn greyed out');
+  assert.match(msgs[1].formatted_body!, /<blockquote>Bring the car\.<\/blockquote>/);
+  assert.match(msgs[1].formatted_body!, /Motorsport · Free · 📷 50/);
+  assert.match(msgs[1].formatted_body!, /in 2 days/);
+  assert.deepEqual(msgs[1]['m.mentions'], {}, 'only the heading pings');
+  assert.deepEqual({ type: msgs[2].msgtype, url: msgs[2].url }, { type: 'm.image', url: 'mxc://hs/abc' });
+
+  const compact = matrixMessages(notice, normalizeTarget({ kind: 'matrix', style: 'compact', matrixLoud: false }), '', pics);
+  assert.equal(compact.length, 1, 'one message, a line an event');
+  assert.equal(compact[0].msgtype, 'm.notice', 'quiet when asked');
+  assert.deepEqual(compact[0]['m.mentions'], {});
+  assert.doesNotMatch(compact[0].formatted_body!, /Bring the car|<img/);
 });
 
 test('commands in a room with a target list only what its filters let through', () => {

@@ -1,7 +1,7 @@
 import { getSettings } from '../db.js';
 import { assertPublicUrl } from '../nethost.js';
 import { USER_AGENT } from '../useragent.js';
-import type { MatrixContent } from './format.js';
+import type { MatrixContent, MatrixPicture } from './format.js';
 
 /**
  * A Matrix bot, on the client-server API and nothing else.
@@ -87,7 +87,7 @@ export function knownRoomId(room: string): string | undefined {
   return r.startsWith('!') ? r : rooms.get(r);
 }
 
-const media = new Map<string, string>();
+const media = new Map<string, MatrixPicture>();
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 /**
@@ -99,7 +99,7 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
  * anything that is not an image, or is larger than a flyer has any reason to
  * be, is left out rather than failing the message.
  */
-export async function uploadImage(conn: MatrixConn, url: string): Promise<string | null> {
+export async function uploadImage(conn: MatrixConn, url: string): Promise<MatrixPicture | null> {
   const known = media.get(url);
   if (known) return known;
   if (!/^https?:\/\/\S+$/i.test(url)) return null;
@@ -120,16 +120,17 @@ export async function uploadImage(conn: MatrixConn, url: string): Promise<string
     const uri = ((await up.json()) as { content_uri?: string }).content_uri;
     if (!uri) return null;
     if (media.size > 500) media.clear();
-    media.set(url, uri);
-    return uri;
+    const picture: MatrixPicture = { uri, mimetype: type, size: bytes.length };
+    media.set(url, picture);
+    return picture;
   } catch {
     return null;
   }
 }
 
 /** The pictures for a message, uploaded; a handful at most, since one message shows them all. */
-export async function imagesFor(conn: MatrixConn, urls: string[]): Promise<Record<string, string>> {
-  const out: Record<string, string> = {};
+export async function imagesFor(conn: MatrixConn, urls: string[]): Promise<Record<string, MatrixPicture>> {
+  const out: Record<string, MatrixPicture> = {};
   for (const url of [...new Set(urls.filter(Boolean))].slice(0, 6)) {
     const uri = await uploadImage(conn, url);
     if (uri) out[url] = uri;

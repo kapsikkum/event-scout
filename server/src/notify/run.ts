@@ -1,7 +1,7 @@
 import type { MergedEvent } from '../events.js';
 import type { NotifyTarget, Settings } from '../sources/types.js';
 import { matchesFilters } from './filters.js';
-import { Change, discordPayloads, matrixContent, Notice, NoticeItem, whenText } from './format.js';
+import { Change, discordPayloads, matrixMessages, Notice, NoticeItem, whenText } from './format.js';
 import { sendDiscord } from './discord.js';
 import { connFromSettings, imagesFor, sendMatrix } from './matrix.js';
 import { NotifyStore, Snapshot } from './store.js';
@@ -203,7 +203,9 @@ export const deliver: Deliver = async (target, notice, settings) => {
   const pictures = target.showImage && target.style === 'full' && notice.kind !== 'digest'
     ? await imagesFor(conn, notice.items.map((i) => i.ev.imageUrl))
     : {};
-  await sendMatrix(conn, target.roomId, matrixContent(notice, target, settings.appUrl ?? '', pictures));
+  for (const content of matrixMessages(notice, target, settings.appUrl ?? '', pictures)) {
+    await sendMatrix(conn, target.roomId, content);
+  }
 };
 
 export interface RunResult {

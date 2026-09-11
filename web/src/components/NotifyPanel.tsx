@@ -27,7 +27,7 @@ function blankTarget(kind: NotifyTarget['kind']): NotifyTarget {
     style: 'full',
     showImage: true,
     roomId: '',
-    matrixLoud: false,
+    matrixLoud: true,
     commands: true,
     triggers: {
       newEvents: { enabled: true, settleMinutes: 30, maxPerRun: 10 },
@@ -222,8 +222,8 @@ function TargetCard({ target, update, remove, places, categories, status, dirty,
               <option value="">Nobody</option>
               <option value="@room">@room (the bot needs permission to)</option>
             </select>
-            <Check checked={t.matrixLoud} onChange={(v) => set({ matrixLoud: v })}>
-              Ordinary messages, which notify phones
+            <Check checked={!t.matrixLoud} onChange={(v) => set({ matrixLoud: !v })}>
+              Quiet notices: greyed out, no alert
             </Check>
           </div>
           <Check checked={t.commands} onChange={(v) => set({ commands: v })}>
