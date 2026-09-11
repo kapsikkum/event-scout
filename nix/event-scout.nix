@@ -1,17 +1,20 @@
 # event-scout for the NixOS fleet.
 #
-# Deployed and verified on data-server: modules/containers/event-scout/default.nix
-# in ~/.nixos-config, with "event-scout" added to hostContainers on the host.
+# Lives in the fleet config as modules/containers/event-scout/default.nix, with
+# "event-scout" in data-server's hostContainers, and is deployed with the rest
+# of the fleet from the machine that holds it — data-server is not built on
+# itself. In particular, ~/.nixos-config on data-server is a checkout from 2024
+# that nothing uses any more: rebuilding from it would roll the whole host back
+# two years. Do not.
 #
-# Both images come from GHCR, published by CI on every push to main, so
+# All three images come from GHCR, published by CI on every push to main, so
 # deploying a code change is:
 #
-#   git push                                       # CI builds and publishes
-#   sudo systemctl restart podman-event-scout      # pulls it, pull = "newer"
+#   git push                                            # CI builds and publishes
+#   sudo systemctl restart podman-event-scout           # pulls it, pull = "newer"
+#   sudo systemctl restart podman-event-scout-crawler   # likewise, if it changed
 #
-# A change to this file is a nixos-rebuild rather than a restart: copy it to
-# ~/.nixos-config/modules/containers/event-scout/default.nix on the host, then
-# sudo nixos-rebuild switch.
+# A change to this file is a fleet deploy rather than a restart.
 #
 # They used to be built on the host as root, because CI could not publish while
 # the GitHub account was locked. That worked, but it rebuilt Chromium's image on
@@ -29,10 +32,10 @@ let
   domain = mkDomain "events";
   port = 3001;
 
-  # The two containers find each other by name, and oci-containers does not
-  # create a network for them. Podman's DNS only answers on a user-defined
-  # network — on the default one "event-scout-chromium" resolves to nothing,
-  # and the app waits its full sixty seconds before giving up.
+  # The containers find each other by name, and oci-containers does not create
+  # a network for them. Podman's DNS only answers on a user-defined network — on
+  # the default one "event-scout-chromium" resolves to nothing, and the app
+  # waits its full sixty seconds before giving up.
   network = "event-scout";
 
   # Tagged :latest rather than by digest, which is the one thing the move to
@@ -42,6 +45,7 @@ let
   # without editing this file.
   appImage = "ghcr.io/kapsikkum/event-scout:latest";
   chromiumImage = "ghcr.io/kapsikkum/event-scout-chromium:latest";
+  crawlerImage = "ghcr.io/kapsikkum/event-scout-crawler:latest";
 
   # The Ollama the two model-reading tasks talk to. Neither is on by default,
   # and both degrade to "cannot reach" rather than failing anything else, so
@@ -78,10 +82,12 @@ in
     before = [
       "podman-event-scout.service"
       "podman-event-scout-chromium.service"
+      "podman-event-scout-crawler.service"
     ];
     requiredBy = [
       "podman-event-scout.service"
       "podman-event-scout-chromium.service"
+      "podman-event-scout-crawler.service"
     ];
     serviceConfig = {
       Type = "oneshot";
@@ -144,6 +150,35 @@ in
       volumes = [ "event-scout-chromium-profile:/profile" ];
     };
 
+    # The crawler: a separate program that the app asks for what it has found.
+    # No ports, for the same reason as Chromium — its API is unauthenticated,
+    # and the app reaches it across the podman network. Not a dependency of the
+    # app either: a crawler that is down is a source that says so, nothing more.
+    event-scout-crawler = {
+      image = crawlerImage;
+      pull = "newer";
+      autoStart = true;
+      extraOptions = [
+        "--network=${network}"
+        # Small caps. It fetches and parses one page per site at a time, and
+        # has no business anywhere near the memory immich needs.
+        "--memory=512m"
+        "--memory-swap=512m"
+        "--cpus=1"
+        "--pids-limit=128"
+      ];
+      # A named volume rather than local disk worth backing up: the database
+      # is a frontier of URLs, rewritten constantly, and rebuilds itself from
+      # the searches if lost.
+      volumes = [ "event-scout-crawler-data:/app/data" ];
+      environment = {
+        CRAWLER_PORT = "3002";
+        # A page that gives a time with no zone is read as local time, so this
+        # has to be the zone the events are in.
+        TZ = config.time.timeZone;
+      };
+    };
+
     event-scout = {
       image = appImage;
       # Pull when the registry has something newer, so a restart is all a
@@ -169,6 +204,9 @@ in
         # 127.0.0.1 unless told otherwise, so squareeyes needs its own
         # services.ollama.host set to 0.0.0.0 for this to reach anything.
         OLLAMA_URL = ollamaUrl;
+        # Where the crawler listens. Also only a default, overridden by the
+        # Crawler URL in Settings.
+        CRAWLER_URL = "http://event-scout-crawler:3002";
       };
     };
   };
