@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, CrawlerHistoryRow, CrawlerPageRow, CrawlerStatus, CrawlPageReport, IcalPreview, Unauthorized } from '../api';
 import { useStore } from '../store';
 
@@ -39,6 +39,76 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
       <span className="crawlstat__value">{value}</span>
       <span className="crawlstat__label">{label}</span>
       {hint && <span className="crawlstat__hint">{hint}</span>}
+    </div>
+  );
+}
+
+/**
+ * A section that folds away, remembered per browser.
+ *
+ * The crawler's lists grow without end — two hundred pages read, fifty feeds
+ * found — and open they push everything below them off the page. Closed by
+ * default, with the count on the heading so there is a reason to open it.
+ */
+function Fold({
+  id, title, count, defaultOpen = false, children,
+}: {
+  id: string;
+  title: string;
+  count?: number;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const key = `crawler-fold:${id}`;
+  const [open, setOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved === null ? defaultOpen : saved === '1';
+    } catch {
+      return defaultOpen;
+    }
+  });
+  return (
+    <details
+      className="crawlfold"
+      open={open}
+      onToggle={(e) => {
+        const now = (e.currentTarget as HTMLDetailsElement).open;
+        setOpen(now);
+        try {
+          localStorage.setItem(key, now ? '1' : '0');
+        } catch {
+          // A browser that will not store it simply forgets.
+        }
+      }}
+    >
+      <summary>
+        <span className="crawlfold__title">{title}</span>
+        {count !== undefined && <span className="crawlfold__count">{NUMBER.format(count)}</span>}
+      </summary>
+      {children}
+    </details>
+  );
+}
+
+/** A page of a list at a time, starting over when the list itself changes. */
+function usePaged<T>(items: T[], size: number) {
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [items]);
+  const pages = Math.max(1, Math.ceil(items.length / size));
+  const at = Math.min(page, pages - 1);
+  return { rows: items.slice(at * size, at * size + size), page: at, pages, setPage };
+}
+
+function Pager({ page, pages, total, setPage }: { page: number; pages: number; total: number; setPage: (p: number) => void }) {
+  if (pages <= 1) return null;
+  return (
+    <div className="pager">
+      <button disabled={page === 0} onClick={() => setPage(page - 1)}>‹ Prev</button>
+      <span className="hint">
+        {page + 1} of {pages} · {NUMBER.format(total)} in all
+      </span>
+      <button disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>Next ›</button>
     </div>
   );
 }
@@ -277,6 +347,7 @@ function FeedsSection({ found }: { found: { url: string; site: string; foundOn: 
   };
 
   const manual = open && !foundUrls.has(open) ? open : null;
+  const feedPage = usePaged(found, 10);
 
   return (
     <section>
@@ -311,14 +382,13 @@ function FeedsSection({ found }: { found: { url: string; site: string; foundOn: 
       {note && <p className="hint">{note}</p>}
 
       {found.length > 0 && (
-        <>
-          <h3 className="crawlsub">Found by the crawl ({found.length})</h3>
+        <Fold id="feeds" title="Found by the crawl" count={found.length}>
           <table className="crawltable crawltable--list">
             <thead>
               <tr><th>Site</th><th>Feed</th><th /></tr>
             </thead>
             <tbody>
-              {found.slice(0, 50).map((f) => (
+              {feedPage.rows.map((f) => (
                 <FeedRow
                   key={f.url}
                   feed={f}
@@ -331,7 +401,8 @@ function FeedsSection({ found }: { found: { url: string; site: string; foundOn: 
               ))}
             </tbody>
           </table>
-        </>
+          <Pager {...feedPage} total={found.length} />
+        </Fold>
       )}
     </section>
   );
@@ -406,9 +477,11 @@ function PagesSection() {
     void load();
   }, [load]);
 
+  const paged = usePaged(pages ?? [], 15);
+
   return (
     <section>
-      <h2>Pages read</h2>
+      <Fold id="pages" title="Pages read" count={pages?.length}>
       <div className="formrow">
         <button className={sort === 'reads' ? 'primary' : ''} onClick={() => setSort('reads')}>Most read</button>
         <button className={sort === 'recent' ? 'primary' : ''} onClick={() => setSort('recent')}>Latest</button>
@@ -422,7 +495,7 @@ function PagesSection() {
             <tr><th>Page</th><th>Times read</th><th>Events</th><th>Last read</th><th /></tr>
           </thead>
           <tbody>
-            {pages.map((p) => (
+            {paged.rows.map((p) => (
               <tr key={p.url}>
                 <td><a href={p.url} target="_blank" rel="noreferrer" title={p.url}>{shortUrl(p.url)}</a></td>
                 <td>{NUMBER.format(p.reads)}</td>
@@ -434,6 +507,8 @@ function PagesSection() {
           </tbody>
         </table>
       )}
+      <Pager {...paged} total={pages?.length ?? 0} />
+      </Fold>
     </section>
   );
 }

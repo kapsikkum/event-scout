@@ -481,7 +481,7 @@ app.get('/api/crawler/pages', async (req, res) => {
   if (!base) return res.json({ pages: [], problem: 'No crawler address set.' });
   const sort = req.query.sort === 'recent' ? 'recent' : 'reads';
   try {
-    const answer = await fetch(`${base}/pages?sort=${sort}&limit=50`, { signal: AbortSignal.timeout(8000) });
+    const answer = await fetch(`${base}/pages?sort=${sort}&limit=200`, { signal: AbortSignal.timeout(8000) });
     if (!answer.ok) return res.json({ pages: [], problem: `HTTP ${answer.status} from the crawler` });
     res.json(await answer.json());
   } catch (err) {

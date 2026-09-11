@@ -590,7 +590,9 @@ export function reclassifyAll(): number {
 }
 
 function recomputeDedupeGroups(): void {
-  const rows = db.prepare('SELECT id, title, start_time AS startTime, lat, lng FROM events').all() as unknown as DedupeInput[];
+  const rows = db
+    .prepare('SELECT id, title, start_time AS startTime, lat, lng, venue_name AS venueName, date_only AS dateOnly FROM events')
+    .all() as unknown as DedupeInput[];
   const groups = assignDedupeGroups(rows);
   const update = db.prepare('UPDATE events SET dedupe_group = ? WHERE id = ?');
   for (const [id, group] of groups) update.run(group, id);

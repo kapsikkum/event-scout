@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  eventFromPost, instagramPost, instagramProfilePosts, socialKind, whenFromCaption,
+  eventFromPost, instagramPost, instagramProfilePosts, postTime, socialKind, whenFromCaption,
 } from '../src/extract/social.js';
 import { queriesFor, SOCIAL_QUERIES_PER_AREA } from '../src/queries.js';
 
@@ -103,6 +103,31 @@ test('a caption that names no upcoming date is not an event', (t) => {
   assert.equal(whenFromCaption('you may 2 wheel it in if you like', sept4), null);
   // A date that does not exist is not moved to one that does.
   assert.equal(whenFromCaption('See you 31st September', sept4), null);
+});
+
+test('a post shortcode says when it was made', () => {
+  // Posted September 4, 2026, per its own page.
+  const at = postTime('Dc3ABIxk-Oj')!;
+  assert.ok(Math.abs(at.getTime() - Date.UTC(2026, 8, 4, 12)) < 2 * 86400_000, at.toISOString());
+  // A late-2023 post, the kind a profile page still lists.
+  assert.equal(postTime('C0gWULBPA-W')?.getUTCFullYear(), 2023);
+  assert.equal(postTime('not a code!'), null);
+});
+
+test('a day named relative to the post, when the caption gives no date', (t) => {
+  inSydney(t);
+  const wed = on(2026, 9, 9);
+  assert.deepEqual(whenFromCaption('Cars and coffee this Sunday from 7am, all welcome', wed),
+    { startTime: new Date(2026, 8, 13, 7, 0).toISOString(), dateOnly: false });
+  assert.deepEqual(whenFromCaption('Live music tonight 8pm!', wed),
+    { startTime: new Date(2026, 8, 9, 20, 0).toISOString(), dateOnly: false });
+  assert.deepEqual(whenFromCaption('Markets back tomorrow', wed),
+    { startTime: on(2026, 9, 10).toISOString(), dateOnly: true });
+  assert.equal(whenFromCaption('See you this weekend', wed)?.startTime, on(2026, 9, 12).toISOString());
+  // A stated date still wins over a relative word.
+  assert.equal(whenFromCaption('This Sunday? No — 20th September', wed)?.startTime, on(2026, 9, 20).toISOString());
+  // "Book today" is not a date.
+  assert.equal(whenFromCaption('Book today, spots are limited', wed), null);
 });
 
 test('a profile page lists its recent posts', () => {

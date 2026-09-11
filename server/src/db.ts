@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SETTINGS, Settings } from './sources/types.js';
+import { CrawlerRow, planCollapse } from './crawlerRows.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Where everything this app keeps on disk lives, database and flyers alike. */
@@ -194,6 +195,47 @@ function migrate(): void {
   `);
 }
 migrate();
+
+/**
+ * Fold the crawler's old per-page listings into one per event, once.
+ * See crawlerRows.ts for why, and for which row survives.
+ */
+function collapseCrawlerRows(): void {
+  if (getKv('crawler-rows-keyed-by-event')) return;
+  const rows = db
+    .prepare(
+      `SELECT id, source_id, url, title, start_time, starred, hidden, manual_group,
+              edit_title || edit_description || edit_start_time || edit_venue_name ||
+              edit_address || edit_category || edit_price_text || edit_image_url AS edits,
+              edit_photo_score
+         FROM events
+        WHERE source = 'crawler' AND source_id NOT LIKE 'crawl:instagram:%' AND source_id NOT LIKE 'crawl:fb:%'`
+    )
+    .all() as unknown as CrawlerRow[];
+  const plans = planCollapse(rows);
+  const drop = db.prepare('DELETE FROM events WHERE id = ?');
+  const rename = db.prepare('UPDATE events SET source_id = ?, starred = ?, hidden = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    for (const plan of plans) {
+      // Dropped first, so the new key cannot collide with a row about to go.
+      for (const id of plan.remove) drop.run(id);
+      rename.run(plan.key, plan.starred, plan.hidden, plan.keep);
+    }
+    db.exec('DELETE FROM event_enrichment WHERE event_id NOT IN (SELECT id FROM events)');
+    db.exec('DELETE FROM event_vision WHERE event_id NOT IN (SELECT id FROM events)');
+    setKv('crawler-rows-keyed-by-event', new Date().toISOString());
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  if (plans.length) {
+    const removed = plans.reduce((n, p) => n + p.remove.length, 0);
+    console.log(`[db] folded ${removed} duplicate crawler listings into ${plans.length} events`);
+  }
+}
+collapseCrawlerRows();
 
 export function getKv(key: string): string | null {
   const row = db.prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value: string } | undefined;

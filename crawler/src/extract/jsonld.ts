@@ -145,10 +145,21 @@ function priceOf(node: Record<string, unknown>): string | undefined {
 }
 
 /**
+ * A find's identity: the event's own link, its title and its start.
+ *
+ * Not the page it was read on. One event turns up on its own page, on the
+ * calendar, on a category page and on every tag page — and on allevents.in on
+ * a page per suburb — and keyed on the page, each of those was a separate find:
+ * 4,387 finds for 2,144 events, arriving in the app as "16 listings".
+ */
+export const findKey = (url: string, title: string, startTime: string): string =>
+  `${url}#${title.toLowerCase()}|${startTime}`;
+
+/**
  * Events from one fetched page.
  *
- * `pageUrl` is both the fallback link and half the identity: two sites can list
- * the same event, and letting each keep its own id is what leaves the merging
+ * `pageUrl` is the fallback link, for an event that does not name its own. Two
+ * sites listing the same event still get an id each, which leaves the merging
  * to event-scout, which already knows how.
  */
 export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date()): CrawledEvent[] {
@@ -176,7 +187,7 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
       seen.add(key);
 
       out.push({
-        sourceId: `${pageUrl}#${key}`,
+        sourceId: findKey(url, title, when.startTime),
         title,
         description: plain(node.description),
         startTime: when.startTime,

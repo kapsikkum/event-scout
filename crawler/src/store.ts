@@ -3,7 +3,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { config, ensureDataDir } from './config.js';
 import { CrawledEvent } from './types.js';
 import { siteOf } from './urls.js';
-import { SocialLink } from './extract/social.js';
+import { postTime, SocialLink, STALE_POST_DAYS } from './extract/social.js';
+import { findKey } from './extract/jsonld.js';
 
 /**
  * The crawler's own memory, in its own file.
@@ -484,6 +485,12 @@ export function offerSocial(link: SocialLink, foundOn: string): boolean {
         .run(link.url, link.kind, link.id, now(), foundOn.slice(0, 500)).changes as number) > 0
     );
   }
+  // A post's shortcode says when it was made, so one from two years ago is
+  // passed over without a request: profiles and searches turn up plenty.
+  if (link.kind === 'instagram-post') {
+    const at = postTime(link.id);
+    if (at && Date.now() - at.getTime() > STALE_POST_DAYS * 86400_000) return false;
+  }
   return offer(link.url, 0, link.kind === 'instagram-post' ? SOCIAL_POST_SCORE : SOCIAL_PROFILE_SCORE);
 }
 
@@ -585,3 +592,42 @@ export function pageList(sort: 'reads' | 'recent', limit = 50): PageRow[] {
     note: String(r.note ?? ''),
   }));
 }
+
+// --- once ---------------------------------------------------------------------
+
+/**
+ * Fold finds keyed on the page they were read on into the event's own key.
+ *
+ * See findKey. Once, and oldest first, so where several old rows fold into one
+ * the most recent reading is the one kept.
+ */
+function rekeyFinds(): void {
+  if (db.prepare("SELECT 1 FROM kv WHERE key = 'finds-keyed-by-event'").get()) return;
+  const rows = db
+    .prepare("SELECT id, found_at, payload FROM finds WHERE id LIKE '%#%' ORDER BY found_at ASC")
+    .all() as { id: string; found_at: string; payload: string }[];
+  const remove = db.prepare('DELETE FROM finds WHERE id = ?');
+  const put = db.prepare('INSERT OR REPLACE INTO finds (id, start_time, found_at, payload) VALUES (?, ?, ?, ?)');
+  db.exec('BEGIN');
+  try {
+    for (const row of rows) {
+      let ev: CrawledEvent;
+      try {
+        ev = JSON.parse(row.payload) as CrawledEvent;
+      } catch {
+        remove.run(row.id);
+        continue;
+      }
+      const id = findKey(ev.url ?? ev.foundOn, ev.title, ev.startTime);
+      if (id === row.id) continue;
+      remove.run(row.id);
+      put.run(id, ev.startTime, row.found_at, JSON.stringify({ ...ev, sourceId: id }));
+    }
+    db.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES ('finds-keyed-by-event', ?)").run(JSON.stringify(now()));
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+rekeyFinds();

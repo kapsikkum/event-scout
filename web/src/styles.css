@@ -1094,3 +1094,34 @@ button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
 .crawlfeeds__actions { white-space: nowrap; text-align: right; }
 .crawlfeeds__actions button { margin-left: 0.35rem; }
 .crawlfeeds__added { color: var(--green, #86efac); font-size: 0.82rem; }
+
+/* A crawler list that folds away: the heading is the toggle. */
+.crawlfold { margin-top: 0.4rem; }
+.crawlfold > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  list-style: none;
+  padding: 0.2rem 0;
+  user-select: none;
+}
+.crawlfold > summary::-webkit-details-marker { display: none; }
+.crawlfold > summary::before {
+  content: '▸';
+  font-size: 0.85em;
+  opacity: 0.6;
+  transition: transform 0.12s ease;
+}
+.crawlfold[open] > summary::before { transform: rotate(90deg); }
+.crawlfold__title { font-size: 1.05rem; font-weight: 600; }
+.crawlfold__count {
+  font-size: 0.75rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  opacity: 0.8;
+}
+.crawlfold > :not(summary) { margin-top: 0.5rem; }
+
+.pager { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; }

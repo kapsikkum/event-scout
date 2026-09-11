@@ -46,6 +46,35 @@ const NOT_ACCOUNTS = new Set([
 
 export const postUrl = (code: string): string => `https://www.instagram.com/p/${code}/`;
 
+/** Posts older than this are not read: an event they announce is long past. */
+export const STALE_POST_DAYS = 60;
+
+const SHORTCODE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+/** Instagram's epoch, in milliseconds, for the timestamp in the top bits of a media id. */
+const IG_EPOCH = 1314220021721n;
+
+/**
+ * When a post was made, from its shortcode alone.
+ *
+ * The shortcode is the media id in base 64, and the id carries its creation
+ * time in the bits above the lowest 23. Worth knowing before fetching: a
+ * profile's twelve posts and a search's results include posts from years ago,
+ * and the first run spent most of its Instagram budget reading those. Null for
+ * a code that does not decode to a plausible time.
+ */
+export function postTime(code: string): Date | null {
+  let id = 0n;
+  for (const ch of code) {
+    const at = SHORTCODE.indexOf(ch);
+    if (at < 0) return null;
+    id = id * 64n + BigInt(at);
+  }
+  const ms = Number((id >> 23n) + IG_EPOCH);
+  // Instagram launched in 2010; anything outside then-to-tomorrow is not a time.
+  if (!Number.isFinite(ms) || ms < Date.UTC(2010, 0, 1) || ms > Date.now() + 86400_000) return null;
+  return new Date(ms);
+}
+
 /** What a link to Instagram or Facebook points at, or null when it is neither or neither kind. */
 export function socialKind(raw: string): SocialLink | null {
   let url: URL;
@@ -248,7 +277,41 @@ export function whenFromCaption(caption: string, postedAt: Date | null, now = ne
     const start = new Date(at.getFullYear(), at.getMonth(), at.getDate(), time.hour, time.minute);
     return { startTime: start.toISOString(), dateOnly: false };
   }
-  return null;
+  return relativeWhen(caption, postedDay);
+}
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+/** "tonight", "tomorrow", "this Sunday", "next Saturday", "this weekend". */
+const RELATIVE = /\b(tonight|tomorrow|(?:this|next)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend))\b/i;
+
+/**
+ * A day named relative to the day of posting, when the caption gives no date.
+ *
+ * "Cars and coffee this Sunday from 7am" is how most small meets are
+ * announced. "Next Saturday" is read as the coming one, as it usually means in
+ * a post; "this weekend" as its Saturday. "Today" is left out — "book today"
+ * says nothing about when the event is.
+ */
+function relativeWhen(caption: string, postedDay: Date): EventWhen | null {
+  const m = RELATIVE.exec(caption);
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  let offset: number;
+  if (word === 'tonight') offset = 0;
+  else if (word === 'tomorrow') offset = 1;
+  else {
+    const name = m[2].toLowerCase();
+    const target = name === 'weekend' ? 6 : WEEKDAYS.indexOf(name);
+    offset = (target - postedDay.getDay() + 7) % 7;
+  }
+  const at = new Date(postedDay.getFullYear(), postedDay.getMonth(), postedDay.getDate() + offset);
+  const end = m.index + m[0].length;
+  const time = clock(caption.slice(end, end + 150)) ?? clock(/\btimes?\b[^\n]{0,40}/i.exec(caption)?.[0] ?? '');
+  if (!time) return { startTime: at.toISOString(), dateOnly: true };
+  return {
+    startTime: new Date(at.getFullYear(), at.getMonth(), at.getDate(), time.hour, time.minute).toISOString(),
+    dateOnly: false,
+  };
 }
 
 /** A title from the caption's first line that has words in it, hashtags dropped. */
