@@ -22,6 +22,9 @@ export function formatWhen(ev: MergedEvent): string {
     weekday: 'short', month: 'short', day: 'numeric',
     ...(otherYear ? { year: 'numeric' } : {}),
   });
+  // A day with no stated time is shown as the day. It is stored as local
+  // midnight, and printing that would be inventing "12:00 am".
+  if (ev.dateOnly) return day;
   const time = start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   return `${day} · ${time}`;
 }

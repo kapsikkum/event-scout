@@ -160,6 +160,10 @@ function migrate(): void {
     addColumn(cols, col, TEXT_COLUMN);
   }
 
+  // The source gave a day and no clock time. Kept so the page can say
+  // "Thursday" instead of printing the midnight the day is stored as.
+  addColumn(cols, 'date_only', 'INTEGER NOT NULL DEFAULT 0');
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS event_enrichment (
       event_id INTEGER PRIMARY KEY,

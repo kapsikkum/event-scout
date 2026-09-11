@@ -12,7 +12,7 @@ function row(over: Partial<EventRow> = {}): EventRow {
     venue_name: 'Bathurst', address: 'Bathurst, NSW',
     lat: null, lng: null, url: 'https://example.test/1',
     image_url: 'https://images.example.test/enduro-cup.jpg',
-    category: 'Motorsport', price_text: '', is_online: 0, photo_score: 15,
+    category: 'Motorsport', price_text: '', is_online: 0, date_only: 0, photo_score: 15,
     archived: 0, archived_at: null, starred: 0, hidden: 0,
     dedupe_group: 'g1', manual_group: '',
     llm_description: '', llm_category: '', llm_venue_name: '', llm_address: '',

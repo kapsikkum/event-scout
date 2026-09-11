@@ -1043,3 +1043,21 @@ button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
   word-break: break-all;
   opacity: 0.85;
 }
+
+/* Tables with a header row, where the first column is not a label. */
+.crawltable--wide th { width: auto; }
+.crawltable__when { white-space: nowrap; }
+
+.crawlphrases {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.crawlphrases a { word-break: break-all; }
+
+.crawlsub {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 1rem 0 0.35rem;
+}

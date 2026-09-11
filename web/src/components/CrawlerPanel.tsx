@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, CrawlerStatus } from '../api';
+import { api, CrawlerStatus, CrawlPageReport } from '../api';
 
 /**
  * What the crawler is doing, read from the crawler itself.
@@ -24,6 +24,14 @@ function ago(iso: string | null | undefined): string {
   return `${Math.round(seconds / 86400)} d ago`;
 }
 
+/** A found event's start, as the rest of the app shows it: no hour it was not given. */
+function whenOf(ev: { startTime: string; dateOnly?: boolean }): string {
+  const at = new Date(ev.startTime);
+  const day = at.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  if (ev.dateOnly) return day;
+  return `${day} · ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+}
+
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="crawlstat">
@@ -38,6 +46,9 @@ export default function CrawlerPanel() {
   const [status, setStatus] = useState<CrawlerStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [pageUrl, setPageUrl] = useState('');
+  const [reading, setReading] = useState(false);
+  const [report, setReport] = useState<CrawlPageReport | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -66,6 +77,19 @@ export default function CrawlerPanel() {
       setMessage((err as Error).message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const read = async (): Promise<void> => {
+    setReading(true);
+    setReport(null);
+    try {
+      setReport(await api.crawlerCrawl(pageUrl.trim()));
+      void load();
+    } catch (err) {
+      setReport({ url: pageUrl, ok: false, message: (err as Error).message, events: [], links: 0, feeds: [] });
+    } finally {
+      setReading(false);
     }
   };
 
@@ -120,12 +144,108 @@ export default function CrawlerPanel() {
       </section>
 
       <section>
+        <h2>Read a page now</h2>
+        <p className="hint">
+          Any address — a venue&apos;s what&apos;s-on, a council calendar, a link
+          someone sent you. It is read straight away, obeying robots.txt as the
+          crawl does, and its own links go into the queue so the rest of that
+          site is followed on the next cycle. To have a page read regularly, add
+          it to <em>Sites to crawl</em> on the Sources tab.
+        </p>
+        <form
+          className="formrow"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void read();
+          }}
+        >
+          <input value={pageUrl} placeholder="https://…" onChange={(e) => setPageUrl(e.target.value)} />
+          <button type="submit" disabled={reading || !pageUrl.trim()}>
+            {reading ? 'Reading…' : 'Read it'}
+          </button>
+        </form>
+        {report && (
+          <div style={{ marginTop: '0.6rem' }}>
+            <p className="hint" style={report.ok ? undefined : { color: 'var(--red)' }}>
+              {report.message}
+              {report.ok && ` ${report.links} link${report.links === 1 ? '' : 's'} queued for the next cycle.`}
+              {report.ok && report.feeds.length > 0 &&
+                ` ${report.feeds.length} calendar feed${report.feeds.length === 1 ? '' : 's'} found.`}
+            </p>
+            {report.events.length > 0 && (
+              <table className="crawltable crawltable--wide">
+                <thead>
+                  <tr><th>When</th><th>Event</th><th>Where</th></tr>
+                </thead>
+                <tbody>
+                  {report.events.slice(0, 50).map((ev) => (
+                    <tr key={`${ev.title}|${ev.startTime}`}>
+                      <td className="crawltable__when">{whenOf(ev)}</td>
+                      <td>
+                        {ev.url ? <a href={ev.url} target="_blank" rel="noreferrer">{ev.title}</a> : ev.title}
+                      </td>
+                      <td>{ev.venueName ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2>What it looks for</h2>
+        <p className="hint">
+          Your topics and extra search terms, searched in each of your areas —
+          the same list web search uses, set on the Sources tab. There are more
+          phrases than it is worth searching at once, so it takes a different
+          handful each hour and works round the whole list; these are this
+          hour&apos;s. From every result it follows that site&apos;s own links,
+          reading pages that publish <code>schema.org</code> event data and noting
+          any calendar feed.
+        </p>
+        {!status.interests?.length ? (
+          <p className="hint">Nothing yet — set a location on the General tab and save.</p>
+        ) : (
+          <table className="crawltable crawltable--wide">
+            <thead>
+              <tr><th>Area</th><th>Searching this hour</th><th>Phrases in all</th></tr>
+            </thead>
+            <tbody>
+              {status.interests.map((i) => (
+                <tr key={i.city}>
+                  <td>{i.city}</td>
+                  <td>
+                    <ul className="crawlphrases">
+                      {i.thisCycle.map((phrase) => <li key={phrase}>{phrase}</li>)}
+                    </ul>
+                  </td>
+                  <td>{i.terms > 0 ? i.terms : 'none set — a general list'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <h3 className="crawlsub">Sites it reads every six hours</h3>
+        {status.seeds?.length ? (
+          <ul className="crawlphrases">
+            {status.seeds.map((u) => (
+              <li key={u}><a href={u} target="_blank" rel="noreferrer">{u}</a></li>
+            ))}
+          </ul>
+        ) : (
+          <p className="hint">None. Add addresses under <em>Sites to crawl</em> on the Sources tab.</p>
+        )}
+      </section>
+
+      <section>
         <h2>Last cycle</h2>
         {!cycle ? (
           <p className="hint">
-            Nothing yet. The crawler waits to be told where to look — it takes the
-            areas from Settings the first time the app asks it for events, so this
-            fills in after the next refresh.
+            Nothing yet. It is told where to look whenever settings are saved,
+            and starts a cycle within a minute or two of having somewhere to
+            look — or press Crawl now.
           </p>
         ) : (
           <table className="crawltable">
@@ -209,8 +329,8 @@ export default function CrawlerPanel() {
           <tbody>
             <tr>
               <th>Looking for</th>
-              <td>{status.interests?.length ? status.interests.join(', ') : 'nothing yet'}</td>
-              <td className="crawltable__note">taken from your areas</td>
+              <td>{status.interests?.length ? status.interests.map((i) => i.city).join(', ') : 'nothing yet'}</td>
+              <td className="crawltable__note">your location and areas</td>
             </tr>
             <tr>
               <th>Pages per cycle</th>

@@ -1,5 +1,5 @@
 import { CrawledEvent } from '../types.js';
-import { isWorthKeeping, parseWhen } from './when.js';
+import { isWorthKeeping, parseEnd, parseWhen } from './when.js';
 
 /**
  * schema.org/Event out of a page's JSON-LD.
@@ -165,7 +165,7 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
       if (!when || !isWorthKeeping(when.startTime, foundAt)) continue;
 
       const endRaw = str(node.endDate);
-      const end = endRaw ? parseWhen(endRaw) : null;
+      const endTime = endRaw ? parseEnd(endRaw) : undefined;
       const place = placeOf(node);
       const url = str(node.url) ?? pageUrl;
 
@@ -180,7 +180,7 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
         title,
         description: plain(node.description),
         startTime: when.startTime,
-        endTime: end?.startTime,
+        endTime,
         venueName: place.venueName,
         address: place.address,
         lat: place.lat,

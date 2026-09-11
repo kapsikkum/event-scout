@@ -1,10 +1,12 @@
 import { config } from './config.js';
-import { BlockedError, fetchPage, FetchError, permitted } from './fetch.js';
+import { BlockedError, fetchPage, permitted } from './fetch.js';
 import { eventsFromHtml } from './extract/jsonld.js';
 import { crawlableLinks, feedsFrom } from './extract/links.js';
-import { Interest, seedFrom } from './seeds.js';
+import { Interest } from './queries.js';
+import { seedFrom } from './seeds.js';
 import * as store from './store.js';
-import { isSkippedHost, siteOf } from './urls.js';
+import { CrawledEvent } from './types.js';
+import { isSkippedHost, normalizeUrl, siteOf } from './urls.js';
 
 /**
  * One pass of the crawl.
@@ -33,14 +35,21 @@ let running = false;
 
 export const status = () => ({ running, current, last });
 
-/** Areas event-scout has asked about. Its Settings are the configuration. */
-let interests: Interest[] = [];
-export function rememberInterest(interest: Interest): void {
-  if (!interest.city.trim()) return;
-  const key = interest.city.trim().toLowerCase();
-  interests = [interest, ...interests.filter((i) => i.city.trim().toLowerCase() !== key)].slice(0, 12);
-}
-export const knownInterests = (): Interest[] => interests;
+/**
+ * Where to look, as event-scout last described it.
+ *
+ * Kept in the database rather than in memory. It used to be learned only when
+ * the app asked for events, and forgotten on restart, so a restarted crawler
+ * sat idle until the app's next refresh — up to six hours — came round and
+ * mentioned an area again.
+ */
+export const knownInterests = (): Interest[] => store.getJson<Interest[]>('interests', []);
+export const setInterests = (list: Interest[]): void => store.setJson('interests', list);
+
+/** Whether there is anything to do: somewhere to search, or pages to read. */
+export const hasWork = (): boolean => knownInterests().length > 0 || store.listSeeds().length > 0;
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** Pages whose links are worth following — a site that has never produced an event still gets one hop. */
 function shouldFollow(depth: number, events: number): boolean {
@@ -122,6 +131,11 @@ export async function runCycle(log: (line: string) => void = () => {}): Promise<
     const requeued = store.requeueProductive(20);
     if (requeued) log(`  ${requeued} productive pages due again`);
 
+    // Pinned pages come round every six hours whatever else is queued.
+    const pinned = store.requeueSeeds(6);
+    if (pinned) log(`  ${pinned} pinned pages due again`);
+
+    const interests = knownInterests();
     const queued = store.countPages().queued ?? 0;
     if (queued < config.maxPagesPerRun && interests.length) {
       report.seeded = await seedFrom(interests, log);
@@ -130,26 +144,23 @@ export async function runCycle(log: (line: string) => void = () => {}): Promise<
 
     const perSite = new Map<string, number>();
     while (report.fetched + report.failed + report.blocked < config.maxPagesPerRun) {
+      // Sites that have had their share this cycle are left out of the pick,
+      // so a big calendar near the top of the queue cannot stall the rest.
+      const spent = [...perSite].filter(([, n]) => n >= config.maxPagesPerSite).map(([site]) => site);
       const cooling = store.sitesOnCooldown(config.minHostDelayMs, config.maxHostDelayMs);
-      const batch = store.nextBatch(config.concurrency, cooling);
+      const batch = store.nextBatch(config.concurrency, [...cooling, ...spent]);
       if (batch.length === 0) {
-        // Either the frontier is empty or every site with work is resting.
-        if ((store.countPages().queued ?? 0) === 0) break;
-        await new Promise((r) => setTimeout(r, config.minHostDelayMs));
+        // Nothing left but sites that are resting or have had their share.
+        // Wait out a rest; stop once only spent sites, or nothing, remain.
+        if (store.nextBatch(1, spent).length === 0) break;
+        await sleep(config.minHostDelayMs);
         continue;
       }
-      // Counted only for what is actually fetched. Counting the whole batch
-      // and then filtering on the count charged sites for pages that were
-      // never requested, and a busy site would exhaust its budget without
-      // having been read.
-      const taking = batch.filter((item) => {
+      for (const item of batch) {
         const site = siteOf(item.url);
-        if ((perSite.get(site) ?? 0) >= config.maxPagesPerSite) return false;
         perSite.set(site, (perSite.get(site) ?? 0) + 1);
-        return true;
-      });
-      if (taking.length === 0) break;
-      await Promise.all(taking.map((item) => crawlOne(item.url, item.depth, report, perSite)));
+      }
+      await Promise.all(batch.map((item) => crawlOne(item.url, item.depth, report, perSite)));
     }
 
     const dropped = store.tidyFinds();
@@ -166,4 +177,78 @@ export async function runCycle(log: (line: string) => void = () => {}): Promise<
       `${report.failed} failed, ${report.blocked} blocked by robots`
   );
   return report;
+}
+
+export interface PageReport {
+  url: string;
+  finalUrl?: string;
+  ok: boolean;
+  message: string;
+  events: CrawledEvent[];
+  links: number;
+  feeds: string[];
+}
+
+/**
+ * Read one page now, outside the cycle, and say what was on it.
+ *
+ * For an address someone wants checked: a venue they have just found, a link
+ * they were sent. The same rules as the crawl — robots.txt, the address check,
+ * HTML only — and what it finds is kept exactly as a crawled page's would be.
+ * Its links go into the queue, so the rest of the site is followed next cycle
+ * without anyone having to pin it.
+ *
+ * Not held back by the per-site pause. One request a person asked for is not
+ * the burst the pause exists to prevent, and making them wait to be told what
+ * is on a page would only be irritating.
+ */
+export async function crawlUrlNow(raw: string): Promise<PageReport> {
+  const nothing = { events: [] as CrawledEvent[], links: 0, feeds: [] as string[] };
+  const url = normalizeUrl(raw.trim());
+  if (!url) return { url: raw, ok: false, message: 'That is not a web address.', ...nothing };
+  store.offer(url, 0, store.PINNED_SCORE);
+
+  try {
+    if (!(await permitted(url))) {
+      store.markFailed(url, 'robots.txt', true);
+      return {
+        url,
+        ok: false,
+        message: "That site's robots.txt asks crawlers not to read this page, so it has not been read.",
+        ...nothing,
+      };
+    }
+  } catch (err) {
+    return { url, ok: false, message: (err as Error).message, ...nothing };
+  }
+
+  store.touchHost(siteOf(url));
+  let page;
+  try {
+    page = await fetchPage(url);
+  } catch (err) {
+    store.markFailed(url, (err as Error).message, err instanceof BlockedError);
+    return { url, ok: false, message: `Could not read it: ${(err as Error).message}`, ...nothing };
+  }
+
+  const events = eventsFromHtml(page.html, page.url);
+  for (const event of events) store.keep(event);
+  const feeds = feedsFrom(page.html, page.url);
+  for (const feed of feeds) store.rememberFeed(feed, page.url);
+  const links = crawlableLinks(page.html, page.url, config.maxPagesPerSite).filter((l) => !isSkippedHost(l.url));
+  for (const link of links) store.offer(link.url, 1, link.score);
+  store.markDone(url, events.length);
+
+  return {
+    url,
+    finalUrl: page.url === url ? undefined : page.url,
+    ok: true,
+    message:
+      events.length > 0
+        ? `Found ${events.length} event${events.length === 1 ? '' : 's'}.`
+        : 'No structured event data on this page itself.',
+    events,
+    links: links.length,
+    feeds,
+  };
 }

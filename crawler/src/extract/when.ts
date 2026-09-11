@@ -34,8 +34,6 @@ export interface EventWhen {
 }
 
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
-/** Any of the ways 8601 can carry an offset: a Z, or ±HH:MM / ±HHMM / ±HH. */
-const HAS_OFFSET = /([zZ]|[+-]\d{2}:?\d{0,2})$/;
 
 /**
  * The server's own zone is the assumed zone for a floating time.
@@ -76,7 +74,6 @@ export function parseWhen(raw: string): EventWhen | null {
   // A datetime with no offset is read as local by the parser, which is what we
   // want; one with an offset is already absolute. Either way the clock time was
   // stated, so this is not a bare date.
-  void HAS_OFFSET;
   return { startTime: at.toISOString(), dateOnly: false };
 }
 
@@ -92,4 +89,16 @@ export function isWorthKeeping(startTime: string, now: Date = new Date()): boole
   if (Number.isNaN(at)) return false;
   const dayMs = 86400000;
   return at > now.getTime() - dayMs && at < now.getTime() + 400 * dayMs;
+}
+
+/**
+ * An end, where a bare date means the close of that day rather than its first
+ * minute — a festival "ending" on the 9th runs through the 9th.
+ */
+export function parseEnd(raw: string): string | undefined {
+  const when = parseWhen(raw);
+  if (!when) return undefined;
+  if (!when.dateOnly) return when.startTime;
+  const at = new Date(when.startTime);
+  return new Date(at.getFullYear(), at.getMonth(), at.getDate() + 1).toISOString();
 }

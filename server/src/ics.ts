@@ -10,6 +10,8 @@ interface IcsEvent {
   category?: string;
   lat?: number | null;
   lng?: number | null;
+  /** A day with no clock time, written as an all-day event. */
+  dateOnly?: boolean;
 }
 
 function icsEscape(text: string): string {
@@ -18,6 +20,28 @@ function icsEscape(text: string): string {
 
 function icsDate(iso: string): string {
   return new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+}
+
+/** The local day as a VALUE=DATE, which has no zone and no time. */
+function icsDay(iso: string): string {
+  const at = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}`;
+}
+
+/**
+ * Where an all-day event stops, which RFC 5545 makes exclusive: a one-day
+ * event on the 8th ends on the 9th. An end part-way through a day is rounded
+ * up to the next midnight, since a date cannot say "until 4pm".
+ */
+function allDayEnd(ev: IcsEvent): string {
+  const start = new Date(ev.startTime);
+  const next = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+  let end = ev.endTime ? new Date(ev.endTime) : next;
+  if (end.getHours() || end.getMinutes()) {
+    end = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+  }
+  return (end > next ? end : next).toISOString();
 }
 
 /**
@@ -84,8 +108,12 @@ export function buildIcs(events: IcsEvent[], opts: IcsOptions = {}): string {
       'BEGIN:VEVENT',
       `UID:${ev.uid}@event-scout`,
       `DTSTAMP:${icsDate(new Date().toISOString())}`,
-      `DTSTART:${icsDate(ev.startTime)}`,
-      `DTEND:${icsDate(end)}`,
+      // A day with no stated time goes in as all-day, so a subscriber's
+      // calendar shows it across the top of the day rather than as a
+      // midnight appointment.
+      ...(ev.dateOnly
+        ? [`DTSTART;VALUE=DATE:${icsDay(ev.startTime)}`, `DTEND;VALUE=DATE:${icsDay(allDayEnd(ev))}`]
+        : [`DTSTART:${icsDate(ev.startTime)}`, `DTEND:${icsDate(end)}`]),
       `SUMMARY:${icsEscape(ev.title)}`,
       `DESCRIPTION:${icsEscape([ev.description.slice(0, 500), ev.url].filter(Boolean).join('\n'))}`,
       `LOCATION:${icsEscape([ev.venueName, ev.address].filter(Boolean).join(', '))}`,

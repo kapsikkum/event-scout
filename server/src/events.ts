@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { db, getSettings } from './db.js';
-import { consensusStart, isOver } from './validate.js';
+import { groupStart, isOver } from './validate.js';
 import { localityOf } from './regions.js';
 import { flyerHref } from './flyers.js';
 import { storedPath } from './flyerStore.js';
@@ -47,6 +47,11 @@ export interface MergedEvent {
   category: string;
   priceText: string;
   isOnline: boolean;
+  /**
+   * The start carries a day and no clock time: the listing said "Thursday"
+   * and nothing more. Shown as the day alone rather than a made-up hour.
+   */
+  dateOnly: boolean;
   photoScore: number;
   starred: boolean;
   hidden: boolean;
@@ -139,7 +144,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       // Not members[0]: rows arrive sorted by start, so a lone listing with a
       // date a day early would set the whole group's day. The date most
       // members agree on is the one to show.
-      startTime: chosen.startTime || consensusStart(members.map((m) => m.start_time)),
+      ...groupStart(members, chosen.startTime),
       endTime: members.find((m) => m.end_time)?.end_time ?? null,
       venueName,
       address,

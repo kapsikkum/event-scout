@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildIcs, foldLine } from '../src/ics.js';
+import { useZone } from './zone.js';
 
 const EVENT = {
   uid: 'abc123',
@@ -76,4 +77,22 @@ test('names the calendar in both the old and the standard spelling', () => {
   const ics = buildIcs([EVENT], { name: 'Event Scout - Bathurst' });
   assert.ok(ics.includes('X-WR-CALNAME:Event Scout - Bathurst\r\n'));
   assert.ok(ics.includes('NAME:Event Scout - Bathurst\r\n'));
+});
+
+/**
+ * A day with no time is written as all-day, so a subscriber's calendar shows
+ * it across the top of the day rather than as a midnight appointment. The end
+ * is exclusive: a one-day event on the 8th ends on the 9th.
+ */
+test('a day with no clock time is an all-day event', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const ics = buildIcs([{ ...EVENT, startTime: '2026-10-07T13:00:00.000Z', dateOnly: true }]);
+  assert.match(ics, /DTSTART;VALUE=DATE:20261008\r\n/);
+  assert.match(ics, /DTEND;VALUE=DATE:20261009\r\n/);
+  assert.doesNotMatch(ics, /DTSTART:2026/, 'no timed start alongside it');
+});
+
+test('a timed event is still written with its time', () => {
+  const ics = buildIcs([EVENT]);
+  assert.match(ics, /DTSTART:20260822T000000Z\r\n/);
 });

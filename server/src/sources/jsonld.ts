@@ -1,4 +1,5 @@
 import { RawEvent } from './types.js';
+import { parseEnd, parseWhen } from '../when.js';
 
 const EVENT_TYPES = new Set([
   'Event',
@@ -88,7 +89,8 @@ function parseLocation(loc: unknown): { name?: string; address?: string; lat?: n
 function eventFromNode(node: Record<string, unknown>, pageUrl: string): RawEvent | null {
   const name = firstString(node.name);
   const start = typeof node.startDate === 'string' ? node.startDate : undefined;
-  if (!name || !start || Number.isNaN(Date.parse(start))) return null;
+  const when = start ? parseWhen(start) : null;
+  if (!name || !when) return null;
 
   const loc = parseLocation(node.location);
   const mode = firstString(node.eventAttendanceMode) ?? '';
@@ -101,8 +103,10 @@ function eventFromNode(node: Record<string, unknown>, pageUrl: string): RawEvent
     sourceId: url,
     title: name,
     description: typeof node.description === 'string' ? node.description : '',
-    startTime: new Date(start).toISOString(),
-    endTime: typeof node.endDate === 'string' && !Number.isNaN(Date.parse(node.endDate)) ? new Date(node.endDate).toISOString() : undefined,
+    startTime: when.startTime,
+    // Carried so the page can say "Thursday" rather than inventing an hour.
+    dateOnly: when.dateOnly,
+    endTime: parseEnd(node.endDate),
     venueName: loc.name,
     address: loc.address,
     lat: loc.lat,

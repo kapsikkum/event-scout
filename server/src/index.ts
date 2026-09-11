@@ -30,6 +30,7 @@ import { editGroup, EditError, getMergedEvent, getMergedEvents, mergeGroups, set
 import { filterEvents, paginate, parseEventQuery, QueryError } from './query.js';
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
+import { crawlerBase, syncCrawler } from './sources/crawler.js';
 import { archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
 import { getPhotoConditions } from './photo.js';
 import { listAreas, renderArea, venueHistory, venueReadings } from './density/pipeline.js';
@@ -211,10 +212,15 @@ app.put('/api/settings', (req, res) => {
     ...mergeSecrets(current, (req.body ?? {}) as Record<string, unknown>),
   };
   // Keep arrays sane if the client sends junk
-  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins'] as const) {
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins', 'crawlerUrls'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
   saveSettings(next);
+  // Told at once rather than at the next refresh, which can be six hours off:
+  // a site added to the crawl list, or the source switched off, should take
+  // effect on the crawler's next cycle. Not awaited, and it never throws — a
+  // crawler that is down must not make saving settings fail.
+  void syncCrawler(next);
   // Redacted on the way out too, or the answer would hand straight back what
   // the request was careful not to ask for.
   res.json(redactSettings(next));
@@ -451,7 +457,7 @@ app.get('/api/tasks', (req, res) => {
  * the crawler's own reckoning of itself.
  */
 app.get('/api/crawler/status', async (_req, res) => {
-  const base = (getSettings().crawlerUrl.trim() || process.env.CRAWLER_URL || '').replace(/\/+$/, '');
+  const base = crawlerBase(getSettings());
   if (!base) return res.status(200).json({ reachable: false, problem: 'No crawler address set.' });
   try {
     const [status, feeds] = await Promise.all([
@@ -468,9 +474,38 @@ app.get('/api/crawler/status', async (_req, res) => {
   }
 });
 
+/**
+ * Read one page now and say what was on it.
+ *
+ * For checking a site before adding it to the list, and for a page someone
+ * has just been sent a link to. The crawler obeys robots.txt here as it does
+ * everywhere else, and queues the page's own links, so a site read this way is
+ * followed on its next cycle as well. Behind the password, like every write.
+ */
+app.post('/api/crawler/crawl', async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  if (!/^https?:\/\/\S+$/i.test(url)) {
+    return res.status(400).json({ ok: false, message: 'Give a full address, starting http:// or https://.' });
+  }
+  const base = crawlerBase(getSettings());
+  if (!base) return res.status(400).json({ ok: false, message: 'No crawler address set.' });
+  try {
+    const answer = await fetch(`${base}/crawl`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+      // Robots, then the page, each allowed fifteen seconds by the crawler.
+      signal: AbortSignal.timeout(45000),
+    });
+    res.status(answer.status).json(await answer.json());
+  } catch (err) {
+    res.status(502).json({ ok: false, message: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
 /** Start a crawl now. The crawler answers at once; a cycle runs for minutes. */
 app.post('/api/crawler/run', async (_req, res) => {
-  const base = (getSettings().crawlerUrl.trim() || process.env.CRAWLER_URL || '').replace(/\/+$/, '');
+  const base = crawlerBase(getSettings());
   if (!base) return res.status(400).json({ ok: false, message: 'No crawler address set.' });
   try {
     const answer = await fetch(`${base}/run`, { method: 'POST', signal: AbortSignal.timeout(8000) });
@@ -545,6 +580,7 @@ function calendarFeed(req: express.Request, res: express.Response, download: boo
       category: ev.category,
       lat: ev.lat,
       lng: ev.lng,
+      dateOnly: ev.dateOnly,
     })),
     { name, description: `${events.length} events from Event Scout` }
   );
@@ -605,6 +641,9 @@ if (fs.existsSync(webDist)) {
 const PORT = Number(process.env.API_PORT ?? 3001);
 app.listen(PORT, () => {
   console.log(`event-scout server listening on http://localhost:${PORT}`);
+  // The crawler keeps what it was last told, so this matters only when
+  // settings changed while it was down; the next refresh would catch it up.
+  void syncCrawler(getSettings());
 });
 
 /**

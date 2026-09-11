@@ -34,7 +34,7 @@ const dayKey = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const timeOf = (ev: MergedEvent): string =>
-  new Date(ev.startTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  ev.dateOnly ? 'All day' : new Date(ev.startTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
 const startOfWeek = (d: Date): Date =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay());

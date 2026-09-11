@@ -1,3 +1,4 @@
+import { expandTopics } from './topics.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
 
 /**
@@ -10,11 +11,12 @@ import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } 
  * other source. So a crawler that returns nonsense is a switch in Settings and
  * nothing worse, and it never holds a credential for this app or writes a row.
  *
- * The area travels with the request. The crawler has no configuration of its
- * own about where to look, which keeps Settings the single place that decides.
+ * What it should look for is handed over separately, by syncCrawler below, so
+ * Settings stays the one place any of it is decided.
  */
 
 const TIMEOUT_MS = 20000;
+const SYNC_TIMEOUT_MS = 8000;
 
 /** What the crawler sends. Its own shape, close to but not the same as ours. */
 interface CrawledEvent {
@@ -34,9 +36,76 @@ interface CrawledEvent {
   dateOnly?: boolean;
 }
 
-function baseUrl(settings: Settings): string {
-  const url = settings.crawlerUrl.trim() || process.env.CRAWLER_URL || '';
+/** Where the crawler listens: Settings, then CRAWLER_URL, then nowhere. */
+export function crawlerBase(settings: Settings): string {
+  const url = (settings.crawlerUrl ?? '').trim() || process.env.CRAWLER_URL || '';
   return url.replace(/\/+$/, '');
+}
+
+export interface CrawlerConfig {
+  /** Each area, with the bare terms to search for in it. */
+  interests: { city: string; terms: string[] }[];
+  /** Pages to read every few hours, whatever the searches find. */
+  seeds: string[];
+}
+
+/**
+ * What the crawler should look for, from Settings.
+ *
+ * The same topics and extra terms web search expands, in every area, so
+ * switching a topic on changes what both go looking for. Before this only the
+ * extra terms were passed — empty, in the usual case — and the crawler fell
+ * back on a generic list of its own, ignoring every topic that had been chosen.
+ *
+ * Pure, so what the crawler is told can be tested without one.
+ */
+export function crawlerConfigFrom(settings: Settings): CrawlerConfig {
+  const extra = (settings.webSearchTerms ?? []).map((t) => t.trim()).filter(Boolean);
+  const interests: CrawlerConfig['interests'] = [];
+  const seen = new Set<string>();
+  for (const raw of [settings.city, ...(settings.eventAreas ?? []).map((a) => a.name)]) {
+    const city = (raw ?? '').trim();
+    if (!city || seen.has(city.toLowerCase())) continue;
+    seen.add(city.toLowerCase());
+    // The format ignores the place: the crawler appends whichever area it is
+    // searching, so a term goes over bare.
+    const topics = expandTopics(settings.eventTopics ?? [], city, (term) => term);
+    interests.push({ city, terms: [...new Set([...topics, ...extra])] });
+  }
+  const seeds = [
+    ...new Set((settings.crawlerUrls ?? []).map((u) => u.trim()).filter((u) => /^https?:\/\/\S+$/i.test(u))),
+  ];
+  return { interests, seeds };
+}
+
+/**
+ * Tell the crawler what to look for.
+ *
+ * Called when settings are saved, at startup, and before every fetch, so a
+ * change reaches it on its next cycle rather than at the next refresh, which
+ * can be six hours away. With the source switched off it is sent nothing to
+ * do, which puts it to rest — otherwise switching the source off would only
+ * stop this app listening while the crawler carried on regardless.
+ *
+ * Never throws. A crawler that is down must not make saving settings fail.
+ */
+export async function syncCrawler(settings: Settings): Promise<{ ok: boolean; message: string }> {
+  const base = crawlerBase(settings);
+  if (!base) return { ok: false, message: 'no crawler address' };
+  const off = settings.enabledSources?.crawler === false;
+  const body: CrawlerConfig = off ? { interests: [], seeds: [] } : crawlerConfigFrom(settings);
+  try {
+    const res = await fetch(`${base}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(SYNC_TIMEOUT_MS),
+    });
+    if (!res.ok) return { ok: false, message: `HTTP ${res.status}` };
+    return { ok: true, message: off ? 'told to rest' : 'told what to look for' };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
 }
 
 export const crawlerSource: EventSourceAdapter = {
@@ -45,23 +114,21 @@ export const crawlerSource: EventSourceAdapter = {
   unofficial: true,
 
   async fetchEvents(loc: Location, settings: Settings): Promise<RawEvent[]> {
-    const base = baseUrl(settings);
+    const base = crawlerBase(settings);
     if (!base) {
       throw new MissingConfigError(
         'No crawler address. Run the crawler container and set its URL in Settings.'
       );
     }
+    // Kept current on every refresh as well as on save, in case the crawler
+    // was down, or started over with an empty database, when settings changed.
+    await syncCrawler(settings);
 
     const query = new URLSearchParams({
-      city: loc.city,
       lat: String(loc.lat),
       lng: String(loc.lng),
       radiusKm: String(loc.radiusKm),
     });
-    // The terms this app already searches for, so the crawler seeds on the same
-    // interests rather than guessing at a second list.
-    const terms = settings.webSearchTerms.filter(Boolean).slice(0, 10);
-    if (terms.length) query.set('terms', terms.join(','));
 
     let res: Response;
     try {
@@ -96,6 +163,7 @@ export const crawlerSource: EventSourceAdapter = {
         imageUrl: e.imageUrl,
         priceText: e.priceText,
         isOnline: e.isOnline,
+        dateOnly: e.dateOnly === true,
       }));
   },
 };

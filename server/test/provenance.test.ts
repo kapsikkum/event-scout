@@ -31,6 +31,7 @@ function row(over: Partial<EventRow> = {}): EventRow {
     category: 'General',
     price_text: '',
     is_online: 0,
+    date_only: 0,
     photo_score: 60,
     archived: 0,
     archived_at: null,

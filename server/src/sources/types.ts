@@ -68,6 +68,13 @@ export interface Settings {
    */
   crawlerUrl: string;
   /**
+   * Pages the crawler should read whatever its searches turn up — a venue's
+   * what's-on, a council calendar — every six hours, along with the pages they
+   * link to. Handed over whenever settings are saved, so an addition is picked
+   * up on its next cycle rather than after the next refresh.
+   */
+  crawlerUrls: string[];
+  /**
    * Read scraped listings with a local model, as a background task. Off by
    * default, and nothing depends on it: every verdict is stored beside the
    * scraped value rather than over it.
@@ -157,6 +164,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tasksDisabled: [],
   corsOrigins: [],
   crawlerUrl: '',
+  crawlerUrls: [],
   llmEnabled: false,
   llmUrl: '',
   llmModel: '',
@@ -204,6 +212,11 @@ export interface RawEvent {
   category?: string;
   priceText?: string;
   isOnline?: boolean;
+  /**
+   * The listing gave a day and no clock time. See when.ts — without it a bare
+   * date is stored as UTC midnight and shown as a made-up morning start.
+   */
+  dateOnly?: boolean;
 }
 
 /** Thrown by adapters when required config (API key etc.) is absent. */

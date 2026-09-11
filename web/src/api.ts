@@ -19,6 +19,8 @@ export interface MergedEvent {
   category: string;
   priceText: string;
   isOnline: boolean;
+  /** The start is a day with no clock time; show the day alone. */
+  dateOnly: boolean;
   photoScore: number;
   starred: boolean;
   hidden: boolean;
@@ -115,6 +117,7 @@ export interface Settings {
   corsOrigins: string[];
   llmEnabled: boolean;
   crawlerUrl: string;
+  crawlerUrls: string[];
   llmUrl: string;
   llmModel: string;
   llmJobs: string[];
@@ -384,7 +387,10 @@ export interface CrawlerStatus {
   pages?: Record<string, number>;
   finds?: number;
   feeds?: number;
-  interests?: string[];
+  /** Each area, how many phrases it has, and the ones being searched this hour. */
+  interests?: { city: string; terms: number; thisCycle: string[] }[];
+  /** Pages it reads every six hours whatever the searches find. */
+  seeds?: string[];
   config?: {
     maxPagesPerRun: number;
     maxDepth: number;
@@ -394,6 +400,17 @@ export interface CrawlerStatus {
     userAgent: string;
   };
   feedList?: { url: string; site: string; foundOn: string }[];
+}
+
+/** What reading one page turned up. */
+export interface CrawlPageReport {
+  url: string;
+  finalUrl?: string;
+  ok: boolean;
+  message: string;
+  events: { title: string; startTime: string; dateOnly?: boolean; venueName?: string; url?: string }[];
+  links: number;
+  feeds: string[];
 }
 
 export interface AuthStatus {
@@ -427,6 +444,18 @@ export const api = {
   crawlerStatus: () => fetch('/api/crawler/status').then((r) => json<CrawlerStatus>(r)),
   crawlerRun: () =>
     fetch('/api/crawler/run', { method: 'POST' }).then((r) => json<{ ok: boolean; message?: string }>(r)),
+  crawlerCrawl: (url: string) =>
+    fetch('/api/crawler/crawl', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    }).then(async (r) => {
+      // The body is read whatever the status: a refusal carries its reason,
+      // and json() would reduce it to "HTTP 400".
+      if (r.status === 401) throw new Unauthorized();
+      const body = (await r.json().catch(() => ({}))) as Partial<CrawlPageReport>;
+      return { url, ok: false, message: `HTTP ${r.status}`, events: [], links: 0, feeds: [], ...body } as CrawlPageReport;
+    }),
   authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
   login: (password: string) =>
     fetch('/api/auth/login', {

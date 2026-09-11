@@ -1,3 +1,4 @@
+import { localDay } from './day.js';
 import { haversineKm } from './dedupe.js';
 import { Location, RawEvent } from './sources/types.js';
 import { expandRegion, isCountry, stripRegionAndPostcode } from './regions.js';
@@ -225,19 +226,28 @@ export function cleanDescription(description: string | undefined): string {
  * Members disagree: a cruise listed on the 22nd by four sources had a fifth
  * calling it the 21st, and taking the earliest member — which is what sorting
  * by start time and reading member zero amounts to — let that one outlier
- * rename the event's day. The calendar date most members agree on wins; ties
- * break towards the earlier date, and within the winning date the earliest
- * start is used, since that is the one a photographer needs to be there for.
+ * rename the event's day. The local calendar date most members agree on wins,
+ * and ties break towards the earlier date.
+ *
+ * Within the winning date a stated time beats a bare date, and then the
+ * earliest start is used, since that is the one a photographer needs to be
+ * there for. The first rule matters because a bare date is stored as local
+ * midnight: left to "earliest wins" it would beat every real time on its day,
+ * and a group would show "12:00 am" although one of its sources knew better.
+ *
+ * `dateOnly` runs parallel to `starts`, and may be left out when none are.
  */
-export function consensusStart(starts: string[]): string {
+export function consensusStart(starts: string[], dateOnly: boolean[] = []): string {
   if (starts.length === 0) return '';
-  const byDate = new Map<string, string[]>();
-  for (const s of starts) {
-    const date = s.slice(0, 10);
+  const byDate = new Map<string, { start: string; bare: boolean }[]>();
+  starts.forEach((start, i) => {
+    // The local day, not the UTC one: see day.ts.
+    const date = localDay(start);
+    const entry = { start, bare: dateOnly[i] === true };
     const list = byDate.get(date);
-    if (list) list.push(s);
-    else byDate.set(date, [s]);
-  }
+    if (list) list.push(entry);
+    else byDate.set(date, [entry]);
+  });
   let best = '';
   let bestCount = 0;
   for (const [date, list] of byDate) {
@@ -246,7 +256,30 @@ export function consensusStart(starts: string[]): string {
       bestCount = list.length;
     }
   }
-  return byDate.get(best)!.slice().sort()[0];
+  const winners = byDate.get(best)!;
+  const timed = winners.filter((w) => !w.bare);
+  return (timed.length > 0 ? timed : winners).map((w) => w.start).sort()[0];
+}
+
+/**
+ * A merged group's start, and whether it has a clock time at all.
+ *
+ * A time typed in edit mode is always a real time. Otherwise the consensus
+ * above picks the start, preferring a stated one, so the group is date-only
+ * only when nothing on its winning start gave a time — one source that knew
+ * the hour is enough.
+ */
+export function groupStart(
+  members: { start_time: string; date_only: number }[],
+  edited: string
+): { startTime: string; dateOnly: boolean } {
+  if (edited) return { startTime: edited, dateOnly: false };
+  const startTime = consensusStart(
+    members.map((m) => m.start_time),
+    members.map((m) => m.date_only === 1)
+  );
+  const on = members.filter((m) => m.start_time === startTime);
+  return { startTime, dateOnly: on.length > 0 && on.every((m) => m.date_only === 1) };
 }
 
 /**

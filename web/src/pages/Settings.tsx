@@ -1331,9 +1331,18 @@ export default function Settings() {
         </div>
         <p className="hint">
           Blank uses <code>CRAWLER_URL</code>, which docker-compose sets for you.
-          The areas above are what it searches for; there is nothing to configure
-          on its side.
+          It searches for your topics and extra search terms in each of your
+          areas, and is told about any change the moment you save.
         </p>
+        <label className="hint">
+          Sites to crawl — read every six hours, along with the pages they link to
+        </label>
+        {listEditor(
+          'address',
+          draft.crawlerUrls ?? [],
+          (v) => set({ crawlerUrls: v }),
+          'e.g. https://www.bathurst.nsw.gov.au/whats-on'
+        )}
         <StatusLine status={statusFor('crawler')} />
       </section>
 

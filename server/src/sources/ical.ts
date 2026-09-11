@@ -29,6 +29,9 @@ export const icalSource: EventSourceAdapter = {
           title: String(ev.summary ?? 'Untitled event'),
           description: String(ev.description ?? ''),
           startTime: start.toISOString(),
+          // node-ical already builds an all-day VALUE=DATE at local midnight,
+          // and says so; the flag is what stops it being shown as "12:00 am".
+          dateOnly: (ev as unknown as { datetype?: string }).datetype === 'date',
           endTime: ev.end ? new Date(ev.end).toISOString() : undefined,
           venueName: feed.name,
           address: String(ev.location ?? ''),

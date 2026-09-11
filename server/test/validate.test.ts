@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cleanAddress, cleanDescription, consensusStart, validateAddress, validateDates, validateLocation } from '../src/validate.js';
+import { cleanAddress, cleanDescription, consensusStart, groupStart, validateAddress, validateDates, validateLocation } from '../src/validate.js';
+import { useZone } from './zone.js';
 import type { Location, RawEvent } from '../src/sources/types.js';
 
 /**
@@ -66,7 +67,9 @@ test('an event with no coordinates is left for the geocoder to place', () => {
   assert.equal(validateLocation({ sourceId: 'x', title: 'x', startTime: '2026-08-22T00:00:00Z' } as RawEvent, [AREA]).ok, true);
 });
 
-test('the date most members agree on wins, not the earliest', () => {
+test('the date most members agree on wins, not the earliest', (t) => {
+  // Written in UTC days, and pinned to them: see zone.ts.
+  useZone(t, 'UTC');
   const starts = [
     '2026-08-21T00:00:00.000Z',
     '2026-08-22T00:00:00.000Z',
@@ -77,7 +80,8 @@ test('the date most members agree on wins, not the earliest', () => {
   assert.equal(consensusStart(starts), '2026-08-22T00:00:00.000Z');
 });
 
-test('a tie breaks towards the earlier date, and the earliest start within the winning day is used', () => {
+test('a tie breaks towards the earlier date, and the earliest start within the winning day is used', (t) => {
+  useZone(t, 'UTC');
   assert.equal(consensusStart(['2026-08-22T09:00:00Z', '2026-08-21T09:00:00Z']), '2026-08-21T09:00:00Z');
   assert.equal(
     consensusStart(['2026-08-22T14:00:00Z', '2026-08-22T09:00:00Z', '2026-08-21T08:00:00Z']),
@@ -174,4 +178,42 @@ test('collapses runaway whitespace and leaves clean text alone', () => {
   assert.equal(cleanDescription('Line one.\n\n\n\n\nLine two.'), 'Line one.\n\nLine two.');
   assert.equal(cleanDescription('A plain blurb about a car show.'), 'A plain blurb about a car show.');
   assert.equal(cleanDescription(undefined), '');
+});
+
+/**
+ * Two listings for one Saturday must agree on Saturday. On the UTC day an 11am
+ * start and a bare date for the same day land a day apart, so they could not
+ * agree on which day the event was on, let alone its time.
+ */
+test('members are grouped by the local day, not the UTC one', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const timed = '2026-10-08T00:00:00.000Z'; // 11am AEDT on the 8th
+  const bare = '2026-10-07T13:00:00.000Z'; // the 8th, no time: local midnight
+  assert.equal(consensusStart([bare, timed], [true, false]), timed, 'one day, and the stated time wins');
+});
+
+/**
+ * A bare date is stored as local midnight, so "earliest wins" would let it
+ * beat every real time on its day, and a group would show 12:00 am although
+ * one of its sources knew the hour.
+ */
+test('a stated time beats a bare date on the same day', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const bare = '2026-10-07T13:00:00.000Z';
+  const timed = '2026-10-07T23:00:00.000Z'; // 10am on the 8th
+  assert.equal(consensusStart([bare, timed], [true, false]), timed);
+  assert.equal(consensusStart([bare], [true]), bare, 'with nothing better, the day is kept');
+});
+
+test('a group is date-only only when no member knew the time', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const bare = { start_time: '2026-10-07T13:00:00.000Z', date_only: 1 };
+  const timed = { start_time: '2026-10-07T23:00:00.000Z', date_only: 0 };
+  assert.deepEqual(groupStart([bare, timed], ''), { startTime: timed.start_time, dateOnly: false });
+  assert.deepEqual(groupStart([bare], ''), { startTime: bare.start_time, dateOnly: true });
+  assert.deepEqual(
+    groupStart([bare], '2026-10-07T22:00:00.000Z'),
+    { startTime: '2026-10-07T22:00:00.000Z', dateOnly: false },
+    'a time typed in edit mode is a time'
+  );
 });

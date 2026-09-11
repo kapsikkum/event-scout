@@ -1,3 +1,4 @@
+import { localDay } from './day.js';
 import crypto from 'node:crypto';
 
 export interface DedupeInput {
@@ -41,7 +42,10 @@ export function assignDedupeGroups(events: DedupeInput[]): Map<number, string> {
   const byKey = new Map<string, DedupeInput[][]>(); // key -> clusters
 
   for (const ev of events) {
-    const date = ev.startTime.slice(0, 10);
+    // The local day, not the UTC one: a 10am start here is the previous
+    // evening in UTC, and a listing that gave only the date is stored at
+    // local midnight — on the UTC day before. See day.ts.
+    const date = localDay(ev.startTime);
     const key = `${normalizeTitle(ev.title)}|${date}`;
     let clusters = byKey.get(key);
     if (!clusters) {

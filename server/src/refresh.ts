@@ -48,8 +48,9 @@ export function isRefreshing(): boolean {
 const upsertStmt = () =>
   db.prepare(`
     INSERT INTO events (source, source_id, title, description, start_time, end_time, venue_name, address,
-                        lat, lng, url, image_url, category, price_text, is_online, photo_score, last_seen_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        lat, lng, url, image_url, category, price_text, is_online, photo_score, last_seen_at,
+                        date_only)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source, source_id) DO UPDATE SET
       title = excluded.title,
       description = excluded.description,
@@ -64,6 +65,7 @@ const upsertStmt = () =>
       category = excluded.category,
       price_text = excluded.price_text,
       is_online = excluded.is_online,
+      date_only = excluded.date_only,
       photo_score = excluded.photo_score,
       last_seen_at = excluded.last_seen_at
   `);
@@ -554,7 +556,8 @@ function insertRaw(
     ev.priceText ?? '',
     ev.isOnline ? 1 : 0,
     photoScore(ev),
-    now
+    now,
+    ev.dateOnly ? 1 : 0
   );
 }
 

@@ -118,10 +118,27 @@ pages are the ones with the detail on them.
 docker compose up -d          # brings up the app, chromium and the crawler
 ```
 
-Nothing to configure. It takes the areas from your Settings the first time the
-app asks it for events, and the **Crawler** tab in Settings — which appears once
-the source is enabled — shows what it has been doing: how big the frontier is,
-what the last cycle read, and any calendar feeds it found along the way.
+### What it looks for
+
+Your **topics** and **extra search terms** from the Sources tab, searched in each
+of your areas — the same list web search works from, so switching a topic on
+changes what both go looking for. There are more phrases than it is worth firing
+at a search engine at once, so it takes a different handful each hour and works
+round the whole list. From every result it follows that site's own links,
+reading the pages that publish `schema.org` event data and noting any iCal feed.
+
+**Sites to crawl**, also on the Sources tab, are pages it reads every six hours
+whatever the searches turn up — a venue's what's-on, a council calendar — along
+with the pages they link to. **Read a page now**, on the Crawler tab, reads one
+address straight away and shows what was on it; its links are queued, so the
+rest of that site is followed on the next cycle.
+
+It is told all of this whenever settings are saved, and remembers it across
+restarts. Switching the source off tells it to go idle.
+
+The **Crawler** tab in Settings — which appears once the source is enabled —
+shows what it has been doing: how big the frontier is, what the last cycle read,
+this hour's searches, and any calendar feeds it found along the way.
 
 It is **asked, never trusted**. event-scout fetches from it on the normal
 refresh, and everything after that — validation, geocoding, dedupe, the model
@@ -151,11 +168,14 @@ Its database is churn — a frontier of URLs, rewritten constantly — and is ke
 in its own volume rather than beside the events. Delete it and the crawl rebuilds
 from the seeds.
 
-**Times are read properly here.** `new Date('2026-10-08')` means UTC midnight,
-which is mid-morning in Australia, and that one line accounts for a third of the
-listings in this database showing an invented 11:00 am start. The crawler builds
-a bare date from its parts in local time and marks it as having no clock time at
-all, so a day with no stated time stays a day.
+**Dates with no time.** A page that gives a date and no time used to arrive as
+UTC midnight — `new Date('2026-10-08')` is defined that way — which is
+mid-morning in Australia: 135 of 386 listings were showing an invented 11:00 am.
+The crawler, web search, MIDNIGHT_SPEC and iCal now keep such a date as the day
+it is, marked as having no time, and the app shows it as `Thu 8 Oct` with no
+hour at all; the calendar feed writes it as an all-day event. When several
+listings merge, one that states the time wins over one that does not. Listings
+already stored are corrected as their pages are next read.
 
 ## Tasks
 

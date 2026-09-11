@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { assertPublicUrl } from './fetch.js';
+import { Interest, queriesFor } from './queries.js';
 import * as store from './store.js';
 import { eventLikeness, isSkippedHost, normalizeUrl } from './urls.js';
 
@@ -16,29 +17,8 @@ import { eventLikeness, isSkippedHost, normalizeUrl } from './urls.js';
  * and a seed list is not worth a dependency on a single source.
  */
 
-/** The area event-scout is currently interested in. */
-export interface Interest {
-  city: string;
-  lat: number | null;
-  lng: number | null;
-  radiusKm: number;
-  terms: string[];
-}
-
-const DEFAULT_TERMS = [
-  'events', 'what\'s on', 'festival', 'markets', 'live music',
-  'car show', 'agricultural show', 'motorsport',
-];
-
 /** DuckDuckGo flags a full browser fingerprint as a bot; a bare one gets results. */
 const MINIMAL_UA = 'Mozilla/5.0';
-
-function queriesFor(interest: Interest): string[] {
-  const terms = interest.terms.length ? interest.terms : DEFAULT_TERMS;
-  const where = interest.city.trim();
-  if (!where) return [];
-  return terms.slice(0, 10).map((t) => `${t} ${where}`);
-}
 
 async function search(url: string): Promise<string> {
   await assertPublicUrl(url);
@@ -86,7 +66,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 /**
  * Put search results into the frontier at depth 0.
  *
- * Seeds go in even when they score badly: a result for "events Bathurst" is a
+ * Seeds go in even when they score badly: a result for "markets Bathurst" is a
  * site worth knowing about whatever its URL looks like, and the scoring is
  * there to order a site's own links once we are inside it.
  */

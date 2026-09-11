@@ -61,6 +61,16 @@ CREATE TABLE IF NOT EXISTS feeds (
   found_at TEXT NOT NULL,
   found_on TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS kv (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS seeds (
+  url TEXT PRIMARY KEY,
+  added_at TEXT NOT NULL
+);
 `);
 
 const now = (): string => new Date().toISOString();
@@ -259,4 +269,81 @@ export function feeds(): { url: string; site: string; foundOn: string }[] {
       found_on: string;
     }[]
   ).map((r) => ({ url: r.url, site: r.site, foundOn: r.found_on }));
+}
+
+// --- what to look for -------------------------------------------------------
+
+/** Pinned pages, and pages read on request, go to the front of the queue. */
+export const PINNED_SCORE = 50;
+
+export function getJson<T>(key: string, fallback: T): T {
+  const row = db.prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value: string } | undefined;
+  if (!row) return fallback;
+  try {
+    return JSON.parse(row.value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export function setJson(key: string, value: unknown): void {
+  db.prepare('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, JSON.stringify(value));
+}
+
+export function listSeeds(): string[] {
+  return (db.prepare('SELECT url FROM seeds ORDER BY added_at').all() as { url: string }[]).map((r) => r.url);
+}
+
+/**
+ * Make the pinned pages exactly this list.
+ *
+ * Replace rather than add, so a page taken out of Settings stops being read.
+ * A newly pinned one goes to the front of the queue at once, even if the crawl
+ * had already been there: being asked for is a reason to look again.
+ */
+export function pinSeeds(urls: string[]): { added: number; removed: number } {
+  const want = new Set(urls);
+  const have = new Set(listSeeds());
+  let added = 0;
+  let removed = 0;
+  for (const url of have) {
+    if (want.has(url)) continue;
+    db.prepare('DELETE FROM seeds WHERE url = ?').run(url);
+    removed++;
+  }
+  for (const url of want) {
+    if (have.has(url)) continue;
+    db.prepare('INSERT OR IGNORE INTO seeds (url, added_at) VALUES (?, ?)').run(url, now());
+    offer(url, 0, PINNED_SCORE);
+    db.prepare("UPDATE pages SET state = 'queued', depth = 0, score = MAX(score, ?) WHERE url = ?")
+      .run(PINNED_SCORE, url);
+    added++;
+  }
+  return { added, removed };
+}
+
+/**
+ * Put the pinned pages back at the front of the queue, once they are due.
+ *
+ * Every few hours rather than every cycle: a what's-on page changes weekly at
+ * most, and reading it every half hour would be exactly the kind of attention
+ * robots.txt exists to discourage.
+ */
+export function requeueSeeds(olderThanHours: number): number {
+  const cutoff = new Date(Date.now() - olderThanHours * 3600_000).toISOString();
+  let n = 0;
+  for (const url of listSeeds()) {
+    if (offer(url, 0, PINNED_SCORE)) {
+      n++;
+      continue;
+    }
+    n += db
+      .prepare(
+        `UPDATE pages SET state = 'queued', depth = 0, score = MAX(score, ?)
+          WHERE url = ? AND state != 'queued' AND (fetched_at IS NULL OR fetched_at < ?)`
+      )
+      .run(PINNED_SCORE, url, cutoff).changes as number;
+  }
+  return n;
 }

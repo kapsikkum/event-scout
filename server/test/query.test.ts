@@ -21,6 +21,7 @@ function event(over: Partial<MergedEvent> = {}): MergedEvent {
     category: 'Motorsport',
     priceText: '',
     isOnline: false,
+    dateOnly: false,
     photoScore: 70,
     starred: false,
     hidden: false,
