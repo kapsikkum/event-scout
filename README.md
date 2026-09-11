@@ -300,8 +300,9 @@ only — `!chat system <prompt>` (`reset` for Settings'), `!chat context on|off`
 `!chat model <name>` (checked against what is installed) — and `!chat forget`
 clears the conversation; `!chat` on its own shows how it stands. Changes last
 until the chat ends. The system prompt only says who the model is and how it
-talks — give it a persona if you like; how the room works (the names, the
-commands, that it cannot change anything) is always added whatever it says.
+talks — left blank it is Event Scout, friendly and brief; write your own for any
+other persona. How the room works (the names, the commands, that it cannot change
+anything) is always added whatever it says.
 
 It also answers commands. In a room with a target, commands can be switched off,
 and they list only what that target's filters let through — a cars room answers

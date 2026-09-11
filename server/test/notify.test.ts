@@ -318,6 +318,12 @@ test('with context off the model gets only the system prompt', () => {
     settings, events: [], question: 'q', history: [], now, conditions: '', context: false, systemPrompt: 'This chat only.',
   });
   assert.match(sessionPrompt[0].content, /\n\nThis chat only\.$/);
+  assert.doesNotMatch(sessionPrompt[0].content, /You are Event Scout/, 'a prompt given replaces the default');
+  // Blank, context on or off: the default persona, after how the room works.
+  for (const context of [true, false]) {
+    const blank = buildChatMessages({ settings: DEFAULT_SETTINGS, events: [], question: 'q', history: [], now, conditions: '', context });
+    assert.match(blank[0].content, /^You are replying in a Matrix chat room[\s\S]*\n\nYou are Event Scout, a friendly assistant/);
+  }
   const withContext = buildChatMessages({ settings, events: [ev({ title: 'Hillclimb' })], question: 'q', history: [], now, conditions: '', systemPrompt: 'Pirate.' });
   assert.match(withContext[0].content, /\n\nPirate\.\n\n[\s\S]*Hillclimb/, 'the room first, then the persona, then what is on');
 });

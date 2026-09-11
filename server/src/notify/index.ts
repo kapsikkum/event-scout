@@ -8,7 +8,8 @@ import { MATRIX_LOOK_LABEL, MATRIX_LOOKS, normalizeTarget } from './targets.js';
 import { matchesFilters } from './filters.js';
 import { markdownToMatrix, matrixText, type BusyVenue, type MatrixContent } from './format.js';
 import {
-  batchQuestion, buildChatMessages, busyText, chatReply, chatStillOn, conditionsText, eventsForChat, parseChatCommand,
+  batchQuestion, buildChatMessages, busyText, chatReply, chatStillOn, conditionsText, DEFAULT_PERSONA, eventsForChat,
+  parseChatCommand,
   stripSpeakerLabel,
   type ChatLine, type ChatSession,
 } from './chat.js';
@@ -164,7 +165,7 @@ function effectiveChat(roomId: string): { model: string; context: boolean; syste
     from: {
       model: s.model ? 'this chat' : chat?.model ? 'Settings' : 'the listing pass',
       context: s.context !== undefined ? 'this chat' : 'Settings',
-      systemPrompt: s.systemPrompt !== undefined ? 'this chat' : chat?.systemPrompt ? 'Settings' : 'none set',
+      systemPrompt: s.systemPrompt !== undefined ? 'this chat' : chat?.systemPrompt ? 'Settings' : 'the default',
     },
   };
 }
@@ -225,7 +226,7 @@ async function chatCommand(msg: IncomingMessage): Promise<MatrixContent> {
   const describe = (): string =>
     `Model: ${now.model || '(none)'} (${now.from.model}). ` +
     `Events, weather and busy places: ${now.context ? 'on' : 'off, bare model'} (${now.from.context}). ` +
-    `System prompt (${now.from.systemPrompt}): ${now.systemPrompt ? `“${now.systemPrompt.slice(0, 300)}${now.systemPrompt.length > 300 ? '…' : ''}”` : 'none, just how the room works'}.`;
+    `System prompt (${now.from.systemPrompt}): ${now.systemPrompt ? `“${now.systemPrompt.slice(0, 300)}${now.systemPrompt.length > 300 ? '…' : ''}”` : 'Event Scout, friendly and brief'}.`;
 
   if (action.kind === 'status') {
     return matrixText(on ? `Chat is on here. ${describe()}` : `Chat is off here. ${p}chat start to begin.`);
@@ -243,7 +244,7 @@ async function chatCommand(msg: IncomingMessage): Promise<MatrixContent> {
   const session = { ...(sessions.get(room) ?? {}) };
 
   if (action.kind === 'system') {
-    if (asking) return matrixText(`System prompt (${now.from.systemPrompt}): ${now.systemPrompt || 'none, just how the room works'}`);
+    if (asking) return matrixText(`System prompt (${now.from.systemPrompt}): ${now.systemPrompt || DEFAULT_PERSONA}`);
     if (action.value === null) delete session.systemPrompt;
     else session.systemPrompt = action.value;
     sessions.set(room, session);
@@ -338,7 +339,7 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
     const messages = buildChatMessages({
       settings,
       context,
-      // Only a prompt this chat set overrides; otherwise Settings' (or none).
+      // Only a prompt this chat set overrides; otherwise Settings' (or the default).
       systemPrompt: session?.systemPrompt !== undefined ? systemPrompt : undefined,
       events: context ? eventsForChat(getMergedEvents(), lines.map((l) => l.body).join('\n'), filters, now) : [],
       // qwen3 ignores Ollama's think switch on some versions and reasons out

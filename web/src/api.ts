@@ -161,7 +161,7 @@ export interface Settings {
     commandPrefix: string;
     allowedUsers: string[];
     commandsEverywhere: boolean;
-    /** !chat start in a room: the local model answering. Blank model uses the listing pass's. The prompt is who it is; how the room works is always added. */
+    /** !chat start in a room: the local model answering. Blank model uses the listing pass's. The prompt is who it is (blank: the default persona); how the room works is always added. */
     chat: { enabled: boolean; eventContext: boolean; model: string; systemPrompt: string; historyMessages: number };
   };
   /** Arrives as ''; see secretsSet. */

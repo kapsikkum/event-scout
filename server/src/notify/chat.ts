@@ -20,6 +20,18 @@ import { markdownToMatrix, readable, whenText, whereText, type BusyVenue, type M
  */
 
 /**
+ * Who the model is when the system prompt is left blank.
+ *
+ * A prompt given in Settings or with !chat system replaces this; how the room
+ * works (below) is added either way.
+ */
+export const DEFAULT_PERSONA = [
+  'You are Event Scout, a friendly assistant for people who go to and photograph local events.',
+  'Help with what is on, when and where, and what is worth going to or photographing.',
+  'Keep answers short: a few lines or a short list. If you do not know, say so plainly rather than guessing.',
+].join(' ');
+
+/**
  * How the room works, sent whatever the system prompt says.
  *
  * Mechanics only, and no identity: who the model is and how it talks is the
@@ -272,10 +284,9 @@ export function buildChatMessages(opts: {
 }): ChatMessage[] {
   const { settings, events, question, history, now, conditions, busy } = opts;
   const prompt = (opts.systemPrompt ?? settings.matrixBot?.chat?.systemPrompt ?? '').trim();
-  // How the room works, always; then who the model is, if anyone said; then,
-  // unless it is the bare model, what is on.
-  const parts = [howItWorks(settings.matrixBot?.commandPrefix || '!')];
-  if (prompt) parts.push(prompt);
+  // How the room works, always; then who the model is — the prompt given, or
+  // the default when none was; then, unless it is the bare model, what is on.
+  const parts = [howItWorks(settings.matrixBot?.commandPrefix || '!'), prompt || DEFAULT_PERSONA];
   if (opts.context !== false) {
     const areas = [settings.city, ...(settings.eventAreas ?? []).map((a) => a.name)].filter(Boolean).join(', ');
     parts.push([
