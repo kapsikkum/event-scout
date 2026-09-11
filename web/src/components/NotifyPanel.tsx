@@ -368,6 +368,22 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
             {m.lastError && ` — ${m.lastError}`}
           </div>
         )}
+        {(m?.ignoredInvites ?? []).map((i) => (
+          <div key={i.roomId} className="status-line error">
+            ⚠ Invited to {i.roomId} by {i.from}, who is not on the allowed list, so it did not join.{' '}
+            {!bot.allowedUsers.includes(i.from) && (
+              <button className="linky" onClick={() => setBot({ allowedUsers: [...bot.allowedUsers, i.from] })}>
+                Allow {i.from}
+              </button>
+            )}{' '}
+            Then save, and it joins.
+          </div>
+        ))}
+        {bot.enabled && bot.allowedUsers.length === 0 && !(m?.ignoredInvites ?? []).length && (
+          <p className="hint">
+            No accounts are allowed yet, so it will not accept any invite. Add yours below.
+          </p>
+        )}
         <div className="formrow">
           <label>Homeserver</label>
           <input value={bot.homeserver} placeholder="https://matrix.example.org" onChange={(e) => setBot({ homeserver: e.target.value })} />
@@ -386,6 +402,8 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
         <div className="formrow">
           <label>Allowed accounts</label>
           <input
+            // Keyed on the list, so "Allow" above shows up here at once.
+            key={csv(bot.allowedUsers)}
             defaultValue={csv(bot.allowedUsers)}
             placeholder="@you:example.org"
             onBlur={(e) => setBot({ allowedUsers: fromCsv(e.target.value) })}

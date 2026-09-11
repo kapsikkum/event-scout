@@ -102,6 +102,12 @@ export interface BotStatus {
   rooms: number;
   lastError: string;
   lastSyncAt: string | null;
+  /**
+   * Invites it turned down because the inviter is not on the allowed list,
+   * newest first. Said out loud because otherwise an invite that is ignored
+   * looks exactly like a bot that is not working.
+   */
+  ignoredInvites: { roomId: string; from: string; at: string }[];
 }
 
 interface SyncEvent {
@@ -130,7 +136,7 @@ const FILTER = JSON.stringify({
   },
 });
 
-let status: BotStatus = { state: 'off', userId: '', rooms: 0, lastError: '', lastSyncAt: null };
+let status: BotStatus = { state: 'off', userId: '', rooms: 0, lastError: '', lastSyncAt: null, ignoredInvites: [] };
 let generation = 0;
 let stopCurrent: AbortController | null = null;
 
@@ -158,7 +164,10 @@ export function restartMatrixBot(handler: CommandHandler): void {
   const settings = getSettings();
   const conn = connFromSettings(settings);
   if (!settings.matrixBot?.enabled || !conn) {
-    status = { state: 'off', userId: '', rooms: 0, lastError: settings.matrixBot?.enabled ? 'No homeserver or access token set' : '', lastSyncAt: null };
+    status = {
+      state: 'off', userId: '', rooms: 0, lastSyncAt: null, ignoredInvites: [],
+      lastError: settings.matrixBot?.enabled ? 'No homeserver or access token set' : '',
+    };
     return;
   }
   const ctl = new AbortController();
@@ -167,7 +176,7 @@ export function restartMatrixBot(handler: CommandHandler): void {
 }
 
 async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop: AbortSignal): Promise<void> {
-  status = { state: 'starting', userId: '', rooms: 0, lastError: '', lastSyncAt: null };
+  status = { state: 'starting', userId: '', rooms: 0, lastError: '', lastSyncAt: null, ignoredInvites: [] };
   let since: string | null = null;
   let me = '';
   let backoff = 5000;
@@ -205,10 +214,16 @@ async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop
 
       for (const [roomId, room] of Object.entries(sync.rooms?.invite ?? {})) {
         const invite = room.invite_state?.events?.find((e) => e.type === 'm.room.member' && e.state_key === me);
-        if (!invite || !allowed(invite.sender)) continue;
+        if (!invite) continue;
+        if (!allowed(invite.sender)) {
+          const others = status.ignoredInvites.filter((i) => i.roomId !== roomId);
+          status.ignoredInvites = [{ roomId, from: invite.sender, at: new Date().toISOString() }, ...others].slice(0, 5);
+          continue;
+        }
         try {
           await joinRoom(conn, roomId);
           status.rooms++;
+          status.ignoredInvites = status.ignoredInvites.filter((i) => i.roomId !== roomId);
         } catch (err) {
           status.lastError = `could not join ${roomId}: ${(err as Error).message}`;
         }

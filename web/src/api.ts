@@ -198,7 +198,15 @@ export interface NotifyTarget {
 }
 
 export interface NotifyStatus {
-  matrix: { state: 'off' | 'starting' | 'running' | 'error'; userId: string; rooms: number; lastError: string; lastSyncAt: string | null };
+  matrix: {
+    state: 'off' | 'starting' | 'running' | 'error';
+    userId: string;
+    rooms: number;
+    lastError: string;
+    lastSyncAt: string | null;
+    /** Invites turned down because the inviter is not on the allowed list. */
+    ignoredInvites?: { roomId: string; from: string; at: string }[];
+  };
   targets: Record<string, { at: string; ok: boolean; message: string } | null>;
 }
 
