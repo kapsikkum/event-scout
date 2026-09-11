@@ -631,3 +631,21 @@ function rekeyFinds(): void {
   }
 }
 rekeyFinds();
+
+/**
+ * Instagram and Facebook pages turned away by robots.txt, back in the queue.
+ *
+ * Before these two had their own path, a link to either went through the
+ * robots.txt check like any other page and was marked skipped for good — a
+ * post pinned in Settings among them, which was then never read. Nothing marks
+ * them that way now, so this finds only those old rows, and costs nothing to
+ * run on every start.
+ */
+function unskipSocial(): void {
+  db.prepare(
+    `UPDATE pages SET state = 'queued', note = ''
+      WHERE state = 'skipped' AND note LIKE 'robots%'
+        AND (site = 'instagram.com' OR url LIKE '%facebook.com/events/%')`
+  ).run();
+}
+unskipSocial();

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  eventFromPost, instagramPost, instagramProfilePosts, postTime, socialKind, whenFromCaption,
+  eventFromPost, instagramPost, instagramProfilePosts, placeFromText, postTime, socialKind, whenFromCaption,
 } from '../src/extract/social.js';
 import { queriesFor, SOCIAL_QUERIES_PER_AREA } from '../src/queries.js';
 
@@ -133,4 +133,26 @@ test('a day named relative to the post, when the caption gives no date', (t) => 
 test('a profile page lists its recent posts', () => {
   const html = '<script>{"code":"DdGV-zAk2hq","x":1},{"code":"DdGV-zAk2hq"}</script><a href="/p/DcqBXHJk8K4/">';
   assert.deepEqual(instagramProfilePosts(html), ['DdGV-zAk2hq', 'DcqBXHJk8K4']);
+});
+
+const AREAS = ['Bathurst', 'Penrith NSW', 'Orange NSW', 'Eastern Creek NSW'];
+
+test('a caption that names one of the areas is placed in it', () => {
+  assert.equal(placeFromText('our highly anticipated Bathurst drive! drive to Bathurst/ Mount Panorama', AREAS), 'Bathurst');
+  assert.equal(placeFromText('Meet at Penrith, then on to Eastern Creek', AREAS), 'Penrith NSW', 'the first one named');
+  assert.equal(placeFromText('Cars and coffee at Eastern Creek raceway', AREAS), 'Eastern Creek NSW');
+});
+
+test('a word that only looks like an area is not one', () => {
+  assert.equal(placeFromText('bring your orange car and a friend', AREAS), undefined, 'lower case is the fruit');
+  assert.equal(placeFromText('Bathursts finest', AREAS), undefined, 'part of a longer word');
+  assert.equal(placeFromText('no town here at all', AREAS), undefined);
+});
+
+test('the Roadster Bros post comes out placed in Bathurst', (t) => {
+  inSydney(t);
+  const post = instagramPost(POST_PAGE, 'Dc3ABIxk-Oj')!;
+  const ev = eventFromPost(post, on(2026, 9, 5), AREAS)!;
+  assert.equal(ev.address, 'Bathurst');
+  assert.equal(eventFromPost(post, on(2026, 9, 5))!.address, undefined, 'and without areas, nowhere');
 });

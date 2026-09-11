@@ -153,7 +153,7 @@ async function readSocial(link: SocialLink): Promise<{ events: CrawledEvent[]; p
 
   const post = instagramPost(page.html, link.id);
   if (!post) throw new FetchError('no caption on the page; Instagram may be asking for a login');
-  const event = eventFromPost(post);
+  const event = eventFromPost(post, new Date(), knownInterests().map((i) => i.city));
   if (event) store.keep(event);
   return { events: event ? [event] : [], posts: 0, note: event ? '' : 'no upcoming date in the caption' };
 }

@@ -324,23 +324,54 @@ function titleOf(post: InstagramPost): string {
   return `${post.author} on Instagram`;
 }
 
+/** "Penrith NSW" is searched for as "Penrith": the region is how the area was typed, not how a caption says it. */
+function areaWord(area: string): string {
+  return area.split(',')[0].trim().replace(/\s+[A-Z]{2,3}$/, '').trim();
+}
+
+/**
+ * Which of the areas being searched a piece of text names, if any.
+ *
+ * A caption has no venue field, but it usually says the town — "our Bathurst
+ * drive", "meet at Penrith" — and the areas are the towns this crawl is about,
+ * so a mention of one is a place worth geocoding. Matched with its capital, or
+ * shouted, so "an orange car" is not Orange but "THIS TIME IS BATHURST" is
+ * Bathurst; the first one named wins. The area comes back as it was typed,
+ * region and all, since that is what geocodes cleanly.
+ */
+export function placeFromText(text: string, areas: string[]): string | undefined {
+  let best: { at: number; area: string } | undefined;
+  for (const area of areas) {
+    const word = areaWord(area);
+    if (word.length < 3) continue;
+    const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const spelled = `${escape(word)}|${escape(word.toUpperCase())}`;
+    const m = new RegExp(`(?<![\\p{L}\\p{N}])(?:${spelled})(?![\\p{L}\\p{N}])`, 'u').exec(text);
+    if (m && (!best || m.index < best.at)) best = { at: m.index, area: area.trim() };
+  }
+  return best?.area;
+}
+
 /**
  * An event out of a post, or null when the caption names no date to hold it to.
  *
  * No venue: a caption says "Mount Panorama" in a sentence, not a field, and a
- * guess here would be worse than a blank. event-scout's model pass fills blank
- * venues from the text, and says it did.
+ * guess at one would be worse than a blank. The town is another matter — see
+ * placeFromText — and is given as the address when the caption names one of
+ * `areas`, so the event lands in that town rather than nowhere.
  */
-export function eventFromPost(post: InstagramPost, now = new Date()): CrawledEvent | null {
+export function eventFromPost(post: InstagramPost, now = new Date(), areas: string[] = []): CrawledEvent | null {
   if (!post.caption) return null;
   const when = whenFromCaption(post.caption, post.postedAt, now);
   if (!when || !isWorthKeeping(when.startTime, now)) return null;
+  const address = placeFromText(post.caption, areas);
   return {
     sourceId: `instagram:${post.code}`,
     title: titleOf(post),
     description: post.caption.slice(0, 4000),
     startTime: when.startTime,
     dateOnly: when.dateOnly,
+    ...(address ? { address } : {}),
     url: post.url,
     imageUrl: post.imageUrl,
     foundAt: now.toISOString(),
