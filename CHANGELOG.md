@@ -7,6 +7,20 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.6.0](https://github.com/kapsikkum/event-scout/compare/v0.5.0...v0.6.0) (2026-09-11)
+
+
+### Features
+
+* **crawler:** fold and page the pages-read and calendar-feed lists ([77a0b01](https://github.com/kapsikkum/event-scout/commit/77a0b0191020605b15ef83417da753ad5b402094))
+* **crawler:** skip Instagram posts too old to announce anything, and read "this Sunday" ([77a0b01](https://github.com/kapsikkum/event-scout/commit/77a0b0191020605b15ef83417da753ad5b402094))
+
+
+### Fixes
+
+* **crawler:** key a find on the event, not the page it was read on ([77a0b01](https://github.com/kapsikkum/event-scout/commit/77a0b0191020605b15ef83417da753ad5b402094))
+* **dedupe:** merge one event listed under two titles at the same place and minute ([77a0b01](https://github.com/kapsikkum/event-scout/commit/77a0b0191020605b15ef83417da753ad5b402094))
+
 ## [0.5.0](https://github.com/kapsikkum/event-scout/compare/v0.4.0...v0.5.0) (2026-09-11)
 
 
