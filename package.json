@@ -1,7 +1,7 @@
 {
   "name": "event-scout",
   "private": true,
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Local events aggregator for photography scouting",
   "workspaces": [
     "server",

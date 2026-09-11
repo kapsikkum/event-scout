@@ -7,6 +7,13 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.7.2](https://github.com/kapsikkum/event-scout/compare/v0.7.1...v0.7.2) (2026-09-11)
+
+
+### Fixes
+
+* keep today's events on the shortlist until they are over ([36ee151](https://github.com/kapsikkum/event-scout/commit/36ee15196cefd08d460f6588a021363c84b41579))
+
 ## [0.7.1](https://github.com/kapsikkum/event-scout/compare/v0.7.0...v0.7.1) (2026-09-11)
 
 
