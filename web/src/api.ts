@@ -161,8 +161,8 @@ export interface Settings {
     commandPrefix: string;
     allowedUsers: string[];
     commandsEverywhere: boolean;
-    /** Chat rooms: the local model answering. Blank model uses the listing pass's; blank prompt the built-in one. */
-    chat: { enabled: boolean; model: string; systemPrompt: string; historyMessages: number };
+    /** !chat start in a room: the local model answering. Blank model uses the listing pass's; blank prompt the built-in one. */
+    chat: { model: string; systemPrompt: string; historyMessages: number };
   };
   /** Arrives as ''; see secretsSet. */
   matrixAccessToken: string | null;
@@ -201,8 +201,6 @@ export interface NotifyTarget {
   commands: boolean;
   /** Matrix: a card each, a line each, a table, or plain text. */
   matrixLook: 'cards' | 'minimal' | 'table' | 'plain';
-  /** Matrix: the local model answers every message that is not a command. */
-  chat: boolean;
   triggers: {
     newEvents: { enabled: boolean; settleMinutes: number; maxPerRun: number };
     digest: { enabled: boolean; cadence: 'daily' | 'weekly'; weekday: number; hour: number; daysAhead: number };

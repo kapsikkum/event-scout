@@ -30,7 +30,6 @@ function blankTarget(kind: NotifyTarget['kind']): NotifyTarget {
     matrixLoud: true,
     commands: true,
     matrixLook: 'minimal',
-    chat: false,
     triggers: {
       newEvents: { enabled: true, settleMinutes: 30, maxPerRun: 10 },
       digest: { enabled: false, cadence: 'weekly', weekday: 4, hour: 18, daysAhead: 7 },
@@ -96,12 +95,10 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
   );
 }
 
-function TargetCard({ target, update, remove, places, categories, status, dirty, save, rooms, chatOn, venues }: {
+function TargetCard({ target, update, remove, places, categories, status, dirty, save, rooms, venues }: {
   rooms: { roomId: string; name: string }[];
   /** Every place venue density samples, for the busy-place trigger. */
   venues: string[];
-  /** Whether the bot's chat is switched on, for the chat-room switch to say so. */
-  chatOn: boolean;
   target: NotifyTarget;
   update: (t: NotifyTarget) => void;
   remove: () => void;
@@ -239,10 +236,6 @@ function TargetCard({ target, update, remove, places, categories, status, dirty,
           </div>
           <Check checked={t.commands} onChange={(v) => set({ commands: v })}>
             Answer commands here, listing only what the filters below let through
-          </Check>
-          <Check checked={t.chat} onChange={(v) => set({ chat: v })}>
-            Chat room: the local model answers every other message, about the events the filters below let through
-            {t.chat && !chatOn && <span className="hint"> — switch chat on under Matrix bot</span>}
           </Check>
         </>
       )}
@@ -404,9 +397,9 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
   const targets = draft.notifyTargets ?? [];
   const bot = draft.matrixBot ?? {
     enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true,
-    chat: { enabled: false, model: '', systemPrompt: '', historyMessages: 12 },
+    chat: { model: '', systemPrompt: '', historyMessages: 12 },
   };
-  const chat = bot.chat ?? { enabled: false, model: '', systemPrompt: '', historyMessages: 12 };
+  const chat = bot.chat ?? { model: '', systemPrompt: '', historyMessages: 12 };
   const setChat = (patch: Partial<typeof chat>): void => setBot({ chat: { ...chat, ...patch } });
   const setBot = (patch: Partial<typeof bot>): void => set({ matrixBot: { ...bot, ...patch } });
   const places = [...new Set([draft.city, ...(draft.eventAreas ?? []).map((a) => a.name)].map((p) => town(p ?? '')).filter(Boolean))];
@@ -436,7 +429,6 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
             dirty={dirty}
             save={save}
             rooms={m?.joinedRooms ?? []}
-            chatOn={Boolean(draft.matrixBot?.chat?.enabled)}
             venues={venueNames}
             update={(next) => set({ notifyTargets: targets.map((x) => (x.id === t.id ? next : x)) })}
             remove={() => set({ notifyTargets: targets.filter((x) => x.id !== t.id) })}
@@ -547,15 +539,15 @@ export default function NotifyPanel({ draft, set, dirty, save }: {
 
         <h4 className="notify__sub">Chat</h4>
         <p className="hint">
-          In rooms marked <em>Chat room</em> above, the local model answers every message that is not a command,
-          using the upcoming events that room’s filters let through, today’s weather and light, and the last few
-          messages. It can only read: it cannot shortlist or change anything.
+          Say <code>{bot.commandPrefix || '!'}chat start</code> in a room (allowed accounts only) and the local model
+          answers every message there that is not a command, until <code>{bot.commandPrefix || '!'}chat end</code> or
+          an hour of quiet. It sees the upcoming events (that room’s filters apply, if it has a target), today’s
+          weather and light, which places are busy, and the last few messages. It can only read.
         </p>
         {llm && !llm.reachable ? (
           <div className="status-line error">No Ollama reachable{llm.problem ? ` — ${llm.problem}` : ''}. Set it up under Local model.</div>
         ) : (
           <>
-            <Check checked={chat.enabled} onChange={(v) => setChat({ enabled: v })}>Chat on</Check>
             <div className="formrow">
               <label>Model</label>
               <select value={chat.model} onChange={(e) => setChat({ model: e.target.value })}>

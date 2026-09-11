@@ -281,13 +281,15 @@ way. Flyers go as image messages, uploaded to your homeserver since Matrix shows
 only images it holds. Also: an optional `@room` ping; ordinary messages, or quiet
 notices (drawn greyed out, no alert); and the bot's display name in that room.
 
-**Chat rooms.** With an Ollama set up under Local model, switch on Chat under
-Matrix bot, pick a model and, if you like, a system prompt, and mark a room as a
-chat room. Every message there that is not a command is answered by the model,
-which is shown the date, your areas, today's and tomorrow's weather and light,
-the next 45 days of events that room's filters let through (plus anything further
-out the question names), and the last few messages. It shows as typing while it
-thinks and can only read — it cannot shortlist or change anything.
+**Chat.** With an Ollama set up under Local model, say `!chat start` in a room
+(allowed accounts only — each answer is a turn of your GPU) and every message
+there that is not a command is answered by the model, until `!chat end` or an
+hour of quiet. It is shown the date, your areas, today's and tomorrow's weather
+and light, which places are busy, the next 30 days of events (narrowed by the
+room's filters if it has a target, plus anything further out the question names)
+and the last few messages. It shows as typing while it thinks and can only read.
+The model, a system prompt and how much it remembers are set under Matrix bot →
+Chat.
 
 It also answers commands. In a room with a target, commands can be switched off,
 and they list only what that target's filters let through — a cars room answers
@@ -300,6 +302,7 @@ from Matrix — and anyone in the room may use it:
 | `!events [today\|tomorrow\|weekend\|week\|month\|14d] [words]` | What is on, numbered. |
 | `!new` | Found in the last week. |
 | `!busy [place]` | How busy the places venue density samples are right now. |
+| `!chat start`, `!chat end` | Talk to the local model in this room. Starting is for allowed accounts. |
 | `!search <words>` | Anything upcoming that mentions them. |
 | `!event <n>` | More about item *n* of the last list. |
 | `!digest`, `!status`, `!help` | |

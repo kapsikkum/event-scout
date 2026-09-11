@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import type { MergedEvent } from '../src/events.js';
 import { matchesFilters } from '../src/notify/filters.js';
 import { discordPayloads, markdownToMatrix, matrixList, matrixMessages } from '../src/notify/format.js';
-import { buildChatMessages, eventsForChat } from '../src/notify/chat.js';
+import { buildChatMessages, chatStillOn, eventsForChat } from '../src/notify/chat.js';
 import { digestSlot, inQuietHours, planTarget } from '../src/notify/run.js';
 import type { NotifyStore, Snapshot } from '../src/notify/store.js';
 import { DEFAULT_FILTERS, normalizeTarget } from '../src/notify/targets.js';
@@ -257,6 +257,16 @@ test('busy places show in Discord, in Matrix, and with !busy', () => {
   assert.match(runCommand({ name: 'busy', args: ['orange'] }, { roomId: '!r', sender: '@a:x' }, deps)!.body, /No busyness readings for “orange”/);
 });
 
+test('a chat stays on until it is ended or left quiet for an hour', () => {
+  const now = new Date('2026-09-11T12:00:00.000Z');
+  assert.equal(chatStillOn(null, now), false, 'never started');
+  assert.equal(chatStillOn('', now), false, 'ended');
+  assert.equal(chatStillOn('2026-09-11T11:30:00.000Z', now), true);
+  assert.equal(chatStillOn('2026-09-11T10:59:00.000Z', now), false, 'an hour of quiet');
+  const deps = { events: () => [], status: () => '', appUrl: '', prefix: '!' };
+  assert.match(runCommand({ name: 'help', args: [] }, { roomId: '!r', sender: '@a:x' }, deps)!.body, /!chat start, !chat end/);
+});
+
 test('digest slots and quiet hours', (t) => {
   useZone(t, 'Australia/Sydney');
   const thu6pm = { enabled: true, cadence: 'weekly' as const, weekday: 4, hour: 18, daysAhead: 7 };
@@ -280,7 +290,7 @@ test('commands: parsed by prefix, and read only', () => {
   for (const name of ['star', 'unstar', 'hide']) {
     assert.match(runCommand({ name, args: ['1'] }, { roomId: '!r', sender: '@you:x' }, deps)!.body, /only reads/);
   }
-  assert.doesNotMatch(runCommand({ name: 'help', args: [] }, { roomId: '!r', sender: '@you:x' }, deps)!.body, /star|hide/);
+  assert.doesNotMatch(runCommand({ name: 'help', args: [] }, { roomId: '!r', sender: '@you:x' }, deps)!.body, /!(un)?star\b|!hide\b/);
 });
 
 test('webhooks: only Discord’s, kept like any other credential', () => {

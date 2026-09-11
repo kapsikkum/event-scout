@@ -78,7 +78,6 @@ export function normalizeTarget(raw: unknown): NotifyTarget {
     matrixLook: (MATRIX_LOOKS as readonly string[]).includes(String(t.matrixLook))
       ? (t.matrixLook as NotifyTarget['matrixLook'])
       : 'minimal',
-    chat: bool(t.chat, false),
     triggers: {
       newEvents: {
         enabled: bool(ne.enabled, d.newEvents.enabled),

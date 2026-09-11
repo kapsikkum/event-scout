@@ -207,8 +207,6 @@ export interface NotifyTarget {
   commands: boolean;
   /** Matrix: how events are laid out — a card each, a line each, a table, or plain text. */
   matrixLook: 'cards' | 'minimal' | 'table' | 'plain';
-  /** Matrix: every message that is not a command is answered by the local model, if chat is on. */
-  chat: boolean;
   triggers: NotifyTriggers;
   filters: NotifyFilters;
   /** Hours, local, in which nothing is sent; held until they end. */
@@ -228,12 +226,11 @@ export interface MatrixBotSettings {
   allowedUsers: string[];
   /** Answer commands in rooms no target is set up for, with nothing filtered. */
   commandsEverywhere: boolean;
-  /** Talking to the local model in the rooms marked as chat rooms. */
+  /** Talking to the local model, in rooms where someone said !chat start. */
   chat: MatrixChatSettings;
 }
 
 export interface MatrixChatSettings {
-  enabled: boolean;
   /** An installed Ollama model. Blank uses the one the listing pass uses. */
   model: string;
   /** Blank uses the built-in one. See notify/chat.ts. */
@@ -306,7 +303,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyTargets: [],
   matrixBot: {
     enabled: false, homeserver: '', commandPrefix: '!', allowedUsers: [], commandsEverywhere: true,
-    chat: { enabled: false, model: '', systemPrompt: '', historyMessages: 12 },
+    chat: { model: '', systemPrompt: '', historyMessages: 12 },
   },
   matrixAccessToken: '',
   appUrl: '',

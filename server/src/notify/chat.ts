@@ -119,6 +119,16 @@ export function busyText(venues: BusyVenue[], now: Date): string {
     .join('; ');
 }
 
+/** A chat left alone this long has ended by itself: nobody should find the bot still answering days later. */
+export const CHAT_IDLE_MS = 60 * 60_000;
+
+/** Whether a room's chat is still on, given when it was started or last answered. */
+export function chatStillOn(last: string | null, now: Date): boolean {
+  if (!last) return false;
+  const at = Date.parse(last);
+  return Number.isFinite(at) && now.getTime() - at < CHAT_IDLE_MS;
+}
+
 /** "@kapsikkum:vore.party" as "kapsikkum", which is how people in a room refer to each other. */
 export const speaker = (userId: string): string => userId.replace(/^@/, '').split(':')[0];
 

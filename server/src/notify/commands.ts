@@ -14,6 +14,7 @@ import { busyLine, BusyVenue, matrixCard, matrixList, matrixText, MatrixContent,
  *   !search <words>            anything upcoming that mentions them
  *   !event <n>                 more about item n of the last list in this room
  *   !busy [place]              how busy the sampled places are right now
+ *   !chat start / end          talk to the local model here (handled in index.ts)
  *   !digest                    the week ahead
  *   !status                    when it last looked
  *
@@ -98,6 +99,7 @@ function help(p: string): MatrixContent {
     `${p}search <words> — anything upcoming that mentions them`,
     `${p}event <n> — more about item n of the last list`,
     `${p}busy [place] — how busy places are right now`,
+    `${p}chat start, ${p}chat end — talk to the local model about what’s on, in this room`,
     `${p}digest — the week ahead`,
     `${p}status — when it last looked`,
   ];

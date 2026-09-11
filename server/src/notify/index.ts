@@ -1,4 +1,4 @@
-import { getKv, getSettings } from '../db.js';
+import { getKv, getSettings, setKv } from '../db.js';
 import { getMergedEvents } from '../events.js';
 import { runCommand, parseCommand } from './commands.js';
 import { deliver, runNotifications } from './run.js';
@@ -7,7 +7,7 @@ import { connFromSettings, IncomingMessage, knownRoomId, matrixStatus, restartMa
 import { MATRIX_LOOK_LABEL, MATRIX_LOOKS, normalizeTarget } from './targets.js';
 import { matchesFilters } from './filters.js';
 import { markdownToMatrix, matrixText, type BusyVenue, type MatrixContent } from './format.js';
-import { buildChatMessages, busyText, conditionsText, eventsForChat, speaker } from './chat.js';
+import { buildChatMessages, busyText, chatStillOn, conditionsText, eventsForChat, speaker } from './chat.js';
 import { resolveAreas } from '../density/areas.js';
 import { venueReadings } from '../density/pipeline.js';
 import { chatText, type ChatMessage } from '../enrich/ollama.js';
@@ -131,8 +131,50 @@ const thinking = new Set<string>();
 /** The last few turns in each chat room, oldest first. Kept in memory: a restart starts the conversation over. */
 const histories = new Map<string, ChatMessage[]>();
 
+/** Where a room's chat stands: when it was started or last answered, '' once ended. */
+const chatKey = (roomId: string): string => `matrix:chat:${roomId}`;
+const chatOn = (roomId: string): boolean => chatStillOn(getKv(chatKey(roomId)), new Date());
+
+/**
+ * !chat start, !chat end, and !chat on its own to ask.
+ *
+ * Starting is kept to the allowed accounts, because every answer is a minute
+ * of someone's GPU; ending is anyone's. Either way the conversation so far is
+ * forgotten, so a new chat starts clean.
+ */
+function chatCommand(arg: string | undefined, msg: IncomingMessage): MatrixContent {
+  const settings = getSettings();
+  const p = settings.matrixBot?.commandPrefix || '!';
+  switch ((arg ?? '').toLowerCase()) {
+    case 'start':
+    case 'on': {
+      if (!(settings.matrixBot?.allowedUsers ?? []).includes(msg.sender)) {
+        return matrixText('Only accounts on the bot’s allowed list can start a chat.');
+      }
+      if (!(settings.matrixBot?.chat?.model || settings.llmModel)) {
+        return matrixText('There is no model to chat with yet: choose one in Settings → Notifications → Chat.');
+      }
+      setKv(chatKey(msg.roomId), new Date().toISOString());
+      histories.delete(msg.roomId);
+      return matrixText(
+        `Chat on. Ask me about what’s on — I’ll answer every message here until ${p}chat end, or an hour of quiet.`
+      );
+    }
+    case 'end':
+    case 'stop':
+    case 'off':
+      setKv(chatKey(msg.roomId), '');
+      histories.delete(msg.roomId);
+      return matrixText('Chat off. Commands still work.');
+    default:
+      return matrixText(chatOn(msg.roomId)
+        ? `Chat is on here. ${p}chat end to stop.`
+        : `Chat is off here. ${p}chat start to talk to the model about what’s on.`);
+  }
+}
+
 /** Answer a message in a chat room with the local model, showing "typing…" meanwhile. */
-async function answerChat(msg: IncomingMessage, filters: NotifyFilters): Promise<void> {
+async function answerChat(msg: IncomingMessage, filters: NotifyFilters | undefined): Promise<void> {
   const settings = getSettings();
   const chat = settings.matrixBot.chat;
   const conn = connFromSettings(settings);
@@ -164,6 +206,8 @@ async function answerChat(msg: IncomingMessage, filters: NotifyFilters): Promise
     });
     const answer = await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000, numCtx: 8192 });
     await sendMatrix(conn, msg.roomId, markdownToMatrix(answer));
+    // Still talking: the hour of quiet that ends a chat starts again from here.
+    if (chatOn(msg.roomId)) setKv(chatKey(msg.roomId), new Date().toISOString());
     const kept = Math.max(0, chat.historyMessages);
     histories.set(msg.roomId, kept ? [...history, { role: 'user' as const, content: question }, { role: 'assistant' as const, content: answer }].slice(-kept) : []);
   } catch (err) {
@@ -185,11 +229,13 @@ function handleMatrixMessage(msg: IncomingMessage): MatrixContent | null {
     .map(normalizeTarget)
     .find((t) => t.kind === 'matrix' && t.roomId && knownRoomId(t.roomId) === msg.roomId);
   if (!cmd) {
-    // Not a command: a chat room answers it, in the background so the sync
-    // loop is not held up for the minute a model can take.
-    if (target?.chat && settings.matrixBot?.chat?.enabled) void answerChat(msg, target.filters);
+    // Not a command: answered by the model while a chat is on in the room,
+    // in the background so the sync loop is not held up for the minute a
+    // model can take. The room's target, if it has one, narrows the events.
+    if (chatOn(msg.roomId)) void answerChat(msg, target?.filters);
     return null;
   }
+  if (cmd.name === 'chat') return chatCommand(cmd.args[0], msg);
   if (target ? !target.commands : settings.matrixBot?.commandsEverywhere === false) return null;
   return runCommand(cmd, msg, {
     filters: target?.filters,
