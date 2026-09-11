@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { formatWhen } from '../components/EventCard';
 import { busyColour } from '../busy';
 import { decodeEntities } from '../text';
+import { isOver } from '../filtering';
 import PhotoConditionsPanel from '../components/PhotoConditions';
 import EventDetail from '../components/EventDetail';
 
@@ -46,9 +47,11 @@ export default function Home() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
+  // Until it is over, not until an hour after it started: today's all-day
+  // event started at midnight and is still on.
   const now = Date.now();
   const shortlist = events
-    .filter((ev) => ev.starred && !ev.hidden && Date.parse(ev.startTime) >= now - 3600_000)
+    .filter((ev) => ev.starred && !ev.hidden && !isOver(ev, now))
     .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
 
   // Only live readings belong in "right now"; typical-for-this-hour is a guess.

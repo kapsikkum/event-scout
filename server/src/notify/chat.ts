@@ -3,6 +3,7 @@ import type { ChatMessage } from '../enrich/ollama.js';
 import type { NotifyFilters, Settings } from '../sources/types.js';
 import type { PhotoConditions } from '../photo.js';
 import { matchesFilters } from './filters.js';
+import { isOver } from '../validate.js';
 import { markdownToMatrix, readable, whenText, whereText, type BusyVenue, type MatrixContent } from './format.js';
 
 /**
@@ -97,10 +98,9 @@ export function eventLine(ev: MergedEvent): string {
 export function eventsForChat(
   events: MergedEvent[], question: string, filters: NotifyFilters | undefined, now: Date
 ): MergedEvent[] {
-  const from = now.getTime() - 3 * 3600_000;
   const until = now.getTime() + WINDOW_DAYS * 86400_000;
   const visible = events
-    .filter((e) => !e.hidden && !e.culled && Date.parse(e.startTime) >= from)
+    .filter((e) => !e.hidden && !e.culled && !isOver(e.startTime, e.endTime, now))
     .filter((e) => !filters || matchesFilters(e, filters))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
   const soon = visible.filter((e) => Date.parse(e.startTime) <= until);

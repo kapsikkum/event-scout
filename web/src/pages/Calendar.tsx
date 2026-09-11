@@ -3,7 +3,7 @@ import { MergedEvent, api, haversineKm } from '../api';
 import { useStore } from '../store';
 import EventDetail from '../components/EventDetail';
 import { decodeEntities } from '../text';
-import { outOfSight } from '../filtering';
+import { isOver, outOfSight } from '../filtering';
 
 /**
  * The diary view.
@@ -42,16 +42,7 @@ const startOfWeek = (d: Date): Date =>
 
 const addDays = (d: Date, n: number): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
-/**
- * Over and done, by the rule the server uses: the end if there is one,
- * otherwise the whole of the day it starts on.
- */
-function isPast(ev: MergedEvent, now = Date.now()): boolean {
-  const end = ev.endTime ? Date.parse(ev.endTime) : NaN;
-  if (Number.isFinite(end)) return end < now;
-  const start = new Date(ev.startTime);
-  return addDays(new Date(start.getFullYear(), start.getMonth(), start.getDate()), 1).getTime() <= now;
-}
+const isPast = (ev: MergedEvent): boolean => isOver(ev);
 
 export default function Calendar() {
   const { events, settings } = useStore();
@@ -195,14 +186,16 @@ export default function Calendar() {
 
   // --- views ---------------------------------------------------------------
   const agendaDays = useMemo(() => {
-    const now = Date.now() - 3600_000;
+    // What is not over yet, which keeps today's all-day events on the list
+    // for the whole of today rather than dropping them at 1am.
+    const now = Date.now();
     const keys = [...byDay.keys()]
-      .filter((k) => byDay.get(k)!.some((ev) => Date.parse(ev.startTime) >= now))
+      .filter((k) => byDay.get(k)!.some((ev) => !isOver(ev, now)))
       .sort();
     return keys.map((key) => ({
       key,
       date: new Date(`${key}T12:00:00`),
-      events: byDay.get(key)!.filter((ev) => Date.parse(ev.startTime) >= now),
+      events: byDay.get(key)!.filter((ev) => !isOver(ev, now)),
     }));
   }, [byDay]);
 

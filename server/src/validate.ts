@@ -293,10 +293,22 @@ export function groupStart(
  * particular number of hours having elapsed.
  */
 export function isOver(startTime: string, endTime: string | null, now: Date = new Date()): boolean {
+  return endOf(startTime, endTime) <= now.getTime();
+}
+
+/**
+ * When an event stops being worth showing, as a timestamp: its end, or the
+ * close of the day it starts on when it has none. What isOver compares, and
+ * what a question like "what's on today" has to ask about — an all-day event
+ * starts at midnight, so asking only about starts loses it at 1am.
+ */
+export function endOf(startTime: string, endTime: string | null): number {
   const end = endTime ? Date.parse(endTime) : NaN;
-  if (Number.isFinite(end)) return end < now.getTime();
+  // Strictly after, so an end equal to now reads as still running for isOver's
+  // `end < now` as it always has.
+  if (Number.isFinite(end)) return end + 1;
   const start = Date.parse(startTime);
-  if (!Number.isFinite(start)) return false;
+  if (!Number.isFinite(start)) return Infinity;
   const day = new Date(start);
-  return new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime() <= now.getTime();
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
 }

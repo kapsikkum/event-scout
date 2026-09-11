@@ -2,6 +2,7 @@ import type { MergedEvent } from '../events.js';
 import type { NotifyFilters } from '../sources/types.js';
 import { matchesFilters } from './filters.js';
 import { foldSeries } from './run.js';
+import { endOf, isOver } from '../validate.js';
 import { busyLine, BusyVenue, matrixCard, matrixList, matrixText, MatrixContent, escapeHtml } from './format.js';
 
 /**
@@ -115,10 +116,12 @@ function help(p: string): MatrixContent {
 export function runCommand(
   cmd: Command, ctx: { roomId: string; sender: string }, deps: CommandDeps, now = new Date()
 ): MatrixContent | null {
+  // Not over yet, rather than started within the hour: today's all-day event
+  // started at midnight and is on until the next one.
   const upcoming = (): MergedEvent[] =>
     deps.events().filter(
       (e) =>
-        !e.hidden && !e.culled && Date.parse(e.startTime) >= now.getTime() - 3600_000 &&
+        !e.hidden && !e.culled && !isOver(e.startTime, e.endTime, now) &&
         (!deps.filters || matchesFilters(e, deps.filters))
     );
   const p = deps.prefix;
@@ -136,8 +139,8 @@ export function runCommand(
       const span = windowFor(isSpan ? first : undefined, now)!;
       const words = (isSpan ? args.slice(1) : args).join(' ').trim().toLowerCase();
       const found = upcoming().filter((e) => {
-        const t = Date.parse(e.startTime);
-        if (t < span.from || t >= span.to) return false;
+        // Anything on during the span, not only what starts in it.
+        if (Date.parse(e.startTime) >= span.to || endOf(e.startTime, e.endTime) <= span.from) return false;
         return !words || e.category.toLowerCase().includes(words) || e.title.toLowerCase().includes(words);
       });
       const about = `${span.label}${words ? `, matching “${words}”` : ''}`;

@@ -15,6 +15,19 @@ export const ELSEWHERE = 'nearby:none';
 /** Nothing says where it is. Kept apart from Elsewhere, which is somewhere known to be far. */
 export const UNKNOWN = 'nearby:unknown';
 
+/**
+ * Over and done, by the rule the server uses: the end if there is one,
+ * otherwise the whole of the day it starts on. Not "started an hour ago":
+ * an all-day event starts at midnight and runs until the next one.
+ */
+export function isOver(ev: Pick<MergedEvent, 'startTime' | 'endTime'>, now = Date.now()): boolean {
+  const end = ev.endTime ? Date.parse(ev.endTime) : NaN;
+  if (Number.isFinite(end)) return end < now;
+  const start = new Date(ev.startTime);
+  if (Number.isNaN(start.getTime())) return false;
+  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1).getTime() <= now;
+}
+
 /** Out of sight: removed by hand, or culled by the rules in Settings. */
 export const outOfSight = (ev: MergedEvent): boolean => ev.hidden || Boolean(ev.culled);
 

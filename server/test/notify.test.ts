@@ -57,6 +57,26 @@ test('filters narrow, and an empty one lets everything through', () => {
   assert.ok(matchesFilters(ev({ unknownLocation: true, place: '' }), { ...DEFAULT_FILTERS, places: ['unknown'] }));
 });
 
+test('today’s all-day event is still on after midnight, last night’s is not', () => {
+  // Local times, so the test means the same in any zone.
+  const now = new Date(2026, 8, 12, 2, 30);
+  const list = [
+    ev({ title: 'All day street meet', startTime: new Date(2026, 8, 12).toISOString(), dateOnly: true }),
+    ev({ title: 'Last night gig', startTime: new Date(2026, 8, 11, 20).toISOString() }),
+    ev({ title: 'Tomorrow swap', startTime: new Date(2026, 8, 13, 9).toISOString() }),
+  ];
+  const deps = { events: () => list, status: () => '', appUrl: '', prefix: '!' };
+  const run = (args: string[]): string =>
+    runCommand({ name: 'events', args }, { roomId: '!today', sender: '@a:x' }, deps, now)!.body;
+  assert.match(run(['today']), /All day street meet/);
+  assert.doesNotMatch(run(['today']), /Last night gig|Tomorrow swap/);
+  assert.match(run(['tomorrow']), /Tomorrow swap/);
+  assert.doesNotMatch(run(['tomorrow']), /All day street meet/);
+  assert.match(run(['week']), /All day street meet/);
+  const forChat = eventsForChat(list, 'what is on', undefined, now).map((e) => e.title);
+  assert.deepEqual(forChat, ['All day street meet', 'Tomorrow swap']);
+});
+
 test('a town of its own inside an area is found by the area and by its own name', () => {
   const portland = ev({ place: 'Portland', area: 'Bathurst', locality: 'Portland' });
   assert.ok(matchesFilters(portland, { ...DEFAULT_FILTERS, places: ['Bathurst'] }));

@@ -6,6 +6,7 @@ import { sendDiscord } from './discord.js';
 import { connFromSettings, imagesFor, sendMatrix } from './matrix.js';
 import { NotifyStore, Snapshot } from './store.js';
 import { normalizeTarget } from './targets.js';
+import { isOver } from '../validate.js';
 
 /**
  * Deciding what each target is told, and telling it.
@@ -135,7 +136,7 @@ export function planTarget(
     } else if (slot > last) {
       const until = now.getTime() + t.digest.daysAhead * 86400_000;
       const coming = shown
-        .filter((ev) => Date.parse(ev.startTime) >= now.getTime() - 3600_000 && Date.parse(ev.startTime) <= until)
+        .filter((ev) => !isOver(ev.startTime, ev.endTime, now) && Date.parse(ev.startTime) <= until)
         .filter((ev) => matchesFilters(ev, target.filters));
       const items = foldSeries(coming);
       const kept = items.slice(0, 40);
