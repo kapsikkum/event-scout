@@ -289,6 +289,10 @@ hour of quiet. It is shown the date, your areas, today's and tomorrow's weather
 and light, which places are busy, the next 30 days of events (narrowed by the
 room's filters if it has a target, plus anything further out the question names)
 and the last few messages. It shows as typing while it thinks and can only read.
+With several people talking, each message carries its sender's name, anything
+said while it was busy is answered together on the next turn rather than
+dropped, and each answer is a reply to the last message it covers, mentioning
+everyone it answers.
 The model, a system prompt and how much it remembers are set under Matrix bot →
 Chat.
 

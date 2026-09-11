@@ -150,6 +150,8 @@ export interface IncomingMessage {
   roomId: string;
   sender: string;
   body: string;
+  /** The message's own id, so an answer can be a reply to it. */
+  eventId: string;
 }
 
 export type CommandHandler = (msg: IncomingMessage) => Promise<MatrixContent | null> | MatrixContent | null;
@@ -174,6 +176,7 @@ export interface BotStatus {
 interface SyncEvent {
   type: string;
   sender: string;
+  event_id?: string;
   state_key?: string;
   content?: { body?: unknown; membership?: string };
 }
@@ -345,7 +348,7 @@ async function loop(gen: number, conn: MatrixConn, handler: CommandHandler, stop
           // Bots speak in notices by convention; answering one is how two bots end up talking forever.
           if ((ev.content as { msgtype?: string }).msgtype === 'm.notice') continue;
           try {
-            const reply = await handler({ roomId, sender: ev.sender, body: ev.content.body });
+            const reply = await handler({ roomId, sender: ev.sender, body: ev.content.body, eventId: ev.event_id ?? '' });
             if (reply && live()) await sendMatrix(conn, roomId, reply);
           } catch (err) {
             status.lastError = `answering in ${roomId}: ${(err as Error).message}`;

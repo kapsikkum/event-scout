@@ -265,6 +265,8 @@ export interface MatrixContent {
   url?: string;
   info?: { mimetype: string; size: number };
   'm.mentions'?: { room?: boolean; user_ids?: string[] };
+  /** Makes the message a reply to another, which clients show with the message it answers. */
+  'm.relates_to'?: { 'm.in_reply_to': { event_id: string } };
 }
 
 export function escapeHtml(text: string): string {

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import type { MergedEvent } from '../src/events.js';
 import { matchesFilters } from '../src/notify/filters.js';
 import { discordPayloads, markdownToMatrix, matrixList, matrixMessages } from '../src/notify/format.js';
-import { buildChatMessages, chatStillOn, eventsForChat } from '../src/notify/chat.js';
+import { batchQuestion, buildChatMessages, chatReply, chatStillOn, eventsForChat } from '../src/notify/chat.js';
 import { digestSlot, inQuietHours, planTarget } from '../src/notify/run.js';
 import type { NotifyStore, Snapshot } from '../src/notify/store.js';
 import { DEFAULT_FILTERS, normalizeTarget } from '../src/notify/targets.js';
@@ -255,6 +255,23 @@ test('busy places show in Discord, in Matrix, and with !busy', () => {
   const deps = { events: () => [], status: () => '', appUrl: '', prefix: '!', venues: () => v };
   assert.match(runCommand({ name: 'busy', args: [] }, { roomId: '!r', sender: '@a:x' }, deps)!.body, /^Busiest right now\nMount Panorama \(Bathurst\) — 92%/);
   assert.match(runCommand({ name: 'busy', args: ['orange'] }, { roomId: '!r', sender: '@a:x' }, deps)!.body, /No busyness readings for “orange”/);
+});
+
+test('several people in a chat: one turn, a reply to the last, everyone who asked mentioned', () => {
+  const lines = [
+    { sender: '@kapsikkum:vore.party', body: 'any drift this weekend?', eventId: '$1' },
+    { sender: '@friend:vore.party', body: 'and markets in Orange?', eventId: '$2' },
+    { sender: '@kapsikkum:vore.party', body: 'Sunday ideally', eventId: '$3' },
+  ];
+  assert.equal(batchQuestion(lines), 'kapsikkum: any drift this weekend?\nfriend: and markets in Orange?\nkapsikkum: Sunday ideally');
+  const reply = chatReply('**Demo Drift Day** — Sat', lines);
+  assert.deepEqual(reply['m.relates_to'], { 'm.in_reply_to': { event_id: '$3' } });
+  assert.deepEqual(reply['m.mentions'], { user_ids: ['@kapsikkum:vore.party', '@friend:vore.party'] });
+  assert.match(reply.formatted_body!, /<b>Demo Drift Day<\/b>/);
+  const [system] = buildChatMessages({
+    settings: DEFAULT_SETTINGS, events: [], question: 'q', history: [], now: new Date(), conditions: '',
+  });
+  assert.match(system.content, /Several people may be in the room/);
 });
 
 test('a chat stays on until it is ended or left quiet for an hour', () => {

@@ -7,7 +7,9 @@ import { connFromSettings, IncomingMessage, knownRoomId, matrixStatus, restartMa
 import { MATRIX_LOOK_LABEL, MATRIX_LOOKS, normalizeTarget } from './targets.js';
 import { matchesFilters } from './filters.js';
 import { markdownToMatrix, matrixText, type BusyVenue, type MatrixContent } from './format.js';
-import { buildChatMessages, busyText, chatStillOn, conditionsText, eventsForChat, speaker } from './chat.js';
+import {
+  batchQuestion, buildChatMessages, busyText, chatReply, chatStillOn, conditionsText, eventsForChat, type ChatLine,
+} from './chat.js';
 import { resolveAreas } from '../density/areas.js';
 import { venueReadings } from '../density/pipeline.js';
 import { chatText, type ChatMessage } from '../enrich/ollama.js';
@@ -126,8 +128,15 @@ export async function sendLooks(id: string): Promise<{ ok: boolean; message: str
   }
 }
 
-/** Rooms with an answer being worked out, so a burst of messages is one answer, not five. */
+/** Rooms with an answer being worked out. */
 const thinking = new Set<string>();
+/**
+ * Messages that arrived while the model was busy in their room. Not dropped:
+ * the next turn takes all of them together, so everyone who asked is answered.
+ */
+const waiting = new Map<string, { lines: ChatLine[]; filters: NotifyFilters | undefined }>();
+/** More than this waiting and the oldest go: a room shouting is not a queue worth working through. */
+const MAX_WAITING = 8;
 /** The last few turns in each chat room, oldest first. Kept in memory: a restart starts the conversation over. */
 const histories = new Map<string, ChatMessage[]>();
 
@@ -178,28 +187,57 @@ function chatCommand(arg: string | undefined, msg: IncomingMessage): MatrixConte
   }
 }
 
-/** Answer a message in a chat room with the local model, showing "typing…" meanwhile. */
-async function answerChat(msg: IncomingMessage, filters: NotifyFilters | undefined): Promise<void> {
+/**
+ * A message for the model in a chat room.
+ *
+ * Put on the room's waiting list; if nothing is being worked out there, a turn
+ * starts now, and keeps going until nobody is waiting. So with several people
+ * talking, whoever wrote while the model was busy is answered next, together
+ * with anyone else who did — never silently skipped.
+ */
+function queueChat(msg: IncomingMessage, filters: NotifyFilters | undefined): void {
+  const entry = waiting.get(msg.roomId) ?? { lines: [], filters };
+  entry.lines.push({ sender: msg.sender, body: msg.body, eventId: msg.eventId });
+  entry.lines = entry.lines.slice(-MAX_WAITING);
+  entry.filters = filters;
+  waiting.set(msg.roomId, entry);
+  if (!thinking.has(msg.roomId)) void drainChat(msg.roomId);
+}
+
+async function drainChat(roomId: string): Promise<void> {
+  thinking.add(roomId);
+  try {
+    for (let entry = waiting.get(roomId); entry?.lines.length; entry = waiting.get(roomId)) {
+      waiting.delete(roomId);
+      if (!chatOn(roomId)) return; // ended while they waited
+      await answerTurn(roomId, entry.lines, entry.filters);
+    }
+  } finally {
+    thinking.delete(roomId);
+  }
+}
+
+/** One turn: the waiting messages, answered together with the local model, "typing…" meanwhile. */
+async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilters | undefined): Promise<void> {
   const settings = getSettings();
   const chat = settings.matrixBot.chat;
   const conn = connFromSettings(settings);
-  if (!conn || thinking.has(msg.roomId)) return;
+  if (!conn) return;
   const model = chat.model || settings.llmModel;
   if (!model) {
-    await sendMatrix(conn, msg.roomId, matrixText('Chat is on, but no model is chosen. Pick one in Settings → Notifications.'));
+    await sendMatrix(conn, roomId, matrixText('Chat is on, but no model is chosen. Pick one in Settings → Notifications.'));
     return;
   }
-  thinking.add(msg.roomId);
   const me = matrixStatus().userId;
   try {
-    await setTyping(conn, msg.roomId, me, true).catch(() => undefined);
+    await setTyping(conn, roomId, me, true).catch(() => undefined);
     const now = new Date();
-    const question = `${speaker(msg.sender)}: ${msg.body.slice(0, 2000)}`;
-    const history = histories.get(msg.roomId) ?? [];
+    const question = batchQuestion(lines);
+    const history = histories.get(roomId) ?? [];
     const conditions = await getPhotoConditions().then(conditionsText).catch(() => '');
     const messages = buildChatMessages({
       settings,
-      events: eventsForChat(getMergedEvents(), msg.body, filters, now),
+      events: eventsForChat(getMergedEvents(), lines.map((l) => l.body).join('\n'), filters, now),
       // qwen3 ignores Ollama's think switch on some versions and reasons out
       // loud for a minute; its own soft switch is this, on the turn itself.
       // Not kept in the history, which stays what was actually said.
@@ -210,16 +248,15 @@ async function answerChat(msg: IncomingMessage, filters: NotifyFilters | undefin
       busy: busyText(busyVenues(), now),
     });
     const answer = await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000, numCtx: 8192 });
-    await sendMatrix(conn, msg.roomId, markdownToMatrix(answer));
+    await sendMatrix(conn, roomId, chatReply(answer, lines));
     // Still talking: the hour of quiet that ends a chat starts again from here.
-    if (chatOn(msg.roomId)) setKv(chatKey(msg.roomId), new Date().toISOString());
+    if (chatOn(roomId)) setKv(chatKey(roomId), new Date().toISOString());
     const kept = Math.max(0, chat.historyMessages);
-    histories.set(msg.roomId, kept ? [...history, { role: 'user' as const, content: question }, { role: 'assistant' as const, content: answer }].slice(-kept) : []);
+    histories.set(roomId, kept ? [...history, { role: 'user' as const, content: question }, { role: 'assistant' as const, content: answer }].slice(-kept) : []);
   } catch (err) {
-    await sendMatrix(conn, msg.roomId, matrixText(`I couldn’t answer that: ${(err as Error).message}`)).catch(() => undefined);
+    await sendMatrix(conn, roomId, chatReply(`I couldn’t answer that: ${(err as Error).message}`, lines)).catch(() => undefined);
   } finally {
-    thinking.delete(msg.roomId);
-    await setTyping(conn, msg.roomId, me, false).catch(() => undefined);
+    await setTyping(conn, roomId, me, false).catch(() => undefined);
   }
 }
 
@@ -237,7 +274,7 @@ function handleMatrixMessage(msg: IncomingMessage): MatrixContent | null {
     // Not a command: answered by the model while a chat is on in the room,
     // in the background so the sync loop is not held up for the minute a
     // model can take. The room's target, if it has one, narrows the events.
-    if (chatOn(msg.roomId)) void answerChat(msg, target?.filters);
+    if (chatOn(msg.roomId)) queueChat(msg, target?.filters);
     return null;
   }
   if (cmd.name === 'chat') return chatCommand(cmd.args[0], msg);
