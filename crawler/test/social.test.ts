@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  eventFromPost, instagramPost, instagramProfilePosts, placeFromText, postTime, socialKind, whenFromCaption,
+  eventFromPost, instagramPost, instagramProfilePosts, placeFromText, postTime, socialKind, titleOf, whenFromCaption,
 } from '../src/extract/social.js';
 import { queriesFor, SOCIAL_QUERIES_PER_AREA } from '../src/queries.js';
 
@@ -72,7 +72,7 @@ test('a post whose caption names a date and a time becomes that event', (t) => {
   const ev = eventFromPost(instagramPost(POST_PAGE, 'Dc3ABIxk-Oj')!, on(2026, 9, 5))!;
   assert.equal(ev.startTime, '2026-09-12T19:00:00.000Z', '5am on Sunday the 13th, AEST');
   assert.equal(ev.dateOnly, false);
-  assert.equal(ev.title, 'Last Time Lithgow! This Time is BATHURST ‼️');
+  assert.equal(ev.title, 'Last Time Lithgow! This Time is BATHURST', 'the emoji stay in the caption, not the title');
   assert.equal(ev.url, 'https://www.instagram.com/p/Dc3ABIxk-Oj/');
   assert.equal(ev.sourceId, 'instagram:Dc3ABIxk-Oj');
 });
@@ -155,4 +155,14 @@ test('the Roadster Bros post comes out placed in Bathurst', (t) => {
   const ev = eventFromPost(post, on(2026, 9, 5), AREAS)!;
   assert.equal(ev.address, 'Bathurst');
   assert.equal(eventFromPost(post, on(2026, 9, 5))!.address, undefined, 'and without areas, nowhere');
+});
+
+test('a caption that opens with a paragraph is titled by its first sentence', () => {
+  const post = {
+    code: 'x', url: '', author: 'club', postedAt: null,
+    caption: '🚗🔥 Cars and Coffee is back at Penrith this Sunday! Bring the family, the dog and your best ride along for a morning out. #cars',
+  };
+  assert.equal(titleOf(post), 'Cars and Coffee is back at Penrith this Sunday!');
+  assert.equal(titleOf({ ...post, caption: 'Bathurst Swap Meet ✨' }), 'Bathurst Swap Meet');
+  assert.equal(titleOf({ ...post, caption: 'Meet at the car park behind St. Marys Leagues for a cruise up the mountain and a long lunch after' }).startsWith('Meet at the car park behind St. Marys'), true, 'an abbreviation is not a sentence');
 });

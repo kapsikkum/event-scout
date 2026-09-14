@@ -8,6 +8,7 @@ function event(over: Partial<MergedEvent> = {}): MergedEvent {
   return {
     group: 'g1',
     title: 'Bathurst Weekend Run',
+    rawTitle: '',
     description: 'A drive over the mountain.',
     startTime: '2026-09-25T09:00:00.000Z',
     endTime: null,

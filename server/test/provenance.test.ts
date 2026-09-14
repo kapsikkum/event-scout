@@ -59,6 +59,8 @@ function row(over: Partial<EventRow> = {}): EventRow {
     edit_price_text: '',
     edit_image_url: '',
     edit_photo_score: null,
+    llm_title: '',
+    manual_parent: 0,
     ...over,
   };
 }
@@ -153,4 +155,46 @@ test('a merged event inherits a label along with the value', () => {
   ]);
   assert.equal(chosen.venueName, 'Shannons Artarmon');
   assert.deepEqual(chosen.enriched, { venueName: 'flyer' });
+});
+
+/**
+ * Which listing speaks for an event.
+ *
+ * Merging the Bathurst 1000 with posts about it handed a driver's Instagram
+ * post the title, because it happened to be found first.
+ */
+
+test('a merged event takes its name and blurb from its own page, not a post about it', () => {
+  const post = row({
+    id: 2, url: 'https://www.instagram.com/p/abc123/',
+    title: 'So pumped for the Great Race this weekend with the whole crew', description: 'x'.repeat(900),
+  });
+  const page = row({ id: 3, url: 'https://www.supercars.com/bathurst', title: 'Repco Bathurst 1000', description: 'The Great Race.' });
+  const chosen = chooseFields([post, page]);
+  assert.equal(chosen.title, 'Repco Bathurst 1000');
+  assert.equal(chosen.rawDescription, 'The Great Race.');
+});
+
+test('a listing picked as the main one speaks for the event, whatever it is', () => {
+  const post = row({ id: 2, url: 'https://www.instagram.com/p/abc123/', title: 'Driver post', manual_parent: 1 });
+  const page = row({ id: 3, url: 'https://example.com/event', title: 'Event page' });
+  assert.equal(chooseFields([page, post]).title, 'Driver post');
+});
+
+test('the model’s name for an event is shown, with the listed title kept beside it', () => {
+  const renamed = chooseFields([
+    row({ title: 'We are so excited to announce our biggest meet yet', llm_title: 'Cars & Coffee Penrith' }),
+  ]);
+  assert.equal(renamed.title, 'Cars & Coffee Penrith');
+  assert.equal(renamed.rawTitle, 'We are so excited to announce our biggest meet yet');
+  assert.equal(renamed.enriched.title, 'model');
+
+  const same = chooseFields([row({ title: 'Bathurst 1000', llm_title: 'Bathurst 1000.' })]);
+  assert.equal(same.title, 'Bathurst 1000');
+  assert.equal(same.rawTitle, '', 'the same name is not a rename');
+  assert.equal(same.enriched.title, undefined);
+
+  const typed = chooseFields([row({ title: 'x', llm_title: 'Model name', edit_title: 'Typed name' })]);
+  assert.equal(typed.title, 'Typed name');
+  assert.equal(typed.rawTitle, '');
 });

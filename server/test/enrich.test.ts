@@ -261,3 +261,12 @@ test('the summary is told not to repeat the date, or to invent a time', () => {
   // print none. Left as fair game it was copied out as though the text said it.
   assert.match(summary, /the heading above is not a source for it/i);
 });
+
+test('naming asks for a name, and takes one back without its quotes or full stop', () => {
+  const schema = buildSchema(['rename']) as { required: string[] };
+  assert.deepEqual(schema.required, ['name']);
+  assert.equal(readVerdict({ name: '"Bathurst Swap Meet."' }, ['rename']).title, 'Bathurst Swap Meet');
+  assert.equal(readVerdict({ name: 'N/A' }, ['rename']).title, undefined);
+  assert.equal(readVerdict({ name: 'Bathurst Swap Meet' }, ['describe']).title, undefined, 'not unless asked');
+  assert.ok(buildPrompt(EVENT, ['rename']).includes('- name:'));
+});

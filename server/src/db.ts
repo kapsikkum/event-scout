@@ -103,6 +103,8 @@ function migrate(): void {
   // recomputing dedupe groups rewrites that column on every pass.
   addColumn(cols, 'manual_group', TEXT_COLUMN);
   db.exec('CREATE INDEX IF NOT EXISTS idx_events_manual ON events(manual_group)');
+  // Which listing of a merge speaks for it. See orderMembers in merge.ts.
+  addColumn(cols, 'manual_parent', 'INTEGER NOT NULL DEFAULT 0');
   // Remembers that we already tried to place an event. Without it the geocode
   // pass reworks the same earliest rows every refresh and never reaches the rest.
   addColumn(cols, 'geocode_tried', 'INTEGER NOT NULL DEFAULT 0');
@@ -118,7 +120,7 @@ function migrate(): void {
    * turning the task off restores exactly the previous behaviour, and a bad run
    * cannot damage anything that was scraped.
    */
-  for (const col of ['llm_description', 'llm_category', 'llm_venue_name', 'llm_address', 'llm_price_text']) {
+  for (const col of ['llm_description', 'llm_title', 'llm_category', 'llm_venue_name', 'llm_address', 'llm_price_text']) {
     addColumn(cols, col, TEXT_COLUMN);
   }
   addColumn(cols, 'llm_photo_score', 'REAL');

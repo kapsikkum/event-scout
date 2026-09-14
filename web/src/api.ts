@@ -1,6 +1,8 @@
 export interface MergedEvent {
   group: string;
   title: string;
+  /** The title as the listing gave it, when a model's name for the event is shown instead; '' otherwise. */
+  rawTitle: string;
   description: string;
   startTime: string;
   endTime: string | null;
@@ -87,6 +89,8 @@ export interface EventMember {
   imageUrl: string;
   startTime: string;
   venueName: string;
+  /** Picked by hand as the listing that speaks for the event. */
+  parent: boolean;
 }
 
 export interface SourceStatus {
@@ -749,12 +753,19 @@ export const api = {
     fetch(`/api/density/${area}/history?venue=${encodeURIComponent(venue)}&days=${days}`)
       .then((r) => json<VenueHistory>(r)),
   venues: (area: string) => fetch(`/api/density/${area}/venues`).then((r) => json<VenueReading[]>(r)),
-  merge: (groups: string[]) =>
+  merge: (groups: string[], parent?: string) =>
     fetch('/api/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groups }),
+      body: JSON.stringify({ groups, parent }),
     }).then((r) => json<{ group: string; merged: number }>(r)),
+  /** Make one listing of an event the one its title, date, picture and details come from. */
+  setParent: (group: string, id: number) =>
+    fetch(`/api/events/${encodeURIComponent(group)}/parent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).then((r) => json<{ event: MergedEvent | null }>(r)),
   unmerge: (group: string) =>
     fetch(`/api/unmerge/${group}`, { method: 'POST' }).then((r) => json<{ split: number }>(r)),
   setGroupFlag: (group: string, flags: { starred?: boolean; hidden?: boolean }) =>

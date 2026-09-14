@@ -17,6 +17,7 @@ import {
   Filters,
   foldSeries,
   isRecent,
+  isSocialUrl,
   NEARBY,
   outOfSight,
   placeLabel,
@@ -78,6 +79,17 @@ export default function Events() {
     setParams(params, { replace: true });
   }, [events, params, setParams]);
 
+  // Which of the picked events the merge takes its title, date, picture and
+  // details from: the one chosen, or by default the first that is an event's
+  // own page rather than a post about it.
+  const [mainPick, setMainPick] = useState('');
+  const pickedEvents = picked
+    .map((g) => events.find((e) => e.group === g))
+    .filter((e): e is MergedEvent => Boolean(e));
+  const mainGroup = picked.includes(mainPick)
+    ? mainPick
+    : (pickedEvents.find((e) => !e.sources.every((s) => isSocialUrl(s.url))) ?? pickedEvents[0])?.group ?? '';
+
   const togglePick = (group: string, on: boolean): void =>
     setPicked((prev) => (on ? [...new Set([...prev, group])] : prev.filter((g) => g !== group)));
 
@@ -85,7 +97,7 @@ export default function Events() {
     if (picked.length < 2) return;
     setMergeNote('');
     try {
-      await mergeGroups(picked);
+      await mergeGroups(picked, mainGroup || undefined);
       setMergeNote(`Merged ${picked.length} events into one.`);
       setPicked([]);
       setPicking(false);
@@ -238,12 +250,25 @@ export default function Events() {
               ? 'Tick two or more listings of the same event.'
               : `${picked.length} selected`}
           </span>
+          {pickedEvents.length > 1 && (
+            <label className="mergebar__main">
+              Main listing
+              <select value={mainGroup} onChange={(e) => setMainPick(e.target.value)}>
+                {pickedEvents.map((e) => (
+                  <option key={e.group} value={e.group}>
+                    {decodeEntities(e.title).slice(0, 60)} · {[...new Set(e.sources.map((s) => s.source))].join(', ')}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button className="primary" disabled={picked.length < 2} onClick={() => void doMerge()}>
             Merge {picked.length > 1 ? picked.length : ''}
           </button>
           <span className="mergebar__note">
-            The merged event keeps every source link, the longest description and
-            the first available image — so a listing with no picture inherits one.
+            The main listing gives the merged event its title, date, picture and
+            details. Every source link is kept, and it can be changed later from
+            the event.
           </span>
         </div>
       )}

@@ -314,12 +314,27 @@ function relativeWhen(caption: string, postedDay: Date): EventWhen | null {
   };
 }
 
-/** A title from the caption's first line that has words in it, hashtags dropped. */
+/**
+ * A title from the caption's first line that has words in it, hashtags and
+ * emoji dropped.
+ *
+ * A post has no title field, and its first line is as often a paragraph as a
+ * name, so a long one gives only its first sentence — "Cars and Coffee is back
+ * at Penrith this Sunday!" rather than the whole invitation after it. The model
+ * pass renames it properly later; this is what the card says until then.
+ */
 export function titleOf(post: InstagramPost): string {
   for (const line of post.caption.split('\n')) {
-    const text = line.replace(/#[\p{L}\p{N}_]+/gu, '').replace(/\s+/g, ' ').trim();
+    const text = line
+      .replace(/#[\p{L}\p{N}_]+/gu, '')
+      .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (text.replace(/[^\p{L}\p{N}]/gu, '').length < 4) continue;
-    return text.length > 120 ? `${text.slice(0, 117).replace(/\s+\S*$/, '')}…` : text;
+    const sentence = text.length > 60
+      ? (/^(.{12,}?(?<!\b(?:St|Rd|Dr|Mt|Ave|No|vs))[.!?])(?:\s|$)/u.exec(text)?.[1] ?? text)
+      : text;
+    return sentence.length > 80 ? `${sentence.slice(0, 77).replace(/\s+\S*$/, '')}…` : sentence;
   }
   return `${post.author} on Instagram`;
 }

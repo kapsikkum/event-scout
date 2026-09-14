@@ -37,6 +37,8 @@ export interface EventRow {
   hidden: number;
   dedupe_group: string;
   manual_group: string;
+  /** 1 on the listing a person chose as the main one of a merge. See orderMembers. */
+  manual_parent: number;
   /** When this app first saw the row. NULL for rows older than the column. */
   first_seen_at: string | null;
   /**
@@ -46,6 +48,8 @@ export interface EventRow {
    * when it declined to answer for that field. See enrich/pipeline.ts.
    */
   llm_description: string;
+  /** What the event is called, when the listing's title is a caption or a sentence. */
+  llm_title: string;
   llm_category: string;
   llm_venue_name: string;
   llm_address: string;
@@ -138,6 +142,37 @@ export function parseEditPatch(patch: Record<string, unknown>): ParsedEdit[] {
   return out;
 }
 
+/**
+ * A post about an event rather than the event's own page: an Instagram post,
+ * or anything on Facebook that is not a Facebook event.
+ */
+export function isSocialRow(row: Pick<EventRow, 'url'>): boolean {
+  const url = row.url ?? '';
+  return /\/\/(?:[\w-]+\.)*instagram\.com\//i.test(url) || /\/\/(?:[\w-]+\.)*facebook\.com\/(?!events\/)/i.test(url);
+}
+
+/**
+ * The listings behind one event, the one that should speak for it first.
+ *
+ * Every field is taken from the first listing with something to say, so this
+ * order is what decides a merged event's title, picture and details. First
+ * the listing a person picked as the main one; then the event's own pages;
+ * posts about it last. Merging the Bathurst 1000 with a driver's Instagram
+ * post about it used to hand the post the title, because it happened to be
+ * found first.
+ */
+export function orderMembers(members: EventRow[]): EventRow[] {
+  const rank = (r: EventRow): number => (r.manual_parent === 1 ? 0 : isSocialRow(r) ? 2 : 1);
+  return members
+    .map((row, i) => ({ row, i }))
+    .sort((a, b) => rank(a.row) - rank(b.row) || a.i - b.i)
+    .map(({ row }) => row);
+}
+
+/** Two names that differ only in case, spacing or punctuation are one. */
+const sameName = (a: string, b: string): boolean =>
+  a.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') === b.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
 /** The first member that has anything to say, falling back to the first row. */
 export function firstNonEmpty(members: EventRow[], get: (r: EventRow) => string): string {
   for (const m of members) {
@@ -150,6 +185,8 @@ export function firstNonEmpty(members: EventRow[], get: (r: EventRow) => string)
 /** What `chooseFields` settled on, and which of it came from a model. */
 export interface ChosenFields {
   title: string;
+  /** The title as the listing gave it, when a model's name for the event is shown instead. */
+  rawTitle: string;
   description: string;
   startTime: string;
   venueName: string;
@@ -197,7 +234,8 @@ export interface ChosenFields {
  * Pure, and separate from the merge around it, because this is the part worth
  * being sure about — and being sure needs nothing but rows.
  */
-export function chooseFields(members: EventRow[]): ChosenFields {
+export function chooseFields(given: EventRow[]): ChosenFields {
+  const members = orderMembers(given);
   const str = (get: (r: EventRow) => string) => firstNonEmpty(members, get);
 
   /**
@@ -268,8 +306,26 @@ export function chooseFields(members: EventRow[]): ChosenFields {
   };
 
   // A tidied blurb is preferred over the longest raw one: length was only ever
-  // a stand-in for "most complete", and a rewritten one beats it.
-  const longest = members.reduce((best, m) => (m.description.length > best.length ? m.description : best), '');
+  // a stand-in for "most complete", and a rewritten one beats it. The main
+  // listing's own blurb when one was picked, and otherwise the longest from the
+  // event's own pages: a caption is usually longer and nearly always worse.
+  const parent = members.find((m) => m.manual_parent === 1);
+  const ownPages = members.filter((m) => !isSocialRow(m));
+  const longest =
+    parent?.description ||
+    (ownPages.length ? ownPages : members).reduce((best, m) => (m.description.length > best.length ? m.description : best), '');
+
+  // The lead listing's name, or the model's name for it where the listing's
+  // title is a caption or a sentence rather than a name. Only the lead's: a
+  // post about the event may have been renamed to something else entirely.
+  const lead = members[0];
+  const listedTitle = lead.title || str((r) => r.title);
+  const named = lead.llm_title && !sameName(lead.llm_title, listedTitle) ? lead.llm_title : '';
+  let title = overridden('title', (r) => r.edit_title);
+  if (title === null) {
+    if (named) enriched.title = 'model';
+    title = named || listedTitle;
+  }
   const note = str((r) => r.vision_note);
   if (note) enriched.note = 'flyer';
 
@@ -295,7 +351,8 @@ export function chooseFields(members: EventRow[]): ChosenFields {
   );
 
   const chosen: ChosenFields = {
-    title: overridden('title', (r) => r.edit_title) ?? str((r) => r.title),
+    title,
+    rawTitle: '',
     description:
       overridden('description', (r) => r.edit_description) ??
       preferLlm('description', (r) => r.llm_description, () => longest),
@@ -329,5 +386,6 @@ export function chooseFields(members: EventRow[]): ChosenFields {
   // also have had to say about it. Saying both would be a contradiction on the
   // card: an AI badge over a value the reader put there themselves.
   for (const field of edited) delete enriched[field];
+  if (enriched.title === 'model') chosen.rawTitle = listedTitle;
   return chosen;
 }

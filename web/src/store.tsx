@@ -21,8 +21,11 @@ interface Store {
   refresh: () => Promise<void>;
   updateSettings: (s: Partial<Settings>) => Promise<void>;
   setGroupFlag: (group: string, flags: { starred?: boolean; hidden?: boolean }) => Promise<void>;
-  mergeGroups: (groups: string[]) => Promise<string>;
+  /** Merge events; `parent` is the group whose listing should speak for the result. */
+  mergeGroups: (groups: string[], parent?: string) => Promise<string>;
   unmergeGroup: (group: string) => Promise<void>;
+  /** Make one listing (by row id) the main one of its event. */
+  setMergeParent: (group: string, id: number) => Promise<void>;
   /**
    * Whether the page is showing its edit affordances.
    *
@@ -157,8 +160,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * back from the server rather than be patched locally.
    */
   const mergeGroups = useCallback(
-    async (groups: string[]) => {
-      const { group } = await guard(() => api.merge(groups));
+    async (groups: string[], parent?: string) => {
+      const { group } = await guard(() => api.merge(groups, parent));
       await loadEvents();
       return group;
     },
@@ -168,6 +171,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const unmergeGroup = useCallback(
     async (group: string) => {
       await guard(() => api.unmerge(group));
+      await loadEvents();
+    },
+    [loadEvents, guard]
+  );
+
+  const setMergeParent = useCallback(
+    async (group: string, id: number) => {
+      await guard(() => api.setParent(group, id));
       await loadEvents();
     },
     [loadEvents, guard]
@@ -220,7 +231,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     <StoreContext.Provider
       value={{
         events, settings, status, refreshing, loadEvents, loadStatus, refresh,
-        updateSettings, setGroupFlag, mergeGroups, unmergeGroup,
+        updateSettings, setGroupFlag, mergeGroups, unmergeGroup, setMergeParent,
         editMode, setEditMode, editEvent,
         auth, authPrompt, dismissAuthPrompt: () => setAuthPrompt(null),
         requestSignIn: () => setAuthPrompt('Settings and changes need the password.'),

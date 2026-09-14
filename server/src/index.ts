@@ -26,7 +26,7 @@ import {
   sessionValid,
   setPassword,
 } from './authStore.js';
-import { editGroup, EditError, getMergedEvent, getMergedEvents, mergeGroups, setGroupFlag, unmergeGroup } from './events.js';
+import { editGroup, EditError, getMergedEvent, getMergedEvents, mergeGroups, setGroupFlag, setMergeParent, unmergeGroup } from './events.js';
 import { filterEvents, paginate, parseEventQuery, QueryError } from './query.js';
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
@@ -402,12 +402,12 @@ app.get('/api/density/:area/venues', (req, res) => {
 });
 
 app.post('/api/merge', (req, res) => {
-  const { groups } = req.body as { groups?: string[] };
+  const { groups, parent } = req.body as { groups?: string[]; parent?: unknown };
   if (!Array.isArray(groups) || groups.length < 2) {
     return res.status(400).json({ error: 'Pick at least two events to merge' });
   }
   try {
-    res.json(mergeGroups(groups));
+    res.json(mergeGroups(groups, typeof parent === 'string' && parent ? parent : undefined));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -415,6 +415,22 @@ app.post('/api/merge', (req, res) => {
 
 app.post('/api/unmerge/:group', (req, res) => {
   res.json(unmergeGroup(req.params.group));
+});
+
+/**
+ * Choose the listing that speaks for an event: its title, date, picture and
+ * details win over the others behind it. Body: `{ id }`, a member's row id.
+ */
+app.post('/api/events/:group/parent', (req, res) => {
+  try {
+    setMergeParent(req.params.group, Number((req.body ?? {}).id));
+    res.json({ event: getMergedEvent(req.params.group) ?? null });
+  } catch (err) {
+    if (err instanceof EditError) {
+      return res.status(/^Unknown event/.test(err.message) ? 404 : 400).json({ error: err.message });
+    }
+    throw err;
+  }
 });
 
 app.post('/api/groups/:group', (req, res) => {

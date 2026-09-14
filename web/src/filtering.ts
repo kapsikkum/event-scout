@@ -28,6 +28,10 @@ export function isOver(ev: Pick<MergedEvent, 'startTime' | 'endTime'>, now = Dat
   return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1).getTime() <= now;
 }
 
+/** A post about an event — Instagram, or Facebook other than its events — rather than the event's own page. */
+export const isSocialUrl = (url: string): boolean =>
+  /\/\/(?:[\w-]+\.)*instagram\.com\//i.test(url) || /\/\/(?:[\w-]+\.)*facebook\.com\/(?!events\/)/i.test(url);
+
 /** Out of sight: removed by hand, or culled by the rules in Settings. */
 export const outOfSight = (ev: MergedEvent): boolean => ev.hidden || Boolean(ev.culled);
 

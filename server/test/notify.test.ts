@@ -20,12 +20,12 @@ let nextId = 1;
 function ev(over: Partial<MergedEvent> = {}): MergedEvent {
   const id = nextId++;
   return {
-    group: `g${id}`, title: `Event ${id}`, description: '', startTime: '2026-09-20T09:00:00.000Z', endTime: null,
+    group: `g${id}`, title: `Event ${id}`, rawTitle: '', description: '', startTime: '2026-09-20T09:00:00.000Z', endTime: null,
     venueName: 'Mount Panorama', address: '', locality: 'Bathurst', place: 'Bathurst', area: 'Bathurst', lat: null, lng: null,
     imageUrl: '', category: 'Motorsport', priceText: '', isOnline: false, dateOnly: false, photoScore: 50,
     starred: false, hidden: false, firstSeenAt: '2026-09-10T00:00:00.000Z', unknownLocation: false, culled: null,
     sources: [{ source: 'crawler', url: `https://example.com/${id}` }], images: [],
-    members: [{ id, source: 'crawler', title: '', url: '', imageUrl: '', startTime: '', venueName: '' }],
+    members: [{ id, source: 'crawler', title: '', url: '', imageUrl: '', startTime: '', venueName: '', parent: false }],
     manual: false, series: `s${id}`, note: '', enriched: {}, edited: [], rawDescription: '',
     ...over,
   };

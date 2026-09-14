@@ -1,4 +1,4 @@
-import { db, getSettings } from '../db.js';
+import { db, getKv, getSettings, saveSettings, setKv } from '../db.js';
 import { TaskLog, TaskResult } from '../tasks/registry.js';
 import { chatJson, listModels, OllamaError } from './ollama.js';
 import { flyerBacklog } from './visionPipeline.js';
@@ -63,9 +63,29 @@ export function ollamaUrl(configured: string | undefined): string {
 }
 
 export function enabledJobs(): EnrichJob[] {
+  addRenameJobOnce();
   const configured = getSettings().llmJobs ?? [];
-  const known: EnrichJob[] = ['describe', 'classify', 'extract', 'score'];
+  const known: EnrichJob[] = ['describe', 'rename', 'classify', 'extract', 'score'];
   return known.filter((j) => configured.includes(j));
+}
+
+/**
+ * Switch naming on, once, for anyone already having descriptions tidied.
+ *
+ * Saved settings carry their own list of jobs, so a job added later is off for
+ * everyone who has ever pressed Save. Once rather than on every read, so
+ * turning it off in Settings stays off.
+ */
+function addRenameJobOnce(): void {
+  const flag = 'migrate:llm-rename-job';
+  if (getKv(flag)) return;
+  setKv(flag, new Date().toISOString());
+  if (!getKv('settings')) return;
+  const settings = getSettings();
+  const jobs = settings.llmJobs ?? [];
+  if (jobs.includes('describe') && !jobs.includes('rename')) {
+    saveSettings({ ...settings, llmJobs: [...jobs, 'rename'] });
+  }
 }
 
 /**
@@ -156,7 +176,7 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
 
   const record = recordStmt();
   const update = db.prepare(
-    `UPDATE events SET llm_description = ?, llm_category = ?, llm_venue_name = ?,
+    `UPDATE events SET llm_description = ?, llm_title = ?, llm_category = ?, llm_venue_name = ?,
                        llm_address = ?, llm_price_text = ?, llm_photo_score = ?
      WHERE id = ?`
   );
@@ -182,6 +202,7 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
       const verdict = readVerdict(raw, jobs);
       update.run(
         verdict.description ?? '',
+        verdict.title ?? '',
         verdict.category ?? '',
         verdict.venueName ?? '',
         verdict.address ?? '',
@@ -287,7 +308,7 @@ function countRead(table: 'event_enrichment' | 'event_vision'): number {
 export function clearEnrichment(): number {
   const changed = db.prepare('DELETE FROM event_enrichment').run().changes;
   db.exec(
-    `UPDATE events SET llm_description = '', llm_category = '', llm_venue_name = '',
+    `UPDATE events SET llm_description = '', llm_title = '', llm_category = '', llm_venue_name = '',
                        llm_address = '', llm_price_text = '', llm_photo_score = NULL`
   );
   return Number(changed);

@@ -15,6 +15,7 @@ import type { MergedEvent } from './api';
 
 /** What each field is called when it is being pointed at, rather than shown. */
 const FIELD_LABELS: Record<string, string> = {
+  title: 'the name',
   description: 'the description',
   category: 'the category',
   venueName: 'the venue',
@@ -25,7 +26,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 /** Listed in the order a reader meets them, not the order the object happens to hold. */
-const FIELD_ORDER = ['description', 'category', 'venueName', 'address', 'priceText', 'note', 'photoScore'];
+const FIELD_ORDER = ['title', 'description', 'category', 'venueName', 'address', 'priceText', 'note', 'photoScore'];
 
 const SOURCE_LABELS = {
   model: 'Written by a local language model from the listing text',

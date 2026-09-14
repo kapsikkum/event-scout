@@ -2,13 +2,13 @@ import crypto from 'node:crypto';
 import { db, getSettings } from './db.js';
 import { groupStart, isOver } from './validate.js';
 import { normalizeTitle } from './dedupe.js';
-import { localityOf } from './regions.js';
+import { localityOf, regionOf } from './regions.js';
 import { flyerHref } from './flyers.js';
 import { storedPath } from './flyerStore.js';
 import { hubsFromSettings, placeEvents } from './places.js';
 import { cachedGeocode } from './geocode.js';
 import { cullReason } from './cull.js';
-import { chooseFields, EditError, parseEditPatch } from './merge.js';
+import { chooseFields, EditError, orderMembers, parseEditPatch } from './merge.js';
 import type { EditableField } from './merge.js';
 
 export { EditError } from './merge.js';
@@ -26,11 +26,15 @@ export interface EventMember {
   imageUrl: string;
   startTime: string;
   venueName: string;
+  /** Picked by hand as the listing that speaks for the event. */
+  parent: boolean;
 }
 
 export interface MergedEvent {
   group: string;
   title: string;
+  /** The title as the listing gave it, when a model's name for the event is shown instead; '' otherwise. */
+  rawTitle: string;
   description: string;
   startTime: string;
   endTime: string | null;
@@ -168,7 +172,11 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
   }
 
   const merged: MergedEvent[] = [];
-  for (const [group, members] of byGroup) {
+  for (const [group, found] of byGroup) {
+    // The listing that speaks for the event first: every field below is taken
+    // from the first member with something to say. See orderMembers.
+    const members = orderMembers(found);
+    const parent = members.find((m) => m.manual_parent === 1);
     if (members.every((m) => m.archived === 1)) archivedGroups.add(group);
     const chosen = chooseFields(members);
     const bestDescription = chosen.description;
@@ -184,6 +192,11 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       const kept = storedPath(m.image_url, m.start_time);
       if (kept) images.push(flyerHref(kept));
     }
+    // A flyer picked by hand leads, so the card and the detail both show it
+    // rather than whichever listing's picture happened to come first.
+    const shownImages = chosen.imageUrl
+      ? [chosen.imageUrl, ...images.filter((src) => src !== chosen.imageUrl)]
+      : images;
 
     // Derived here rather than in the browser: reading a locality out of an
     // address means knowing every country's postal tail, and that table
@@ -196,12 +209,15 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
     merged.push({
       group,
       title: chosen.title,
+      rawTitle: chosen.rawTitle,
       description: bestDescription,
       // Not members[0]: rows arrive sorted by start, so a lone listing with a
       // date a day early would set the whole group's day. The date most
       // members agree on is the one to show.
-      ...groupStart(members, chosen.startTime),
-      endTime: members.find((m) => m.end_time)?.end_time ?? null,
+      // The main listing's own dates when one was picked: the posts merged in
+      // with it are about the event, and date themselves by when they posted.
+      ...groupStart(parent ? [parent] : members, chosen.startTime),
+      endTime: (parent ? parent.end_time : members.find((m) => m.end_time)?.end_time) ?? null,
       venueName,
       address,
       locality,
@@ -211,8 +227,8 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       area: '',
       lat: members.find((m) => m.lat != null)?.lat ?? null,
       lng: members.find((m) => m.lng != null)?.lng ?? null,
-      imageUrl: chosen.imageUrl ?? images[0] ?? '',
-      images,
+      imageUrl: shownImages[0] ?? '',
+      images: shownImages,
       category: chosen.category,
       priceText: chosen.priceText,
       isOnline: members.every((m) => m.is_online === 1),
@@ -235,6 +251,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
         imageUrl: m.image_url,
         startTime: m.start_time,
         venueName: m.venue_name,
+        parent: m.manual_parent === 1,
       })),
       manual: Boolean(members[0].manual_group),
       series: seriesKey(chosen.title, venueName || locality || address),
@@ -258,13 +275,26 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
   const settings = getSettings();
   const positionOf = (name: string): { lat: number; lng: number } | null => cachedGeocode(name)?.[0] ?? null;
   const hubs = hubsFromSettings(settings, positionOf);
-  placeEvents(live, hubs).forEach(({ place, area }, i) => {
+  const regionOfEvent = (ev: MergedEvent): string => regionOf(ev.address) || regionOf(ev.venueName);
+  placeEvents(live.map((ev) => ({ ...ev, region: regionOfEvent(ev) })), hubs).forEach(({ place, area, badCoords }, i) => {
     live[i].place = place;
     live[i].area = area;
+    // A position from the wrong state — a Bolton Street in Bathurst for one
+    // in Eltham, Victoria — is not drawn, measured or culled by.
+    if (badCoords) {
+      live[i].lat = null;
+      live[i].lng = null;
+    }
   });
   // After the places, since an event that rounds to one of the towns is in it
-  // whatever its coordinates say.
-  for (const ev of live) ev.culled = cullReason(ev, hubs, settings, (name) => cachedGeocode(name) ?? []);
+  // whatever its coordinates say. A town looked up by name counts only where
+  // it is in the region the address states, for the same reason as above.
+  for (const ev of live) {
+    const region = regionOfEvent(ev);
+    ev.culled = cullReason(ev, hubs, settings, (name) =>
+      (cachedGeocode(name) ?? []).filter((hit) => !region || !regionOf(hit.displayName) || regionOf(hit.displayName) === region)
+    );
+  }
 
   live.sort((a, b) =>
     opts.archived ? b.startTime.localeCompare(a.startTime) : a.startTime.localeCompare(b.startTime)
@@ -369,15 +399,30 @@ export function setGroupFlag(group: string, flag: 'starred' | 'hidden', value: b
  * merging an already-merged event folds its members in too. The id is derived
  * from the member ids, which makes the same merge idempotent.
  */
-export function mergeGroups(groups: string[]): { group: string; merged: number } {
+export function mergeGroups(groups: string[], parentGroup?: string): { group: string; merged: number } {
   const ids = [...new Set(groups.flatMap((g) => memberRows(g).map((r) => r.id)))].sort((a, b) => a - b);
   if (ids.length < 2) throw new Error('Merging needs at least two distinct events');
 
+  // The event picked as the main one gives its lead listing. Without a pick,
+  // any main listing chosen before is kept and the rest is left to orderMembers.
+  let parentId: number | undefined;
+  if (parentGroup) {
+    parentId = orderMembers(memberRows(parentGroup))[0]?.id;
+    if (parentId === undefined || !ids.includes(parentId)) {
+      throw new Error('The main listing has to be one of the events being merged');
+    }
+  }
+
   const manual = 'm' + crypto.createHash('sha1').update(ids.join(',')).digest('hex').slice(0, 15);
-  const stmt = db.prepare('UPDATE events SET manual_group = ? WHERE id = ?');
+  const stmt = parentId === undefined
+    ? db.prepare('UPDATE events SET manual_group = ? WHERE id = ?')
+    : db.prepare('UPDATE events SET manual_group = ?, manual_parent = ? WHERE id = ?');
   db.exec('BEGIN');
   try {
-    for (const id of ids) stmt.run(manual, id);
+    for (const id of ids) {
+      if (parentId === undefined) stmt.run(manual, id);
+      else stmt.run(manual, id === parentId ? 1 : 0, id);
+    }
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -387,11 +432,34 @@ export function mergeGroups(groups: string[]): { group: string; merged: number }
 }
 
 /**
+ * Make one listing the one that speaks for its event.
+ *
+ * On every member at once, so there is only ever one: the id has to be one of
+ * the rows behind the group, and the rest are cleared.
+ */
+export function setMergeParent(group: string, id: number): void {
+  const ids = memberRows(group).map((r) => r.id);
+  if (ids.length === 0) throw new EditError(`Unknown event: ${group}`);
+  if (!ids.includes(id)) throw new EditError(`Listing ${id} is not one of this event's`);
+  const stmt = db.prepare('UPDATE events SET manual_parent = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    for (const member of ids) stmt.run(member === id ? 1 : 0, member);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
  * Undo a manual merge. The members fall back to whatever the deduper says,
  * which may still hold some of them together — that is the correct outcome,
  * since those were duplicates before anyone intervened.
  */
 export function unmergeGroup(group: string): { split: number } {
-  const info = db.prepare("UPDATE events SET manual_group = '' WHERE manual_group = ?").run(group);
+  const info = db
+    .prepare("UPDATE events SET manual_group = '', manual_parent = 0 WHERE manual_group = ?")
+    .run(group);
   return { split: Number(info.changes) };
 }

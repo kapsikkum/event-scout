@@ -12,13 +12,18 @@ import { ALL_CATEGORIES, GENERAL_CATEGORY } from '../sources/topics.js';
 /** A newline, as a constant so the multi-line instructions below stay readable. */
 const NEWLINE = String.fromCharCode(10);
 
-export type EnrichJob = 'describe' | 'classify' | 'extract' | 'score';
+export type EnrichJob = 'describe' | 'rename' | 'classify' | 'extract' | 'score';
 
 export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
   {
     key: 'describe',
     label: 'Tidy descriptions',
     hint: 'Boil a scraped blurb down to what the listing actually states, dropping hashtags, emoji runs, ticket boilerplate, "link in bio" and the date already shown on the card.',
+  },
+  {
+    key: 'rename',
+    label: 'Name events',
+    hint: 'Give an event its own name — "Bathurst Swap Meet" rather than the first line of an Instagram caption — where the listing title is a sentence, a caption, or cluttered with dates and emoji. A clean title is left as it is, and a title typed by hand always wins.',
   },
   {
     key: 'classify',
@@ -61,6 +66,7 @@ export interface EnrichInput {
 }
 
 export interface EnrichVerdict {
+  title?: string;
   category?: string;
   description?: string;
   venueName?: string;
@@ -89,6 +95,10 @@ export function buildSchema(jobs: EnrichJob[], input?: EnrichInput): Record<stri
   if (want.has('describe')) {
     properties.summary = { type: 'string' };
     required.push('summary');
+  }
+  if (want.has('rename')) {
+    properties.name = { type: 'string' };
+    required.push('name');
   }
   if (want.has('extract')) {
     // Only the fields this listing actually lacks. Asked for a venue it had
@@ -188,6 +198,25 @@ const JOB_INSTRUCTIONS: Record<Exclude<EnrichJob, 'extract'>, string> = {
       '  Where it is "(none given)", or says nothing the title has not, the answer',
       '  is an empty string — the title, the venue and the heading are not',
       '  material for a summary, and a listing with no description gets none.',
+    ].join(NEWLINE),
+  /**
+   * A name, not a headline.
+   *
+   * Instagram titles are the caption's opening line — "We are SO excited to
+   * announce our biggest meet yet at…" — because a post has no title field.
+   * Told to repeat a title that is already a name, rather than improve it, so a
+   * listing called "Bathurst 1000" stays exactly that.
+   */
+  rename:
+    [
+      '- name: what this event is called, as its own poster or ticket page would print it —',
+      '  for example "Bathurst Swap Meet", "Cars & Coffee Penrith", "Supanova Sydney".',
+      '  Where the title above is already that, repeat it exactly, spelling and capitals included.',
+      '  Where it is a sentence, the opening of a social media post, or an announcement,',
+      '  give the name of the event it is about, taken from the title and description.',
+      '  No dates, weekdays or times, no emoji or hashtags, no "join us", no ticket or price words.',
+      '  Keep a place in it only where it is part of the name. At most 80 characters.',
+      '  Never make up a name the listing does not support: when it gives none, repeat the title.',
     ].join(NEWLINE),
   score:
     [
@@ -321,6 +350,15 @@ export function readVerdict(raw: unknown, jobs: EnrichJob[]): EnrichVerdict {
   if (want.has('describe')) {
     const summary = cleanField(obj.summary, MAX_SUMMARY);
     if (summary) out.description = summary;
+  }
+  if (want.has('rename')) {
+    // Quotes and a closing full stop are how a model writes a name in a
+    // sentence; neither belongs on a card.
+    const name = cleanField(
+      typeof obj.name === 'string' ? obj.name.trim().replace(/^["'“‘]+|["'”’]+$/g, '').replace(/\.$/, '') : obj.name,
+      120
+    );
+    if (name) out.title = name;
   }
   if (want.has('extract')) {
     const venue = cleanField(obj.venueName, 200);

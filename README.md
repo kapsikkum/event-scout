@@ -226,6 +226,26 @@ An Instagram post has no venue, but its caption usually names the town. When it
 names one of your areas, capitalised or shouted, the crawler gives that as the
 address and the event lands in that town.
 
+**A state named in an address is believed.** The geocoder only accepts results
+inside your areas, so "9/256 Bolton St, Eltham VIC 3095" once came back as a
+Bolton Street in Bathurst, and every other Eltham listing followed it there.
+Now a geocoder result in another state is refused, and an event whose address
+names a state is never filed under a town whose events are nearly all in a
+different one — which also keeps Portland, Victoria out of the Portland near
+Bathurst. Coordinates already stored from the wrong state are ignored rather
+than drawn. A town whose events straddle a border, like Albury and Wodonga, is
+held to neither state.
+
+## Which listing speaks for a merged event
+
+Every field of a merged event comes from the first of its listings with
+something to say, so the order decides the title, dates, picture and details.
+A listing picked as the **main** one comes first; then the event's own pages;
+posts about it — Instagram, or Facebook other than its events — last. Merging
+asks which is the main listing, defaulting to the first that is not a post, and
+the event's detail can change it afterwards with **Make main**. In edit mode,
+the detail also shows every picture behind the event to pick the **flyer** from.
+
 ## Adding an event from a link
 
 **＋ Add from a link** on the Events page (signed in) reads one page for an event,
@@ -383,6 +403,7 @@ Optional, off by default. Point Settings → Local model at an
 | Job | Does |
 |---|---|
 | Tidy descriptions | Boil a scraped blurb down to what the listing actually states, in at most three sentences. |
+| Name events | Give an event its own name where the listing's title is a caption, a sentence or cluttered — "Cars & Coffee Penrith", not "We are so excited to announce…". A clean title is repeated as it is, a typed title wins, and the listing's own title is shown under the name. Switched on once for anyone already tidying descriptions; adding it has the model read every event again. |
 | Categorise | Pick a category for listings the keyword classifier cannot place. |
 | Fill in blanks | Read venue, address or price out of the description, **only where the stored field is empty**. |
 | Judge photo appeal | Rate how worth shooting an event is, averaged with the keyword score. |
@@ -569,8 +590,9 @@ A `5xx` says only that something went wrong; what it was goes to the log.
 | `PATCH /api/events/:group` | Change an event by hand. Body carries only the fields you are changing; `""` or `null` drops the override. |
 | `POST /api/refresh` | Refresh now. `409` if one is already running. |
 | `POST /api/archive` | Archive finished events now. |
-| `POST /api/merge` | Body `{ groups: string[] }`, at least two. |
+| `POST /api/merge` | Body `{ groups: string[], parent?: string }`, at least two groups; `parent` is the group whose listing becomes the main one. |
 | `POST /api/unmerge/:group` | Split a merged group. |
+| `POST /api/events/:group/parent` | Body `{ id: number }`, one of the event's listings (`members[].id`), which becomes its main listing. |
 | `POST /api/groups/:group` | Body `{ starred?: boolean, hidden?: boolean }`. |
 
 #### Filtering the list

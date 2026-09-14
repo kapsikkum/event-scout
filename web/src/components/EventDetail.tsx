@@ -93,7 +93,10 @@ export function findSocials(ev: MergedEvent): Social[] {
 }
 
 export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose: () => void }) {
-  const { settings, setGroupFlag, unmergeGroup, editMode } = useStore();
+  const { settings, setGroupFlag, unmergeGroup, setMergeParent, editEvent, editMode } = useStore();
+  // Only the originals: a stored copy is a path on this server, and an image
+  // override has to be an address a card can load anywhere.
+  const flyers = [...new Set(ev.images.filter((src) => /^https?:\/\//i.test(src)))];
   const [editing, setEditing] = useState(false);
   const socials = findSocials(ev);
   // Links already shown as a source row would just be duplicates.
@@ -145,7 +148,41 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
           </div>
         )}
 
+        {/* Picking the flyer: every picture behind the event, the one on the
+            card outlined. In edit mode, with the other hand edits. */}
+        {editMode && flyers.length > 1 && (
+          <div className="detail__flyers">
+            <span className="detail__flyers-label">Flyer</span>
+            {flyers.map((src) => (
+              <button
+                key={src}
+                type="button"
+                className={`flyerpick${src === ev.imageUrl ? ' is-current' : ''}`}
+                title={src === ev.imageUrl ? 'Shown on the card' : 'Show this one on the card'}
+                onClick={() => void editEvent(ev.group, { imageUrl: src }).catch(() => undefined)}
+              >
+                <img src={src} alt="" loading="lazy" />
+              </button>
+            ))}
+            {ev.edited.includes('imageUrl') && (
+              <button
+                type="button"
+                className="ghost flyerpick__auto"
+                title="Go back to the main listing's own picture"
+                onClick={() => void editEvent(ev.group, { imageUrl: '' }).catch(() => undefined)}
+              >
+                Automatic
+              </button>
+            )}
+          </div>
+        )}
+
         <h2>{decodeEntities(ev.title)}</h2>
+        {ev.rawTitle && (
+          <p className="detail__listed" title="Named by the local model; this is the title the listing gave">
+            Listed as “{decodeEntities(ev.rawTitle)}”
+          </p>
+        )}
 
         <div className="detail__meta">
           <span className="detail__when">{formatWhen(ev)}</span>
@@ -222,11 +259,29 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
           <div className="detail__block">
             <h4>{ev.manual ? 'Merged listings' : 'Matched listings'}</h4>
             <ul className="detail__members">
-              {ev.members.map((m) => (
+              {/* In the order the server weighs them: the first speaks for the
+                  event, and any other can be made to. */}
+              {ev.members.map((m, i) => (
                 <li key={m.id}>
                   <span className="badge">{m.source}</span>
                   <span className="detail__member-title">{decodeEntities(m.title)}</span>
                   {m.imageUrl && <span className="detail__member-flag" title="Has an image">🖼</span>}
+                  {i === 0 ? (
+                    <span
+                      className="detail__member-main"
+                      title={m.parent ? 'Picked as the main listing' : 'Leads by default: the event’s own page comes before posts about it'}
+                    >
+                      Main
+                    </span>
+                  ) : (
+                    <button
+                      className="ghost detail__member-make"
+                      title="Take the title, date, picture and details from this listing"
+                      onClick={() => void setMergeParent(ev.group, m.id).catch(() => undefined)}
+                    >
+                      Make main
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

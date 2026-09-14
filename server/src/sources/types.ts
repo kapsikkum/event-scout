@@ -293,7 +293,7 @@ export const DEFAULT_SETTINGS: Settings = {
   llmEnabled: false,
   llmUrl: '',
   llmModel: '',
-  llmJobs: ['describe', 'classify', 'extract', 'score'],
+  llmJobs: ['describe', 'rename', 'classify', 'extract', 'score'],
   llmIntervalMinutes: 60,
   llmMaxPerRun: 40,
   visionEnabled: false,
