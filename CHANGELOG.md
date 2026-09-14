@@ -7,6 +7,18 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.8.0](https://github.com/kapsikkum/event-scout/compare/v0.7.2...v0.8.0) (2026-09-14)
+
+
+### Features
+
+* name events with the local model, and pick a merge's main listing and flyer ([d58c656](https://github.com/kapsikkum/event-scout/commit/d58c6568ba9a8b79b3e34ad5c14693a1337e40fa))
+
+
+### Fixes
+
+* **places:** believe the state an address names ([c9c3048](https://github.com/kapsikkum/event-scout/commit/c9c30483841ae312117c3c5ec8f23756c4447623))
+
 ## [0.7.2](https://github.com/kapsikkum/event-scout/compare/v0.7.1...v0.7.2) (2026-09-11)
 
 
