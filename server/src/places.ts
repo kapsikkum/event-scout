@@ -15,7 +15,7 @@
  */
 
 import { haversineKm } from './dedupe.js';
-import { stripRegionAndPostcode } from './regions.js';
+import { regionOf, stripRegionAndPostcode } from './regions.js';
 
 /** The place an event lands at when it is near none of the user's towns. */
 export const ELSEWHERE = '';
@@ -27,6 +27,8 @@ export interface Hub {
   lng: number | null;
   /** How far from the centre still counts as this town. */
   radiusKm: number;
+  /** The region it is in, when the area was typed with one ("Penrith NSW"). See regionOf. */
+  region?: string;
 }
 
 /** As much of an event as placing it needs. */
@@ -35,7 +37,21 @@ export interface Placeable {
   address: string;
   lat: number | null;
   lng: number | null;
+  /** The region its address states, '' or absent when it states none. See regionOf. */
+  region?: string;
 }
+
+/**
+ * How many events near a town have to state a region, and how many of those
+ * have to agree, before the town is taken to be in it.
+ *
+ * Nine in ten rather than all: the point is to catch the few that the
+ * geocoder put in the wrong state, so they cannot be what decides the state.
+ * A border town whose events straddle two, like Albury and Wodonga, agrees on
+ * neither and is never held to one.
+ */
+const REGION_SAMPLE_MIN = 5;
+const REGION_AGREEMENT = 0.9;
 
 /**
  * How many events at one locality make it worth an entry of its own.
@@ -80,6 +96,11 @@ export interface Placed {
   place: string;
   /** The searched area it is inside, '' when none. Equal to `place` for a suburb. */
   area: string;
+  /**
+   * Its coordinates put it in a town in a different region from the one its
+   * address states, so they are the geocoder's mistake and not to be drawn.
+   */
+  badCoords?: boolean;
 }
 
 const NOWHERE: Placed = { place: ELSEWHERE, area: ELSEWHERE };
@@ -145,7 +166,8 @@ export function hubsFromSettings(
   const add = (name: string, lat: number | null, lng: number | null, radiusKm: number): void => {
     const label = displayName(name);
     if (!label || hubs.some((h) => key(h.name) === key(label))) return;
-    hubs.push({ name: label, lat, lng, radiusKm: radiusKm > 0 ? radiusKm : 25 });
+    const region = regionOf(name);
+    hubs.push({ name: label, lat, lng, radiusKm: radiusKm > 0 ? radiusKm : 25, ...(region ? { region } : {}) });
   };
 
   add(settings.city, settings.lat, settings.lng, settings.radiusKm);
@@ -199,11 +221,12 @@ export function placeEvents(events: Placeable[], hubs: Hub[], ownBucketMin = OWN
 
   // The nearest town an event's own coordinates put it in, if any is close
   // enough to have been worth the drive.
-  const byCoords = events.map((ev) => {
+  const nearest = (ev: Placeable, fits: (hub: Hub) => boolean): string => {
     if (ev.lat == null || ev.lng == null) return ELSEWHERE;
     let best = ELSEWHERE;
     let bestKm = Infinity;
     for (const hub of positioned) {
+      if (!fits(hub)) continue;
       const km = haversineKm(ev.lat, ev.lng, hub.lat as number, hub.lng as number);
       if (km <= hub.radiusKm && km < bestKm) {
         best = hub.name;
@@ -211,7 +234,21 @@ export function placeEvents(events: Placeable[], hubs: Hub[], ownBucketMin = OWN
       }
     }
     return best;
-  });
+  };
+
+  // A region stated in an address is taken at its word. The geocoder only
+  // accepts results inside an area, so "9/256 Bolton St, Eltham VIC 3095"
+  // came back as a Bolton Street in Bathurst — and every other Eltham listing
+  // then followed it there. A town whose events agree on a region does not
+  // take an event that says it is in another.
+  const anyTown = events.map((ev) => nearest(ev, () => true));
+  const regions = hubRegions(events, anyTown, hubs);
+  const clashes = (region: string | undefined, town: string): boolean => {
+    const theirs = town ? regions.get(town) : undefined;
+    return Boolean(region && theirs && region !== theirs);
+  };
+  const byCoords = events.map((ev) => nearest(ev, (hub) => !clashes(ev.region, hub.name)));
+  const badCoords = events.map((_, i) => Boolean(anyTown[i]) && !byCoords[i]);
 
   const byLocality = new Map<string, number[]>();
   events.forEach((ev, i) => {
@@ -252,10 +289,13 @@ export function placeEvents(events: Placeable[], hubs: Hub[], ownBucketMin = OWN
   const places = events.map((ev, i): Placed => {
     const k = key(ev.locality);
     const known = k ? settled.get(k) : undefined;
-    if (known !== undefined) return known;
+    // Two towns can share a name: Portland, Victoria is not the Portland near
+    // Bathurst, however many listings the second one has.
+    if (known !== undefined) return clashes(ev.region, known.area) ? NOWHERE : known;
     // Coordinates have already had their say, whichever way it went; only a
-    // listing that never had any falls through to matching on name.
-    return inArea(byCoords[i] || (ev.lat == null ? hubNamedIn(ev, hubs) : ELSEWHERE));
+    // listing that never had any, or had wrong ones, falls through to name.
+    const town = byCoords[i] || (ev.lat == null || badCoords[i] ? hubNamedIn(ev, hubs) : ELSEWHERE);
+    return clashes(ev.region, town) ? NOWHERE : inArea(town);
   });
 
   const leftovers = new Map<string, { label: string; count: number }>();
@@ -273,7 +313,34 @@ export function placeEvents(events: Placeable[], hubs: Hub[], ownBucketMin = OWN
     });
   }
 
-  return places;
+  return places.map((p, i) => ({ ...p, badCoords: badCoords[i] }));
+}
+
+/**
+ * The region each town is in: the one typed with its name, or else the one
+ * nearly all the events near it state. See REGION_AGREEMENT.
+ */
+function hubRegions(events: Placeable[], townOf: string[], hubs: Hub[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const tallies = new Map<string, Map<string, number>>();
+  events.forEach((ev, i) => {
+    if (!townOf[i] || !ev.region) return;
+    const tally = tallies.get(townOf[i]) ?? new Map<string, number>();
+    tally.set(ev.region, (tally.get(ev.region) ?? 0) + 1);
+    tallies.set(townOf[i], tally);
+  });
+  for (const hub of hubs) {
+    if (hub.region) {
+      out.set(hub.name, hub.region);
+      continue;
+    }
+    const tally = tallies.get(hub.name);
+    if (!tally) continue;
+    const total = [...tally.values()].reduce((a, b) => a + b, 0);
+    const [region, count] = [...tally].sort((a, b) => b[1] - a[1])[0];
+    if (total >= REGION_SAMPLE_MIN && count / total >= REGION_AGREEMENT) out.set(hub.name, region);
+  }
+  return out;
 }
 
 /** The widest gap between any two of these positions, in kilometres. */

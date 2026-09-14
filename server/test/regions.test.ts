@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { defaultRegionFrom, expandRegion, isPostcode, localityOf } from '../src/regions.js';
+import { defaultRegionFrom, expandRegion, isPostcode, localityOf, regionOf } from '../src/regions.js';
 import { cleanAddress, titleCaseShouting } from '../src/validate.js';
 import { localitiesFrom, unifyVenueNames } from '../src/venues.js';
 
@@ -91,4 +91,15 @@ test('a street address sitting in the venue field still yields its locality', ()
   assert.equal(localityOf('11 Corporation Ave, Robin Hill NSW 2795, Australia'), 'Robin Hill');
   assert.equal(localityOf('127 - 141 Station Street, Penrith'), 'Penrith');
   assert.equal(localityOf('73A Hill St, Orange NSW 2800, Australia'), 'Orange');
+});
+
+test('the region an address states, whichever way it is spelled', () => {
+  assert.equal(regionOf('9/256 Bolton St, Eltham VIC 3095, Australia'), 'vic');
+  assert.equal(regionOf('Eltham, VIC'), 'vic');
+  assert.equal(regionOf('Bolton Street, Bathurst, Bathurst Regional Council, New South Wales, 2795, Australia'), 'nsw');
+  assert.equal(regionOf('3 Keppel Street, Bathurst, NSW, 2795'), 'nsw');
+  assert.equal(regionOf('Little Alberts @ The Victoria Bathurst'), '', 'a hotel called the Victoria');
+  assert.equal(regionOf('Three Brothers Road, Newbridge, 2795'), '', 'a postcode alone says nothing here');
+  assert.equal(regionOf('Drop In Centre, Main St'), '');
+  assert.equal(regionOf('Halifax NS'), 'ns');
 });

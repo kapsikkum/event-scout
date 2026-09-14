@@ -55,6 +55,43 @@ const REGIONS = new Set(
   ].map((r) => r.toLowerCase())
 );
 
+/** Long names folded onto their abbreviations, so "Victoria" and "VIC" compare equal. */
+const REGION_KEYS: Record<string, string> = {
+  'new south wales': 'nsw', victoria: 'vic', queensland: 'qld', 'south australia': 'sa',
+  'western australia': 'wa', tasmania: 'tas', 'northern territory': 'nt', 'australian capital territory': 'act',
+  ontario: 'on', quebec: 'qc', 'british columbia': 'bc', alberta: 'ab', manitoba: 'mb', saskatchewan: 'sk',
+  'nova scotia': 'ns', 'new brunswick': 'nb', 'newfoundland and labrador': 'nl', 'prince edward island': 'pe',
+  yukon: 'yt', nunavut: 'nu',
+};
+
+/**
+ * The region an address states, as a key two spellings of it share, or ''
+ * when it states none.
+ *
+ * Read only from the tail, where a postal address keeps its region, and an
+ * abbreviation only counts in capitals: "Eltham VIC 3095" is in Victoria,
+ * while "The Victoria Bathurst" is a hotel and "Drop In" is not Indiana.
+ */
+export function regionOf(address: string): string {
+  const parts = address.split(',').map((p) => p.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    if (isCountry(part) || isPostcode(part)) continue;
+    const words = part.split(' ');
+    while (words.length > 1 && isPostcode(words[words.length - 1])) words.pop();
+    for (const n of [3, 2, 1]) {
+      if (words.length < n) continue;
+      const phrase = words.slice(-n).join(' ');
+      if (!isRegion(phrase)) continue;
+      if (phrase.length <= 3 && phrase !== phrase.toUpperCase()) continue;
+      const lower = phrase.toLowerCase();
+      return REGION_KEYS[lower] ?? lower;
+    }
+    return '';
+  }
+  return '';
+}
+
 export function isCountry(component: string): boolean {
   return COUNTRIES.has(component.trim().toLowerCase());
 }

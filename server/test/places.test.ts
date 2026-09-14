@@ -133,6 +133,38 @@ test('a town of its own inside an area keeps its name, and says which area it is
   assert.deepEqual(found.map((p) => p.area), Array(4).fill('Bathurst'));
 });
 
+test('an address in another state is not placed by a same-named street or town in the area', () => {
+  const nsw = Array.from({ length: 10 }, (_, i) => ({
+    ...at(-33.42 + i * 0.001, 149.58, 'Bathurst', 'William St, Bathurst NSW 2795'),
+    region: 'nsw',
+  }));
+  const found = placeEvents(
+    [
+      ...nsw,
+      // Geocoded to a Bolton Street in Bathurst.
+      { ...at(-33.4069, 149.6218, 'Eltham', '9/256 Bolton St, Eltham VIC 3095, Australia'), region: 'vic' },
+      // And followed there by the next Eltham listing, which had no position.
+      { ...at(null, null, 'Eltham', 'Eltham, VIC'), region: 'vic' },
+      // Portland near Bathurst, and Portland in Victoria.
+      { ...at(-33.354, 149.982, 'Portland', 'Williwa St, Portland NSW 2847'), region: 'nsw' },
+      { ...at(null, null, 'Portland', 'VIC'), region: 'vic' },
+    ],
+    HUBS
+  );
+  assert.deepEqual(found.slice(0, 10).map((p) => p.place), Array(10).fill('Bathurst'));
+  assert.deepEqual(found.slice(10).map((p) => p.place), ['', '', 'Portland', '']);
+  assert.equal(found[10].badCoords, true, 'the Victorian address keeps no Bathurst coordinates');
+  assert.equal(found[12].badCoords, false);
+});
+
+test('a town whose events straddle two states is held to neither', () => {
+  const mixed = [
+    ...Array.from({ length: 5 }, () => ({ ...at(-33.42, 149.58, 'Bathurst'), region: 'nsw' })),
+    ...Array.from({ length: 3 }, () => ({ ...at(-33.42, 149.58, 'Bathurst'), region: 'vic' })),
+  ];
+  assert.deepEqual(placeEvents(mixed, HUBS).map((p) => p.place), Array(8).fill('Bathurst'));
+});
+
 test('a listing with no locality at all stays elsewhere', () => {
   assert.deepEqual(assignPlaces([at(null, null), at(null, null)], HUBS), ['', '']);
 });

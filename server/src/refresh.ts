@@ -15,7 +15,7 @@ import { geocode, isGeocodeCached } from './geocode.js';
 import { classifyEvent } from './sources/topics.js';
 import { cleanAddress, cleanDescription, validateAddress, validateDates, validateLocation } from './validate.js';
 import { localitiesFrom, unifyVenueNames } from './venues.js';
-import { defaultRegionFrom, localityOf } from './regions.js';
+import { defaultRegionFrom, localityOf, regionOf } from './regions.js';
 
 export const ADAPTERS: EventSourceAdapter[] = [
   ticketmaster, seatgeek, eventbrite, facebook, websearch, icalSource, midnightspec, crawlerSource,
@@ -348,7 +348,12 @@ async function placeRow(
       // free, so a backlog of previously-seen venues clears in one pass.
       if (!isGeocodeCached(query)) await new Promise((r) => setTimeout(r, GEOCODE_SPACING_MS));
       const hits = await geocode(query);
+      // Inside an area is not enough when the address names its state: asked
+      // for "9/256 Bolton St, Eltham VIC 3095", Nominatim's Bolton Street in
+      // Bathurst was inside one, and in New South Wales.
+      const stated = regionOf(row.address) || regionOf(row.venue_name);
       const hit = hits.find((h) =>
+        (!stated || !regionOf(h.displayName) || regionOf(h.displayName) === stated) &&
         locations.some((loc) => haversineKm(loc.lat, loc.lng, h.lat, h.lng) <= loc.radiusKm * 1.5)
       );
       if (hit) {
