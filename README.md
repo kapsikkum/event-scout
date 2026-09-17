@@ -272,7 +272,7 @@ its own triggers and filters:
 
 | Trigger | Sends |
 |---|---|
-| New events | Events first found since the last run, once they have settled (30 min by default) — placed, read by the model, culled or not. A target's first run sends nothing, so switching one on does not post the backlog. |
+| New events | Events shown since the last run — found, and let through by **Check new events** when that is on — once they have settled (30 min by default): placed, and culled or not. A target's first run sends nothing, so switching one on does not post the backlog. |
 | Digest | Daily or on one weekday, at an hour: what is on in the next N days. |
 | Reminders | Some hours before each shortlisted event (24 and 2 by default), once each. |
 | Changes | A shortlisted event's time, venue or name changing. |
@@ -403,6 +403,7 @@ Optional, off by default. Point Settings → Local model at an
 | Job | Does |
 |---|---|
 | Tidy descriptions | Boil a scraped blurb down to what the listing actually states, in at most three sentences. |
+| Check new events | Ask whether a listing is an event at all — a post about a race, a news story or a shop's hours is not. While it is on, a new event stays out of sight ("Waiting to be checked" under **Show culled**) until the model has read it, for six hours at most, so a model that is down delays events rather than losing them. The model reads newest finds first, straight after each refresh. One it turns down is culled as "Not an event" with its reason; star it to keep it. Starred events and ones added from a link are never held back. Switched on once for anyone with a job on. |
 | Name events | Give an event its own name where the listing's title is a caption, a sentence or cluttered — "Cars & Coffee Penrith", not "We are so excited to announce…". A clean title is repeated as it is, a typed title wins, and the listing's own title is shown under the name. Switched on once for anyone already tidying descriptions; adding it has the model read every event again. |
 | Categorise | Pick a category for listings the keyword classifier cannot place. |
 | Fill in blanks | Read venue, address or price out of the description, **only where the stored field is empty**. |

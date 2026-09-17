@@ -50,6 +50,8 @@ export interface EventRow {
   llm_description: string;
   /** What the event is called, when the listing's title is a caption or a sentence. */
   llm_title: string;
+  llm_vet_note: string;
+  llm_vetted_at: string;
   llm_category: string;
   llm_venue_name: string;
   llm_address: string;

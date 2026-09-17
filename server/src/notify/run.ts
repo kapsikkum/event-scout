@@ -14,9 +14,9 @@ import { isOver } from '../validate.js';
  * Four triggers, each keeping its own place so a run every five minutes never
  * repeats itself and a missed run loses nothing:
  *
- *   - New events: everything first found after the target's watermark and
- *     long enough ago to have settled — placed on the map, read by the model,
- *     culled or not — which is why it waits. The watermark then moves up to
+ *   - New events: everything shown after the target's watermark — found, and
+ *     let through by the model's check when that is on — and long enough ago
+ *     to have settled, placed on the map and culled or not. The watermark then moves up to
  *     that point. A target's first run only sets it, so switching one on does
  *     not post the whole backlog.
  *   - Digest: once per slot, a list of what is coming up.
@@ -110,7 +110,7 @@ export function planTarget(
       store.set(key, settled);
     } else if (settled > since) {
       const fresh = shown
-        .filter((ev) => ev.firstSeenAt && ev.firstSeenAt > since && ev.firstSeenAt <= settled)
+        .filter((ev) => ev.shownAt && ev.shownAt > since && ev.shownAt <= settled)
         .filter((ev) => matchesFilters(ev, target.filters))
         .sort((a, b) => a.startTime.localeCompare(b.startTime));
       const items = foldSeries(fresh);

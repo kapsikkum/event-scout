@@ -63,37 +63,47 @@ export function ollamaUrl(configured: string | undefined): string {
 }
 
 export function enabledJobs(): EnrichJob[] {
-  addRenameJobOnce();
+  addJobsOnce();
   const configured = getSettings().llmJobs ?? [];
-  const known: EnrichJob[] = ['describe', 'rename', 'classify', 'extract', 'score'];
+  const known: EnrichJob[] = ['vet', 'describe', 'rename', 'classify', 'extract', 'score'];
   return known.filter((j) => configured.includes(j));
 }
 
 /**
- * Switch naming on, once, for anyone already having descriptions tidied.
+ * Switch on, once each, jobs added after someone's settings were saved.
  *
  * Saved settings carry their own list of jobs, so a job added later is off for
  * everyone who has ever pressed Save. Once rather than on every read, so
- * turning it off in Settings stays off.
+ * turning one off in Settings stays off.
  */
-function addRenameJobOnce(): void {
-  const flag = 'migrate:llm-rename-job';
-  if (getKv(flag)) return;
-  setKv(flag, new Date().toISOString());
-  if (!getKv('settings')) return;
-  const settings = getSettings();
-  const jobs = settings.llmJobs ?? [];
-  if (jobs.includes('describe') && !jobs.includes('rename')) {
-    saveSettings({ ...settings, llmJobs: [...jobs, 'rename'] });
+function addJobsOnce(): void {
+  const added: [flag: string, job: EnrichJob, wanted: (jobs: string[]) => boolean][] = [
+    ['migrate:llm-rename-job', 'rename', (jobs) => jobs.includes('describe')],
+    ['migrate:llm-vet-job', 'vet', (jobs) => jobs.length > 0],
+  ];
+  for (const [flag, job, wanted] of added) {
+    if (getKv(flag)) continue;
+    setKv(flag, new Date().toISOString());
+    if (!getKv('settings')) continue;
+    const settings = getSettings();
+    const jobs = settings.llmJobs ?? [];
+    if (wanted(jobs) && !jobs.includes(job)) saveSettings({ ...settings, llmJobs: [...jobs, job] });
   }
 }
 
+/** Whether new events wait for the model's say-so before they are shown. */
+export function vettingOn(): boolean {
+  return Boolean(getSettings().llmEnabled) && enabledJobs().includes('vet');
+}
+
 /**
- * Events worth spending inference on, oldest listing first.
+ * Events worth spending inference on, newest find first.
  *
  * "Worth" means the stored fingerprint does not match what the row says now, so
  * this covers new events, edited ones, and everything already in the database
- * the first time the task runs. Archived rows are skipped: nobody is scouting a
+ * the first time the task runs. Newest first because new events wait for the
+ * vet job before they are shown; a backlog of old ones can take its time.
+ * Archived rows are skipped: nobody is scouting a
  * shoot that has been and gone.
  *
  * Selected in bulk and filtered in memory rather than joined on the hash,
@@ -107,7 +117,7 @@ export function pendingEvents(model: string, jobs: EnrichJob[], limit: number): 
          FROM events e
          LEFT JOIN event_enrichment x ON x.event_id = e.id
         WHERE e.archived = 0
-        ORDER BY e.start_time`
+        ORDER BY e.first_seen_at DESC, e.id DESC`
     )
     .all() as unknown as (Row & { hash: string | null })[];
 
@@ -177,7 +187,16 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
   const record = recordStmt();
   const update = db.prepare(
     `UPDATE events SET llm_description = ?, llm_title = ?, llm_category = ?, llm_venue_name = ?,
-                       llm_address = ?, llm_price_text = ?, llm_photo_score = ?
+                       llm_address = ?, llm_price_text = ?, llm_photo_score = ?,
+                       -- A place the model read is worth looking up on the map.
+                       geocode_tried = CASE WHEN lat IS NULL AND (? != '' OR ? != '') THEN 0 ELSE geocode_tried END
+     WHERE id = ?`
+  );
+  // Only when the vet job answered, and the time of the first answer kept:
+  // notifications count an event as new from when it was first let through.
+  const vet = db.prepare(
+    `UPDATE events SET llm_vet_note = ?,
+                       llm_vetted_at = CASE WHEN llm_vetted_at = '' THEN ? ELSE llm_vetted_at END
      WHERE id = ?`
   );
 
@@ -208,8 +227,11 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
         verdict.address ?? '',
         verdict.priceText ?? '',
         verdict.photoScore ?? null,
+        verdict.venueName ?? '',
+        verdict.address ?? '',
         row.id
       );
+      if (verdict.notEvent !== undefined) vet.run(verdict.notEvent, new Date().toISOString(), row.id);
       record.run(row.id, hash, model, 1, '', new Date().toISOString());
       done++;
     } catch (err) {
@@ -309,7 +331,8 @@ export function clearEnrichment(): number {
   const changed = db.prepare('DELETE FROM event_enrichment').run().changes;
   db.exec(
     `UPDATE events SET llm_description = '', llm_title = '', llm_category = '', llm_venue_name = '',
-                       llm_address = '', llm_price_text = '', llm_photo_score = NULL`
+                       llm_address = '', llm_price_text = '', llm_photo_score = NULL,
+                       llm_vet_note = '', llm_vetted_at = ''`
   );
   return Number(changed);
 }

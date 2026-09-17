@@ -176,7 +176,7 @@ export default function EventCard({ ev, dates, onOpen, selected, onSelect }: Eve
           )}
           {/* Only ever seen with "Show culled" on: says which rule took it. */}
           {ev.culled && (
-            <span className="badge badge--culled" title="Kept out of sight by the rules in Settings. Change them there to bring it back.">
+            <span className="badge badge--culled" title={ev.notEvent || ev.pending ? "Kept out of sight by the model's check. Star it to keep it in sight." : "Kept out of sight by the rules in Settings. Change them there to bring it back."}>
               ⊘ {ev.culled}
             </span>
           )}

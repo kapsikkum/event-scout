@@ -59,7 +59,7 @@ function row(over: Partial<EventRow> = {}): EventRow {
     edit_price_text: '',
     edit_image_url: '',
     edit_photo_score: null,
-    llm_title: '',
+    llm_title: '', llm_vet_note: '', llm_vetted_at: '',
     manual_parent: 0,
     ...over,
   };

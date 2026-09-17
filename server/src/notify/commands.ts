@@ -150,8 +150,8 @@ export function runCommand(
     case 'new': {
       const week = now.getTime() - 7 * 86400_000;
       const found = upcoming()
-        .filter((e) => e.firstSeenAt && Date.parse(e.firstSeenAt) >= week)
-        .sort((a, b) => (b.firstSeenAt ?? '').localeCompare(a.firstSeenAt ?? ''));
+        .filter((e) => e.shownAt && Date.parse(e.shownAt) >= week)
+        .sort((a, b) => (b.shownAt ?? '').localeCompare(a.shownAt ?? ''));
       return list(ctx.roomId, 'Found in the last week', found, deps, 'Nothing new this week.');
     }
 

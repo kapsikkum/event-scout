@@ -3,8 +3,10 @@ import { haversineKm } from './dedupe.js';
 /**
  * Which events to keep out of sight on their own.
  *
- * Two rules, both switched from Settings: an event well outside every area
- * being searched, and an event in a category nobody asked for. Worked out each
+ * Two rules switched from Settings — an event well outside every area being
+ * searched, and an event in a category nobody asked for — and two from the
+ * model's vet job: a listing it says is not an event, and a new one it has
+ * not read yet. Worked out each
  * time the list is read rather than stored, so changing an area or a category
  * puts back everything the old setting took away — nothing here is a decision
  * that has to be undone by hand, and nothing is ever deleted.
@@ -32,6 +34,10 @@ export interface Cullable {
   unknownLocation: boolean;
   sources: { source: string }[];
   edited: string[];
+  /** The model's reason this is not an event at all, '' when it is or has not said. */
+  notEvent?: string;
+  /** New, and not yet checked by the model. See vetting in events.ts. */
+  pending?: boolean;
 }
 
 export interface CullHub {
@@ -61,6 +67,8 @@ export function cullReason(
 ): string | null {
   if (ev.starred) return null;
   if (ev.sources.some((s) => s.source === 'manual')) return null;
+  if (ev.notEvent) return `Not an event: ${ev.notEvent}`;
+  if (ev.pending) return 'Waiting to be checked';
 
   const excluded = new Set((rules.excludedCategories ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean));
   if (excluded.has(ev.category.trim().toLowerCase()) && !ev.edited.includes('category')) {
@@ -89,4 +97,37 @@ export function cullReason(
     }
   }
   return `${Math.round(nearest!.km)} km from ${nearest!.hub.name}, the nearest area`;
+}
+
+/**
+ * How long a new event waits for the model before it is shown anyway, so a
+ * model that is down or behind delays events rather than losing them.
+ */
+export const VET_WAIT_MS = 6 * 3600_000;
+
+/**
+ * Where a group stands with the vet job.
+ *
+ * One member the model called an event is enough: a merge of a real listing
+ * with posts about it is an event. Turned down only when every member it read
+ * was turned down. Pending while none has been read and the wait is not up.
+ */
+export function vetting(
+  members: { llm_vet_note: string; llm_vetted_at: string }[],
+  firstSeenAt: string | null,
+  on: boolean,
+  now = Date.now()
+): { notEvent: string; pending: boolean; shownAt: string | null } {
+  if (!on || !firstSeenAt) return { notEvent: '', pending: false, shownAt: firstSeenAt };
+  const read = members.filter((m) => m.llm_vetted_at);
+  const yes = read.filter((m) => !m.llm_vet_note).map((m) => m.llm_vetted_at).sort()[0];
+  const giveUp = new Date(Date.parse(firstSeenAt) + VET_WAIT_MS).toISOString();
+  // Never before it was found, never after the wait ran out: an old event the
+  // model gets round to today is not new today.
+  const shownAt = [firstSeenAt, [yes ?? giveUp, giveUp].sort()[0]].sort()[1];
+  return {
+    notEvent: read.length > 0 && !yes ? read[0].llm_vet_note : '',
+    pending: read.length === 0 && now < Date.parse(giveUp),
+    shownAt,
+  };
 }

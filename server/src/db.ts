@@ -123,6 +123,10 @@ function migrate(): void {
   for (const col of ['llm_description', 'llm_title', 'llm_category', 'llm_venue_name', 'llm_address', 'llm_price_text']) {
     addColumn(cols, col, TEXT_COLUMN);
   }
+  // '' until the vet job has answered; the note is '' for an event and the
+  // model's reason for anything else. See enrich/schema.ts.
+  addColumn(cols, 'llm_vet_note', "TEXT NOT NULL DEFAULT ''");
+  addColumn(cols, 'llm_vetted_at', "TEXT NOT NULL DEFAULT ''");
   addColumn(cols, 'llm_photo_score', 'REAL');
 
   /**

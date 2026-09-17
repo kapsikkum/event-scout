@@ -12,9 +12,14 @@ import { ALL_CATEGORIES, GENERAL_CATEGORY } from '../sources/topics.js';
 /** A newline, as a constant so the multi-line instructions below stay readable. */
 const NEWLINE = String.fromCharCode(10);
 
-export type EnrichJob = 'describe' | 'rename' | 'classify' | 'extract' | 'score';
+export type EnrichJob = 'vet' | 'describe' | 'rename' | 'classify' | 'extract' | 'score';
 
 export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
+  {
+    key: 'vet',
+    label: 'Check new events',
+    hint: 'Ask whether a listing is an event at all before it is shown or announced — an Instagram post about a race, a shop’s opening hours and a news story are not. New events wait for this, for a few hours at most; ones it turns down are hidden with its reason and can be shown again.',
+  },
   {
     key: 'describe',
     label: 'Tidy descriptions',
@@ -66,6 +71,8 @@ export interface EnrichInput {
 }
 
 export interface EnrichVerdict {
+  /** Set only by the vet job: '' for an event, the reason for anything else. */
+  notEvent?: string;
   title?: string;
   category?: string;
   description?: string;
@@ -88,6 +95,11 @@ export function buildSchema(jobs: EnrichJob[], input?: EnrichInput): Record<stri
   const required: string[] = [];
   const want = new Set(jobs);
 
+  if (want.has('vet')) {
+    properties.isEvent = { type: 'boolean' };
+    properties.notEventReason = { type: 'string' };
+    required.push('isEvent', 'notEventReason');
+  }
   if (want.has('classify')) {
     properties.category = { type: 'string', enum: ALL_CATEGORIES };
     required.push('category');
@@ -163,6 +175,21 @@ export function describeStart(iso: string, timeZone?: string): string {
  * listing already filled, so it is built per event below.
  */
 const JOB_INSTRUCTIONS: Record<Exclude<EnrichJob, 'extract'>, string> = {
+  /**
+   * Asked first, since the rest are wasted on a listing that is not an event.
+   * Lenient on purpose: a small local thing described badly is exactly what
+   * this app is for, and turning one down hides it.
+   */
+  vet:
+    [
+      '- isEvent: true when the listing announces something people can go to at a set time and place:',
+      '  a show, meet, market, race, gig, festival, open day, class or similar.',
+      '  false when it is not: a post about an event that already happened or that the poster only watched,',
+      '  a result, a news story, a product or sale, opening hours, a job, a general business page,',
+      '  or a list of many unrelated events. When in doubt, true.',
+      '- notEventReason: when isEvent is false, a few words saying what it is instead,',
+      '  for example "a race report" or "a shop’s opening hours". Otherwise an empty string.',
+    ].join(NEWLINE),
   classify:
     `- category: which of the listed categories fits best. Use "${GENERAL_CATEGORY}" only when none of the others do. "Heritage & machinery" means genuinely old or preserved things — steam, vintage, rail, aviation, historic re-enactment. A show of modern cars, 4x4s or bikes is "Cars & bikes"; competitive driving or riding is "Motorsport".`,
   /**
@@ -341,6 +368,9 @@ export function readVerdict(raw: unknown, jobs: EnrichJob[]): EnrichVerdict {
   const want = new Set(jobs);
   const out: EnrichVerdict = {};
 
+  if (want.has('vet') && typeof obj.isEvent === 'boolean') {
+    out.notEvent = obj.isEvent ? '' : cleanField(obj.notEventReason, 120) ?? 'not an event';
+  }
   if (want.has('classify') && typeof obj.category === 'string') {
     // Belt and braces over the enum: a model that ignores the grammar, or a
     // future backend that does not enforce it, must not widen the filter.

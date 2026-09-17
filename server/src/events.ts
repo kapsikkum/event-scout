@@ -7,7 +7,8 @@ import { flyerHref } from './flyers.js';
 import { storedPath } from './flyerStore.js';
 import { hubsFromSettings, placeEvents } from './places.js';
 import { cachedGeocode } from './geocode.js';
-import { cullReason } from './cull.js';
+import { cullReason, vetting } from './cull.js';
+import { vettingOn } from './enrich/pipeline.js';
 import { chooseFields, EditError, orderMembers, parseEditPatch } from './merge.js';
 import type { EditableField } from './merge.js';
 
@@ -70,6 +71,15 @@ export interface MergedEvent {
    * second site listing an event already known is not a new event.
    */
   firstSeenAt: string | null;
+  /**
+   * When it could first be seen: firstSeenAt, or later, when it waited for the
+   * model to check it. What "new" means to notifications. See vetting below.
+   */
+  shownAt: string | null;
+  /** The model's reason this is not an event, '' when it is or has not said. */
+  notEvent: string;
+  /** New and waiting for the model to check it, so kept out of sight for now. */
+  pending: boolean;
   /**
    * No coordinates, no venue, no address, no town: nothing to say where it is.
    * Shown as "Unknown location", and never culled for being far away.
@@ -162,6 +172,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
     .prepare(`SELECT * FROM events ${opts.archived ? '' : 'WHERE archived = 0 '}ORDER BY start_time ASC`)
     .all() as unknown as EventRow[];
   const archivedGroups = new Set<string>();
+  const vetOn = vettingOn();
 
   const byGroup = new Map<string, EventRow[]>();
   for (const row of rows) {
@@ -205,6 +216,9 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
     // address empty — those are exactly the rows that need a locality most,
     // since without one they head their own group by street number.
     const locality = localityOf(address) || localityOf(venueName);
+    const firstSeenAt = members.some((m) => !m.first_seen_at)
+      ? null
+      : members.map((m) => m.first_seen_at as string).sort()[0];
 
     merged.push({
       group,
@@ -235,9 +249,8 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       photoScore: chosen.photoScore,
       starred: members.some((m) => m.starred === 1),
       hidden: members.some((m) => m.hidden === 1),
-      firstSeenAt: members.some((m) => !m.first_seen_at)
-        ? null
-        : members.map((m) => m.first_seen_at as string).sort()[0],
+      firstSeenAt,
+      ...vetting(members, firstSeenAt, vetOn),
       unknownLocation:
         !members.some((m) => m.lat != null && m.lng != null) && !venueName && !address && !locality,
       // Decided below, with the place.

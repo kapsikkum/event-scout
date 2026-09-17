@@ -33,9 +33,15 @@ export interface MergedEvent {
    * the app keeping track, which is never "recent".
    */
   firstSeenAt: string | null;
+  /** When it could first be seen: later than firstSeenAt when it waited for the model's check. */
+  shownAt: string | null;
+  /** The model's reason this is not an event, '' when it is or has not said. */
+  notEvent: string;
+  /** New and waiting for the model's check. Culled meanwhile. */
+  pending: boolean;
   /** Nothing says where it is: no coordinates, venue, address or town. */
   unknownLocation: boolean;
-  /** Why it is out of sight on its own (outside every area, excluded category), or null. */
+  /** Why it is out of sight on its own (outside every area, excluded category, not an event, waiting to be checked), or null. */
   culled: string | null;
   sources: { source: string; url: string }[];
   /** Every distinct image across the merged listings, best first. */

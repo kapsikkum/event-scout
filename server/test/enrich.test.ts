@@ -270,3 +270,13 @@ test('naming asks for a name, and takes one back without its quotes or full stop
   assert.equal(readVerdict({ name: 'Bathurst Swap Meet' }, ['describe']).title, undefined, 'not unless asked');
   assert.ok(buildPrompt(EVENT, ['rename']).includes('- name:'));
 });
+
+test('vet: the model says whether a listing is an event, and why not', () => {
+  const schema = buildSchema(['vet']) as { required: string[] };
+  assert.deepEqual(schema.required, ['isEvent', 'notEventReason']);
+  assert.equal(readVerdict({ isEvent: true, notEventReason: 'whatever' }, ['vet']).notEvent, '');
+  assert.equal(readVerdict({ isEvent: false, notEventReason: 'a race report' }, ['vet']).notEvent, 'a race report');
+  assert.equal(readVerdict({ isEvent: false, notEventReason: '' }, ['vet']).notEvent, 'not an event', 'a no without a reason is still a no');
+  assert.equal(readVerdict({ isEvent: 'no' }, ['vet']).notEvent, undefined, 'not an answer, so not a verdict');
+  assert.equal(readVerdict({ isEvent: false }, ['describe']).notEvent, undefined, 'only when asked');
+});

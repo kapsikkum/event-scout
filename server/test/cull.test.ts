@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Cullable, cullReason } from '../src/cull.js';
+import { Cullable, cullReason, vetting } from '../src/cull.js';
 
 const bathurst = { name: 'Bathurst', lat: -33.4166, lng: 149.5804, radiusKm: 85 };
 const penrith = { name: 'Penrith', lat: -33.751, lng: 150.694, radiusKm: 25 };
@@ -66,4 +66,29 @@ test('an excluded category is culled wherever it is, unless it was set by hand',
 
 test('with no area on the map, nothing can be judged far from one', () => {
   assert.equal(cullReason(ev(melbourne), [{ name: 'Somewhere', lat: null, lng: null, radiusKm: 50 }], ON), null);
+});
+
+test('the model turning a listing down culls it with its reason, unless starred', () => {
+  assert.equal(cullReason(ev({ notEvent: 'a race report' }), hubs, {}), 'Not an event: a race report');
+  assert.equal(cullReason(ev({ notEvent: 'a race report', starred: true }), hubs, {}), null);
+  assert.equal(cullReason(ev({ pending: true }), hubs, {}), 'Waiting to be checked');
+  assert.equal(cullReason(ev({ pending: true, sources: [{ source: 'manual' }] }), hubs, {}), null);
+});
+
+test('vetting: new events wait for the model, a few hours at most', () => {
+  const found = '2026-09-17T00:00:00.000Z';
+  const at = (h: number): number => Date.parse(found) + h * 3600_000;
+  const unread = { llm_vet_note: '', llm_vetted_at: '' };
+  assert.deepEqual(vetting([unread], found, true, at(1)), { notEvent: '', pending: true, shownAt: '2026-09-17T06:00:00.000Z' });
+  assert.equal(vetting([unread], found, true, at(7)).pending, false, 'shown anyway once the wait is up');
+  assert.deepEqual(vetting([unread], found, false, at(1)), { notEvent: '', pending: false, shownAt: found }, 'no waiting with the check off');
+
+  const yes = { llm_vet_note: '', llm_vetted_at: '2026-09-17T00:20:00.000Z' };
+  const no = { llm_vet_note: 'a race report', llm_vetted_at: '2026-09-17T00:10:00.000Z' };
+  assert.deepEqual(vetting([yes, no], found, true, at(1)), { notEvent: '', pending: false, shownAt: yes.llm_vetted_at }, 'one yes is enough');
+  assert.equal(vetting([no, unread], found, true, at(1)).notEvent, 'a race report');
+
+  // An event from before the check existed, read today, is not new today.
+  const late = { llm_vet_note: '', llm_vetted_at: '2026-09-20T00:00:00.000Z' };
+  assert.equal(vetting([late], found, true, at(80)).shownAt, '2026-09-17T06:00:00.000Z');
 });

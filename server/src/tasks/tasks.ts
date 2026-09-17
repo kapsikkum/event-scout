@@ -3,7 +3,7 @@ import { archivePastEvents, getProgress, refreshAll } from '../refresh.js';
 import { runDensityScrape, runVenueDiscovery } from '../densityRefresh.js';
 import { pruneObservations } from '../density/store.js';
 import { runFlyerFetch, tidyFlyers } from '../flyerStore.js';
-import { runEnrichment } from '../enrich/pipeline.js';
+import { runEnrichment, vettingOn } from '../enrich/pipeline.js';
 import { runVisionPass } from '../enrich/visionPipeline.js';
 import { createRegistry } from './registry.js';
 import { notifyTask } from '../notify/index.js';
@@ -89,6 +89,10 @@ tasks.register({
       return { ok: false, message: 'Set a location in Settings before refreshing' };
     }
     await refreshAll();
+    // New events wait for the model's check before they are shown, so it
+    // reads them now rather than at its next hourly turn. Not awaited: the
+    // refresh is done, and the model pass reports on its own.
+    if (vettingOn()) void tasks.run('enrich');
     // The refresh keeps its own running commentary for the header display;
     // copying it across means the Tasks page shows the same story afterwards.
     const progress = getProgress();

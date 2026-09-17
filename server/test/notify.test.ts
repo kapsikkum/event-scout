@@ -23,7 +23,7 @@ function ev(over: Partial<MergedEvent> = {}): MergedEvent {
     group: `g${id}`, title: `Event ${id}`, rawTitle: '', description: '', startTime: '2026-09-20T09:00:00.000Z', endTime: null,
     venueName: 'Mount Panorama', address: '', locality: 'Bathurst', place: 'Bathurst', area: 'Bathurst', lat: null, lng: null,
     imageUrl: '', category: 'Motorsport', priceText: '', isOnline: false, dateOnly: false, photoScore: 50,
-    starred: false, hidden: false, firstSeenAt: '2026-09-10T00:00:00.000Z', unknownLocation: false, culled: null,
+    starred: false, hidden: false, firstSeenAt: '2026-09-10T00:00:00.000Z', shownAt: '2026-09-10T00:00:00.000Z', notEvent: '', pending: false, unknownLocation: false, culled: null,
     sources: [{ source: 'crawler', url: `https://example.com/${id}` }], images: [],
     members: [{ id, source: 'crawler', title: '', url: '', imageUrl: '', startTime: '', venueName: '', parent: false }],
     manual: false, series: `s${id}`, note: '', enriched: {}, edited: [], rawDescription: '',
@@ -207,13 +207,13 @@ test('new events: the first run only sets the watermark, then settled finds are 
   const store = memoryStore();
   const target = normalizeTarget({ id: 't1', kind: 'discord' });
   const now = new Date('2026-09-11T10:00:00.000Z');
-  const old = ev({ firstSeenAt: '2026-09-11T08:00:00.000Z' });
+  const old = ev({ shownAt: '2026-09-11T08:00:00.000Z' });
   assert.equal(planTarget(target, [old], store, now).length, 0, 'backlog not posted');
 
   const later = new Date('2026-09-11T11:00:00.000Z');
-  const fresh = ev({ firstSeenAt: '2026-09-11T10:10:00.000Z' });
-  const tooRecent = ev({ firstSeenAt: '2026-09-11T10:50:00.000Z' });
-  const culled = ev({ firstSeenAt: '2026-09-11T10:15:00.000Z', culled: '900 km away' });
+  const fresh = ev({ shownAt: '2026-09-11T10:10:00.000Z' });
+  const tooRecent = ev({ shownAt: '2026-09-11T10:50:00.000Z' });
+  const culled = ev({ shownAt: '2026-09-11T10:15:00.000Z', culled: '900 km away' });
   const [notice] = planTarget(target, [old, fresh, tooRecent, culled], store, later);
   assert.equal(notice.kind, 'new');
   assert.deepEqual(notice.items.map((i) => i.ev.group), [fresh.group]);
@@ -227,7 +227,7 @@ test('the dates of a series come as one item', () => {
   const store = memoryStore();
   const target = normalizeTarget({ id: 't2' });
   planTarget(target, [], store, new Date('2026-09-11T00:00:00.000Z'));
-  const dates = [1, 2, 3].map((d) => ev({ series: 'dance', firstSeenAt: '2026-09-11T00:10:00.000Z', startTime: `2026-09-2${d}T09:00:00.000Z` }));
+  const dates = [1, 2, 3].map((d) => ev({ series: 'dance', shownAt: '2026-09-11T00:10:00.000Z', startTime: `2026-09-2${d}T09:00:00.000Z` }));
   const [notice] = planTarget(target, dates, store, new Date('2026-09-11T02:00:00.000Z'));
   assert.equal(notice.items.length, 1);
   assert.equal(notice.items[0].moreDates, 2);
