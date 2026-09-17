@@ -54,7 +54,7 @@ export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
  * events be looked at again. Leaving it alone after a wording tweak is fine;
  * the point is to have the choice.
  */
-export const PROMPT_VERSION = 4;
+export const PROMPT_VERSION = 5;
 
 /** Longest summary worth keeping. Roughly a card's worth of text. */
 export const MAX_SUMMARY = 600;
@@ -96,9 +96,12 @@ export function buildSchema(jobs: EnrichJob[], input?: EnrichInput): Record<stri
   const want = new Set(jobs);
 
   if (want.has('vet')) {
+    // What it is before whether it is one: said first, the answer to the
+    // second follows from it. Asked for the yes or no alone, the model said yes
+    // to all of the first 300, a travel advert among them.
+    properties.listingIs = { type: 'string' };
     properties.isEvent = { type: 'boolean' };
-    properties.notEventReason = { type: 'string' };
-    required.push('isEvent', 'notEventReason');
+    required.push('listingIs', 'isEvent');
   }
   if (want.has('classify')) {
     properties.category = { type: 'string', enum: ALL_CATEGORIES };
@@ -182,13 +185,17 @@ const JOB_INSTRUCTIONS: Record<Exclude<EnrichJob, 'extract'>, string> = {
    */
   vet:
     [
-      '- isEvent: true when the listing announces something people can go to at a set time and place:',
-      '  a show, meet, market, race, gig, festival, open day, class or similar.',
-      '  false when it is not: a post about an event that already happened or that the poster only watched,',
-      '  a result, a news story, a product or sale, opening hours, a job, a general business page,',
-      '  or a list of many unrelated events. When in doubt, true.',
-      '- notEventReason: when isEvent is false, a few words saying what it is instead,',
-      '  for example "a race report" or "a shop’s opening hours". Otherwise an empty string.',
+      '- listingIs: in a few words, what this listing actually is — for example "a car show",',
+      '  "tickets going on sale", "a thank-you for last weekend", "a performer\u2019s tour news",',
+      '  "a travel package", "new merchandise", "race results".',
+      '- isEvent: true only when the listing announces one particular thing that people can go to,',
+      '  and the time above is when that thing itself happens: a show, meet, market, race, gig,',
+      '  festival, open day, performance or class.',
+      '  false for everything else, including: tickets, entries or registrations opening or going on',
+      '  sale (the time is the sale, not the event); a recap, thanks or photos from something already',
+      '  over; results, start lists or set times; news, awards or votes; merchandise or products;',
+      '  travel or holiday packages; a performer or business talking about themselves;',
+      '  and a list or season of many different events.',
     ].join(NEWLINE),
   classify:
     `- category: which of the listed categories fits best. Use "${GENERAL_CATEGORY}" only when none of the others do. "Heritage & machinery" means genuinely old or preserved things — steam, vintage, rail, aviation, historic re-enactment. A show of modern cars, 4x4s or bikes is "Cars & bikes"; competitive driving or riding is "Motorsport".`,
@@ -369,7 +376,7 @@ export function readVerdict(raw: unknown, jobs: EnrichJob[]): EnrichVerdict {
   const out: EnrichVerdict = {};
 
   if (want.has('vet') && typeof obj.isEvent === 'boolean') {
-    out.notEvent = obj.isEvent ? '' : cleanField(obj.notEventReason, 120) ?? 'not an event';
+    out.notEvent = obj.isEvent ? '' : cleanField(obj.listingIs, 120) ?? 'not an event';
   }
   if (want.has('classify') && typeof obj.category === 'string') {
     // Belt and braces over the enum: a model that ignores the grammar, or a
