@@ -7,6 +7,18 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.9.1](https://github.com/kapsikkum/event-scout/compare/v0.9.0...v0.9.1) (2026-09-17)
+
+
+### Fixes
+
+* **db:** wait for a busy database from the moment it is opened ([9d53b02](https://github.com/kapsikkum/event-scout/commit/9d53b02c60d8b0d086a0418ee4085a4f9e9690fb))
+
+
+### Internal
+
+* one copy of the rules the server and the crawler share ([86b99a9](https://github.com/kapsikkum/event-scout/commit/86b99a9360551b8fa31ad6796f57ed78dc39c6ad))
+
 ## [0.9.0](https://github.com/kapsikkum/event-scout/compare/v0.8.1...v0.9.0) (2026-09-17)
 
 
