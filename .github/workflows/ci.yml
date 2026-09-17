@@ -158,3 +158,75 @@ jobs:
             BUILD_TIME=${{ github.event.repository.updated_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Zenith: see docs/zenith-deployment.md. On a pull request, the stack in
+  # zenith-compose.yml boots with the pull request's own images swapped in; on
+  # main, the manifest is only checked, since zenith-update boots main's images.
+  zenith:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate the manifest
+        run: docker compose -f zenith-compose.yml config --quiet
+
+      - name: Build the images for linux/amd64
+        if: github.event_name == 'pull_request'
+        run: |
+          docker build --platform linux/amd64 -t zenith-pr/event-scout -f Dockerfile .
+          docker build --platform linux/amd64 -t zenith-pr/event-scout-crawler -f Dockerfile.crawler .
+          docker build --platform linux/amd64 -t zenith-pr/event-scout-chromium -f Dockerfile.chromium .
+
+      - name: Boot and check the stack
+        if: github.event_name == 'pull_request'
+        run: |
+          sed -E 's#ghcr\.io/[a-z0-9_.-]+/(event-scout(-crawler|-chromium)?)@sha256:[a-f0-9]{64}#zenith-pr/\1#' \
+            zenith-compose.yml > "$RUNNER_TEMP/zenith-pr.yml"
+          test "$(grep -c 'image: zenith-pr/' "$RUNNER_TEMP/zenith-pr.yml")" = 3
+          bash scripts/zenith-smoke.sh "$RUNNER_TEMP/zenith-pr.yml"
+
+  # After main's images are published: verify and boot them as Zenith would
+  # pull them, and prepare the pin update as an artifact to review. Nothing is
+  # pushed or opened from here.
+  zenith-update:
+    needs: images
+    if: always() && needs.images.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify, boot and prepare the update
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          OWNER: ${{ github.repository_owner }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/zenith-prepare-image-update.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zenith-image-update-${{ github.sha }}
+          path: zenith-image-update/
+          if-no-files-found: error
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Zenith image update"
+            if [ -f zenith-image-update/zenith-compose.patch ]; then
+              echo "Prepared; review and apply the patch from the \`zenith-image-update-${GITHUB_SHA}\` artifact."
+              echo '```diff'; cat zenith-image-update/zenith-compose.patch; echo '```'
+            elif [ -f zenith-image-update/image.json ]; then
+              echo "The manifest already pins these images."
+            else
+              echo "Not prepared; see the step above."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

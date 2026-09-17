@@ -1,0 +1,79 @@
+# https://zenith.hosting/developers
+
+# Event Scout on Zenith: the app, the crawler it asks for events, and the
+# browser it drives for venue busyness. The same three images as
+# docker-compose.yml, pinned to the release they were verified at. See
+# docs/zenith-deployment.md for how the pins are moved on.
+x-zenith:
+  catalog:
+    name: Event Scout
+  expose:
+    - service: app
+      port: 3001
+      web: true
+  storage:
+    data:
+      volume: event-scout-data
+      label: Events and settings
+      description: The event database, settings, and kept copies of event flyers.
+      default_size: 2Gi
+    crawler:
+      volume: crawler-data
+      label: Crawler
+      description: The pages the crawler has queued and read, and the events it found on them.
+      default_size: 1Gi
+    browser:
+      volume: chromium-profile
+      label: Browser profile
+      description: The browser's cookies and cache, kept so pages it reads regularly do not treat it as a new visitor each time.
+      default_size: 3Gi
+  env:
+    # Anyone who can reach the app can read the list; this is what stops them
+    # changing anything, or reading Settings, which holds every API key.
+    AUTH_PASSWORD:
+      input:
+        label: Password
+        description: Needed to change anything, and to see Settings.
+        required: true
+        secret: true
+      services: [app]
+    # Decides when an event counts as over, and the time zone the browser reports.
+    TZ:
+      input:
+        label: Time zone
+        description: Where your events are, as a time zone name such as Australia/Sydney or America/Denver.
+        default: Australia/Sydney
+        required: true
+        validator: '[A-Za-z]+(/[A-Za-z0-9_+-]+)*'
+
+services:
+  app:
+    image: ghcr.io/kapsikkum/event-scout@sha256:18771a595e984927d55209eac2ec13a209b14bd463d72dc7acda074dabea8579
+    environment:
+      API_PORT: "3001"
+      BROWSER_CDP_URL: http://chromium:9222
+      CRAWLER_URL: http://crawler:3002
+    volumes:
+      - event-scout-data:/app/data
+    depends_on:
+      - chromium
+      - crawler
+
+  crawler:
+    image: ghcr.io/kapsikkum/event-scout-crawler@sha256:e8baada2cd395580d0e22a6084c95670415604c20bff58a611507eacae08fb0a
+    environment:
+      CRAWLER_PORT: "3002"
+    volumes:
+      - crawler-data:/app/data
+
+  chromium:
+    image: ghcr.io/kapsikkum/event-scout-chromium@sha256:ad7a01e553a002dc46017e0bab5730c60b3c54db00e881943771a9a5e711202f
+    # Chromium exhausts the default 64 MB /dev/shm on any page worth reading.
+    shm_size: 512mb
+    volumes:
+      - chromium-profile:/profile
+
+volumes:
+  event-scout-data:
+  crawler-data:
+  chromium-profile:
