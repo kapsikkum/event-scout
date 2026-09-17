@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "create-zenith-compose": {
+      "source": "zenith-hosting/skills",
+      "sourceType": "github",
+      "skillPath": "skills/create-zenith-compose/SKILL.md",
+      "computedHash": "09a2a4cafc12cb7ab9a88a53f1f1a13b214f1340892f2de9aa54f4ce13b0d512"
+    }
+  }
+}
