@@ -167,3 +167,9 @@ test('a caption that opens with a paragraph is titled by its first sentence', ()
   assert.equal(titleOf({ ...post, caption: 'Bathurst Swap Meet ✨' }), 'Bathurst Swap Meet');
   assert.equal(titleOf({ ...post, caption: 'Meet at the car park behind St. Marys Leagues for a cruise up the mountain and a long lunch after' }).startsWith('Meet at the car park behind St. Marys'), true, 'an abbreviation is not a sentence');
 });
+
+test('a town in the name of a race is not where the event is', () => {
+  const caption = 'SMSP OPEN PIT LANE 📆 23 SEPTEMBER\nLast chance to test before the Bathurst 1000.';
+  assert.equal(placeFromText(caption, AREAS), undefined);
+  assert.equal(placeFromText('Warm-up for the Bathurst 12 Hour, meet in Bathurst', AREAS), 'Bathurst', 'a plain mention later still counts');
+});

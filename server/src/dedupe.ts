@@ -133,6 +133,28 @@ function mergeAcrossTitles(events: DedupeInput[], result: Map<number, string>): 
       }
     }
   }
+  // A post that names an event but not where it is, nor when to the minute —
+  // "SMSP OPEN PIT LANE 23 SEPTEMBER" on Instagram — joins the one listing
+  // that day whose title matches. Only when there is exactly one: a post
+  // saying "cars and coffee" matches every meet that Sunday, and joins none.
+  const unplaced = (ev: DedupeInput): boolean => ev.lat == null && !ev.venueName;
+  const byDay = new Map<string, DedupeInput[]>();
+  for (const ev of events) {
+    const day = localDay(ev.startTime);
+    const list = byDay.get(day);
+    if (list) list.push(ev);
+    else byDay.set(day, [ev]);
+  }
+  for (const list of byDay.values()) {
+    for (const a of list) {
+      if (!unplaced(a)) continue;
+      const groups = new Set(
+        list.filter((b) => !unplaced(b) && titlesMatch(a, b)).map((b) => find(result.get(b.id)!))
+      );
+      if (groups.size === 1) union(result.get(a.id)!, [...groups][0]);
+    }
+  }
+
   if (parent.size === 0) return;
   for (const [id, group] of result) result.set(id, find(group));
 }

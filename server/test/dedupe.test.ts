@@ -103,3 +103,21 @@ test('the same title on different local days stays apart', (t) => {
   ]);
   assert.notEqual(groups.get(1), groups.get(2));
 });
+
+test('a post naming an event joins the one listing that day that says where it is', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const listing = { id: 1, title: 'SMSP Open Pit Lane: Bathurst Shakedown', startTime: '2026-09-23T09:00:00.000Z', lat: null, lng: null, venueName: 'Sydney Motorsport Park' };
+  const post = { id: 2, title: 'SMSP OPEN PIT LANE', startTime: '2026-09-22T14:00:00.000Z', lat: null, lng: null, venueName: '', dateOnly: 1 };
+  const groups = assignDedupeGroups([listing, post]);
+  assert.equal(groups.get(1), groups.get(2));
+
+  // Two meets that Sunday both match "cars and coffee": the post joins neither.
+  const sunday = '2026-09-27T00:00:00.000Z';
+  const vague = assignDedupeGroups([
+    { id: 3, title: 'Cars and Coffee Penrith', startTime: sunday, lat: null, lng: null, venueName: 'Panthers' },
+    { id: 4, title: 'Cars and Coffee Orange', startTime: sunday, lat: null, lng: null, venueName: 'Robertson Park' },
+    { id: 5, title: 'Cars and Coffee', startTime: '2026-09-26T14:00:00.000Z', lat: null, lng: null, venueName: '' },
+  ]);
+  assert.notEqual(vague.get(5), vague.get(3));
+  assert.notEqual(vague.get(5), vague.get(4));
+});

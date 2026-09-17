@@ -154,7 +154,9 @@ export function placeFromText(text: string, areas: string[]): string | undefined
     if (word.length < 3) continue;
     const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const spelled = `${escape(word)}|${escape(word.toUpperCase())}`;
-    const m = new RegExp(`(?<![\\p{L}\\p{N}])(?:${spelled})(?![\\p{L}\\p{N}])`, 'u').exec(text);
+    // Not followed by a number: "before the Bathurst 1000" names a race, not
+    // where this event is.
+    const m = new RegExp(`(?<![\\p{L}\\p{N}])(?:${spelled})(?![\\p{L}\\p{N}])(?!\\s*\\d)`, 'u').exec(text);
     if (m && (!best || m.index < best.at)) best = { at: m.index, area: area.trim() };
   }
   return best?.area;

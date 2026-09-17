@@ -198,3 +198,8 @@ test('the model’s name for an event is shown, with the listed title kept besid
   assert.equal(typed.title, 'Typed name');
   assert.equal(typed.rawTitle, '');
 });
+
+test('a venue read off a flyer is ignored when it is only a fragment of the text', () => {
+  assert.equal(chooseFields([row({ vision_venue_name: 'OP PIT LA' })]).venueName, '');
+  assert.equal(chooseFields([row({ vision_venue_name: 'Sydney Motorsport Park' })]).venueName, 'Sydney Motorsport Park');
+});

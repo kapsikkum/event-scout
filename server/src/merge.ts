@@ -148,6 +148,16 @@ export function parseEditPatch(patch: Record<string, unknown>): ParsedEdit[] {
  * A post about an event rather than the event's own page: an Instagram post,
  * or anything on Facebook that is not a Facebook event.
  */
+/**
+ * A name read off a flyer, or '' when it is a fragment. A vision model reads
+ * text cut off by the edge of the image as faithfully as the rest — "OP PIT LA"
+ * out of OPEN PIT LANE — and a name with no word of four letters in it is
+ * almost always that.
+ */
+export function wholeName(name: string): string {
+  return /\p{L}{4}/u.test(name ?? '') ? name : '';
+}
+
 export function isSocialRow(row: Pick<EventRow, 'url'>): boolean {
   const url = row.url ?? '';
   return /\/\/(?:[\w-]+\.)*instagram\.com\//i.test(url) || /\/\/(?:[\w-]+\.)*facebook\.com\/(?!events\/)/i.test(url);
@@ -364,7 +374,7 @@ export function chooseFields(given: EventRow[]): ChosenFields {
     startTime: overridden('startTime', (r) => r.edit_start_time) ?? '',
     venueName:
       overridden('venueName', (r) => r.edit_venue_name) ??
-      fillBlank('venueName', (r) => r.venue_name, ['flyer', (r) => r.vision_venue_name], ['model', (r) => r.llm_venue_name]),
+      fillBlank('venueName', (r) => r.venue_name, ['flyer', (r) => wholeName(r.vision_venue_name)], ['model', (r) => r.llm_venue_name]),
     address:
       overridden('address', (r) => r.edit_address) ??
       fillBlank('address', (r) => r.address, ['flyer', (r) => r.vision_address], ['model', (r) => r.llm_address]),

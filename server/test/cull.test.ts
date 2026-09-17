@@ -10,7 +10,7 @@ const ON = { cullOutsideAreas: true, excludedCategories: ['Music'] };
 
 function ev(over: Partial<Cullable> = {}): Cullable {
   return {
-    lat: null, lng: null, locality: '', place: '', category: 'Motorsport',
+    lat: null, lng: null, locality: '', area: '', category: 'Motorsport',
     starred: false, unknownLocation: false, sources: [{ source: 'crawler' }], edited: [],
     ...over,
   };
@@ -33,7 +33,7 @@ test('just over a radius is still in the area', () => {
 });
 
 test('an event that rounds to one of the towns is in it', () => {
-  assert.equal(cullReason(ev({ ...melbourne, place: 'Bathurst' }), hubs, ON), null);
+  assert.equal(cullReason(ev({ ...melbourne, area: 'Bathurst' }), hubs, ON), null);
 });
 
 test('a town with no coordinates of its own is placed by its last lookup', () => {
@@ -59,7 +59,7 @@ test('starred and hand-added events are never culled', () => {
 });
 
 test('an excluded category is culled wherever it is, unless it was set by hand', () => {
-  assert.equal(cullReason(ev({ category: 'music', place: 'Bathurst' }), hubs, ON), 'Excluded category: music');
+  assert.equal(cullReason(ev({ category: 'music', area: 'Bathurst' }), hubs, ON), 'Excluded category: music');
   assert.equal(cullReason(ev({ category: 'Music', edited: ['category'] }), hubs, ON), null);
   assert.equal(cullReason(ev({ category: 'Motorsport' }), hubs, ON), null);
 });
@@ -91,4 +91,9 @@ test('vetting: new events wait for the model, a few hours at most', () => {
   // An event from before the check existed, read today, is not new today.
   const late = { llm_vet_note: '', llm_vetted_at: '2026-09-20T00:00:00.000Z' };
   assert.equal(vetting([late], found, true, at(80)).shownAt, '2026-09-17T06:00:00.000Z');
+});
+
+test('a far town with a heading of its own is still outside every area', () => {
+  const armidale = { lat: -30.5145, lng: 151.6657 };
+  assert.match(cullReason(ev({ locality: 'Armidale' }), hubs, ON, () => [armidale]) ?? '', /^\d+ km from \w+, the nearest area$/);
 });

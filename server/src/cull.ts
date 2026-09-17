@@ -27,8 +27,12 @@ export interface Cullable {
   lat: number | null;
   lng: number | null;
   locality: string;
-  /** The town it rounds to, '' when none. Anything that rounds to one of the areas is in it. */
-  place: string;
+  /**
+   * The searched area it is in, '' when none. Not the heading it is listed
+   * under: a town with enough listings gets a heading of its own however far
+   * away it is, and Armidale's did, 330 km from Bathurst.
+   */
+  area: string;
   category: string;
   starred: boolean;
   unknownLocation: boolean;
@@ -69,7 +73,7 @@ export function cullReason(
     return `Excluded category: ${ev.category}`;
   }
 
-  if (!rules.cullOutsideAreas || ev.unknownLocation || ev.place) return null;
+  if (!rules.cullOutsideAreas || ev.unknownLocation || ev.area) return null;
   // Where it is: its own coordinates, else every place its town's name was
   // found when it was last looked up. Nothing is looked up here — an event
   // that cannot be put on the map without a request is one that cannot be
