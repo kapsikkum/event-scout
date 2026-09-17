@@ -154,7 +154,7 @@ async function readSocial(link: SocialLink): Promise<{ events: CrawledEvent[]; p
 
   const post = instagramPost(page.html, link.id);
   if (!post) throw new FetchError('no caption on the page; Instagram may be asking for a login');
-  const event = eventFromPost(post, new Date(), knownInterests().map((i) => i.city));
+  const event = eventFromPost(post, new Date());
   if (event) store.keep(event);
   return { events: event ? [event] : [], posts: 0, note: event ? '' : 'no upcoming date in the caption' };
 }
@@ -414,7 +414,7 @@ export async function peekPost(raw: string): Promise<PostPeek> {
     const page = await fetchPage(link.url, { browser: true });
     const post = instagramPost(page.html, link.id);
     if (!post) return { ok: false, message: 'No caption on the page; Instagram may be asking for a login.', events: [] };
-    const event = eventFromPost(post, new Date(), knownInterests().map((i) => i.city));
+    const event = eventFromPost(post, new Date());
     return {
       ok: true,
       message: event ? 'Found a date in the caption.' : 'Read the caption, but it names no upcoming date.',

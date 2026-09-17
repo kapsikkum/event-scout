@@ -538,11 +538,15 @@ export function geocodeCandidates(
   const hasLocality = (text: string): boolean =>
     cities.some((c) => text.toLowerCase().includes(c.toLowerCase().split(',')[0].trim()));
 
+  // An address that names its state or postcode is complete, and adding an
+  // area to it only asks for the wrong answer: "Mann Street East, Armidale,
+  // NSW, 2350, Bathurst". The areas are for a bare street or a venue alone.
+  const complete = Boolean(regionOf(address)) || /\b\d{4}\b/.test(address);
   if (address) {
-    if (hasLocality(address)) push(address);
+    if (complete || hasLocality(address)) push(address);
     else for (const city of cities) push(`${address}, ${city}`);
   }
-  if (venue) {
+  if (venue && !complete) {
     if (hasLocality(venue)) push(venue);
     else for (const city of cities) push(`${venue}, ${city}`);
   }

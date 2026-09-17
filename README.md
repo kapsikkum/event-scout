@@ -136,7 +136,7 @@ written.
 
 - An **Instagram post** becomes an event when its caption names a date on or
   after the day it was posted ("Date: 13th Sept, Sunday / Time: 5am meetup").
-  The first line of the caption is the title; the venue is left for the model
+  The first line of the caption is the title; the venue and town are left for the model
   pass to fill in. A profile is looked at once a day for its recent posts, and
   no post is read twice.
 - A **Facebook event** link is handed to the app, which reads it with the same
@@ -222,9 +222,14 @@ by where that town is. While the rule is on, each refresh looks up to twenty suc
 towns and caches them. A town whose name also exists inside one of your areas
 counts as inside.
 
-An Instagram post has no venue, but its caption usually names the town. When it
-names one of your areas, capitalised or shouted, the crawler gives that as the
-address and the event lands in that town.
+**The crawler does not place or sort anything.** It reads what a page says,
+tidies it (entities, tags, whitespace, placeholder venues like "TBA") and drops
+what cannot be believed: no words in the title, a start outside the window, an
+end before the start, an empty map pin. A town mentioned in a caption is not an
+event's location — "before the Bathurst 1000" put a Sydney track day in
+Bathurst — so a post's place is left to the model, and one it cannot place shows
+as Unknown location. Nor is an address that names its state or postcode looked
+up with one of your areas added to it.
 
 **A state named in an address is believed.** The geocoder only accepts results
 inside your areas, so "9/256 Bolton St, Eltham VIC 3095" once came back as a

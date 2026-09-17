@@ -1,6 +1,7 @@
 import { CrawledEvent } from '../types.js';
 import { isWorthKeeping, parseEnd, parseWhen } from '../shared/when.js';
 import { isEventType } from '../shared/eventTypes.js';
+import { tidyFind } from '../tidy.js';
 
 /**
  * schema.org/Event out of a page's JSON-LD.
@@ -35,19 +36,6 @@ function str(value: unknown): string | undefined {
 function num(value: unknown): number | undefined {
   const n = typeof value === 'string' ? parseFloat(value) : typeof value === 'number' ? value : NaN;
   return Number.isFinite(n) ? n : undefined;
-}
-
-/** Strip tags and collapse whitespace: descriptions often arrive as HTML. */
-function plain(value: unknown): string | undefined {
-  const raw = str(value);
-  if (!raw) return undefined;
-  return raw
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
-    .replace(/\s+/g, ' ')
-    .trim() || undefined;
 }
 
 /** Every node in a document that looks like an Event, however deeply nested. */
@@ -156,7 +144,7 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
 
   for (const block of jsonLdBlocks(html)) {
     for (const node of collectEvents(block)) {
-      const title = plain(node.name);
+      const title = str(node.name);
       const startRaw = str(node.startDate);
       if (!title || !startRaw) continue;
 
@@ -174,10 +162,10 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
       if (seen.has(key)) continue;
       seen.add(key);
 
-      out.push({
+      const find = tidyFind({
         sourceId: findKey(url, title, when.startTime),
         title,
-        description: plain(node.description),
+        description: str(node.description),
         startTime: when.startTime,
         endTime,
         venueName: place.venueName,
@@ -191,7 +179,8 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
         dateOnly: when.dateOnly,
         foundAt: foundAt.toISOString(),
         foundOn: pageUrl,
-      });
+      }, foundAt);
+      if (find) out.push(find);
     }
   }
   return out;

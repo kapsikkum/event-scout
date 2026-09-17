@@ -6,6 +6,7 @@ import { CrawledEvent } from './types.js';
 import { siteOf } from './urls.js';
 import { postTime, SocialLink, STALE_POST_DAYS } from './extract/social.js';
 import { findKey } from './extract/jsonld.js';
+import { tidyFind } from './tidy.js';
 
 /**
  * The crawler's own memory, in its own file.
@@ -240,9 +241,13 @@ export function finds(limit = 5000): CrawledEvent[] {
     )
     .all(new Date(Date.now() - PAST_GRACE_MS).toISOString(), limit) as { payload: string }[];
   const out: CrawledEvent[] = [];
+  const now = new Date();
   for (const row of rows) {
     try {
-      out.push(JSON.parse(row.payload) as CrawledEvent);
+      // Through the same tidy as a new find, so ones kept before it existed
+      // arrive as tidy as the rest.
+      const find = tidyFind(JSON.parse(row.payload) as CrawledEvent, now);
+      if (find) out.push(find);
     } catch {
       // A row that will not parse is a row worth ignoring, not a crash.
     }
@@ -594,3 +599,9 @@ export function pageList(sort: 'reads' | 'recent', limit = 50): PageRow[] {
   }));
 }
 
+/**
+ * The town a post used to be given out of its caption, taken back off posts
+ * kept before that stopped. See eventFromPost. Matches nothing once they have
+ * all been cleared, so it is left to run.
+ */
+db.exec("UPDATE finds SET payload = json_remove(payload, '$.address') WHERE id LIKE 'instagram:%' AND json_extract(payload, '$.address') IS NOT NULL");

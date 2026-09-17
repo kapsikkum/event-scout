@@ -150,12 +150,11 @@ test('a word that only looks like an area is not one', () => {
   assert.equal(placeFromText('no town here at all', AREAS), undefined);
 });
 
-test('the Roadster Bros post comes out placed in Bathurst', (t) => {
+test('a post is not placed by a town its caption mentions', (t) => {
   inSydney(t);
-  const post = instagramPost(POST_PAGE, 'Dc3ABIxk-Oj')!;
-  const ev = eventFromPost(post, on(2026, 9, 5), AREAS)!;
-  assert.equal(ev.address, 'Bathurst');
-  assert.equal(eventFromPost(post, on(2026, 9, 5))!.address, undefined, 'and without areas, nowhere');
+  const ev = eventFromPost(instagramPost(POST_PAGE, 'Dc3ABIxk-Oj')!, on(2026, 9, 5))!;
+  assert.equal(ev.address, undefined);
+  assert.equal(ev.venueName, undefined);
 });
 
 test('a caption that opens with a paragraph is titled by its first sentence', () => {

@@ -1,6 +1,6 @@
 import { CrawledEvent } from '../types.js';
-import { isWorthKeeping } from '../shared/when.js';
-import { monthIndex, placeFromText, whenFromText } from '../shared/textWhen.js';
+import { monthIndex, whenFromText } from '../shared/textWhen.js';
+import { tidyFind } from '../tidy.js';
 import { linksFrom } from './links.js';
 
 /**
@@ -216,26 +216,24 @@ export function titleOf(post: InstagramPost): string {
 /**
  * An event out of a post, or null when the caption names no date to hold it to.
  *
- * No venue: a caption says "Mount Panorama" in a sentence, not a field, and a
- * guess at one would be worse than a blank. The town is another matter — see
- * placeFromText — and is given as the address when the caption names one of
- * `areas`, so the event lands in that town rather than nowhere.
+ * No venue and no town: a caption says "Mount Panorama" or "before the
+ * Bathurst 1000" in a sentence, not a field, and a guess at either is worse
+ * than a blank. event-scout's model reads the place out of the caption, and
+ * one it cannot place shows as Unknown location.
  */
-export function eventFromPost(post: InstagramPost, now = new Date(), areas: string[] = []): CrawledEvent | null {
+export function eventFromPost(post: InstagramPost, now = new Date()): CrawledEvent | null {
   if (!post.caption) return null;
   const when = whenFromText(post.caption, post.postedAt, now);
-  if (!when || !isWorthKeeping(when.startTime, now)) return null;
-  const address = placeFromText(post.caption, areas);
-  return {
+  if (!when) return null;
+  return tidyFind({
     sourceId: `instagram:${post.code}`,
     title: titleOf(post),
-    description: post.caption.slice(0, 4000),
+    description: post.caption,
     startTime: when.startTime,
     dateOnly: when.dateOnly,
-    ...(address ? { address } : {}),
     url: post.url,
     imageUrl: post.imageUrl,
     foundAt: now.toISOString(),
     foundOn: post.url,
-  };
+  }, now);
 }
