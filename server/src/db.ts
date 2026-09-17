@@ -9,8 +9,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const dataDir = path.resolve(__dirname, '../../data');
 fs.mkdirSync(dataDir, { recursive: true });
 
-export const db = new DatabaseSync(path.join(dataDir, 'event-scout.db'));
-db.exec('PRAGMA journal_mode = WAL');
 /**
  * Wait for a busy database rather than failing at once.
  *
@@ -19,7 +17,10 @@ db.exec('PRAGMA journal_mode = WAL');
  * each other's migrations on a fresh one, and in production the nightly
  * VACUUM INTO backup reads while the app is writing.
  */
-db.exec('PRAGMA busy_timeout = 5000');
+export const db = new DatabaseSync(path.join(dataDir, 'event-scout.db'), { timeout: 5000 });
+// Set as it opens: switching to WAL below takes a lock too, and the parallel
+// test processes failed on it with "database is locked" before this waited.
+db.exec('PRAGMA journal_mode = WAL');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS events (
