@@ -97,3 +97,12 @@ test('a far town with a heading of its own is still outside every area', () => {
   const armidale = { lat: -30.5145, lng: 151.6657 };
   assert.match(cullReason(ev({ locality: 'Armidale' }), hubs, ON, () => [armidale]) ?? '', /^\d+ km from \w+, the nearest area$/);
 });
+
+test('a listing that names a state none of the areas are in is culled', () => {
+  const rules = { ...ON, areaRegions: ['nsw'] };
+  assert.equal(cullReason(ev({ region: 'qld', locality: 'Toowoomba' }), hubs, rules), 'In Queensland, outside every area');
+  assert.equal(cullReason(ev({ region: 'nt' }), hubs, rules), 'In the Northern Territory, outside every area');
+  assert.equal(cullReason(ev({ region: 'nsw', locality: 'Armidale' }), hubs, rules), null, 'the same state is judged on distance');
+  assert.equal(cullReason(ev({ region: 'qld' }), hubs, ON), null, 'nothing known about the areas, no rule');
+  assert.equal(cullReason(ev({ region: 'qld', starred: true }), hubs, rules), null);
+});

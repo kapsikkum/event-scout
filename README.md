@@ -217,10 +217,30 @@ whose category you set by hand (for the category rule), and events with
 **Unknown location** — no coordinates, venue, address or town at all. That last is
 usually the small local thing posted only on Instagram, not something far away.
 
+**A listing is placed by the town it names, never by the town you searched.**
+Its town is looked up first, on its own, and everything else is measured
+against that: a venue is believed where it sits within 50 km of it, and a
+listing that names no town at all is the only one tried with your area names
+added. This is the difference between an event being where it says it is and
+being dragged to your doorstep — looking up "Darwin, Bathurst" finds Darwin
+Drive in Llanarth, 3 km from Bathurst, and a Northern Territory motocross round
+sat in the Bathurst list because of it. Positions the old lookup invented are
+cleared and looked up again, and a stored position that contradicts the town is
+ignored in the meantime.
+
+**A listing that names a state none of your areas are in is dropped on
+arrival**, and hidden if it is already stored: "Hi-Tec Oils Speedway,
+Toowoomba, QLD" is not a Bathurst listing, whatever its coordinates say. Your
+areas' states come from their names ("Penrith NSW") or from their own lookup;
+with none known, the rule stays off.
+
 Listings with a town but no coordinates — a web search's "Adelaide" — are judged
-by where that town is. While the rule is on, each refresh looks up to twenty such
-towns and caches them. A town whose name also exists inside one of your areas
+by where that town is. A town whose name also exists inside one of your areas
 counts as inside.
+
+**Nearby means inside one of your areas.** A far town that turns up often
+enough earns a heading of its own, and those headings are listed under
+Elsewhere rather than offered as places near you.
 
 **The crawler does not place or sort anything.** It reads what a page says,
 tidies it (entities, tags, whitespace, placeholder venues like "TBA") and drops

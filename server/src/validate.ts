@@ -5,7 +5,7 @@ import { cleanDescription, NOT_AN_ADDRESS, titleCaseShouting } from './shared/te
 
 export { cleanDescription, titleCaseShouting };
 import { Location, RawEvent } from './sources/types.js';
-import { expandRegion, isCountry, stripRegionAndPostcode } from './regions.js';
+import { expandRegion, isCountry, regionName, regionOf, stripRegionAndPostcode } from './regions.js';
 
 export interface DateVerdict {
   ok: boolean;
@@ -54,7 +54,17 @@ export function validateDates(
  * Only listings that arrive with coordinates can be judged here; the ones
  * without are checked later, when geocoding places them. See AREA_SLACK.
  */
-export function validateLocation(ev: RawEvent, locations: Location[]): { ok: boolean; reason: string } {
+export function validateLocation(
+  ev: RawEvent, locations: Location[], areaRegions: string[] = []
+): { ok: boolean; reason: string } {
+  // A listing that names its state settles it without a lookup, and most
+  // far-away ones do: "Toowoomba, QLD" is not a listing for a New South Wales
+  // scout, whatever its coordinates say or fail to say. Only when the areas'
+  // own regions are known, so this cannot fire on a half-configured setup.
+  const stated = regionOf(ev.address ?? '') || regionOf(ev.venueName ?? '');
+  if (stated && areaRegions.length > 0 && !areaRegions.includes(stated)) {
+    return { ok: false, reason: `in ${regionName(stated)}, outside every area` };
+  }
   if (ev.lat == null || ev.lng == null) return { ok: true, reason: '' };
   const near = locations.some((loc) => inArea(ev.lat!, ev.lng!, loc));
   if (near) return { ok: true, reason: '' };

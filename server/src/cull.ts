@@ -1,4 +1,5 @@
 import { AREA_SLACK, haversineKm } from './shared/geo.js';
+import { regionName } from './regions.js';
 
 /**
  * Which events to keep out of sight on their own.
@@ -42,6 +43,8 @@ export interface Cullable {
   notEvent?: string;
   /** New, and not yet checked by the model. See vetting in events.ts. */
   pending?: boolean;
+  /** The region the listing names ('qld'), '' when it names none. */
+  region?: string;
 }
 
 export interface CullHub {
@@ -54,6 +57,8 @@ export interface CullHub {
 export interface CullRules {
   cullOutsideAreas?: boolean;
   excludedCategories?: string[];
+  /** The regions the searched areas are in. Empty switches the region rule off. */
+  areaRegions?: string[];
 }
 
 /** Why this event is out of sight, or null when it is not. */
@@ -74,6 +79,13 @@ export function cullReason(
   }
 
   if (!rules.cullOutsideAreas || ev.unknownLocation || ev.area) return null;
+  // The region it names, when that is a region none of the areas are in. No
+  // lookup needed, and it catches what a lookup often cannot: a listing whose
+  // town was never found, or was found in the wrong state.
+  const regions = rules.areaRegions ?? [];
+  if (ev.region && regions.length > 0 && !regions.includes(ev.region)) {
+    return `In ${regionName(ev.region)}, outside every area`;
+  }
   // Where it is: its own coordinates, else every place its town's name was
   // found when it was last looked up. Nothing is looked up here — an event
   // that cannot be put on the map without a request is one that cannot be

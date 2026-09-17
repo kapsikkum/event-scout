@@ -108,8 +108,12 @@ function dateWindow(chip: DateChip): [Date, Date] | null {
 
 /** Whether an event is in one location choice: a town, or one of the three above. */
 function inPlace(ev: MergedEvent, choice: string): boolean {
-  if (choice === NEARBY) return Boolean(ev.place);
-  if (choice === ELSEWHERE) return !ev.place && !ev.unknownLocation;
+  // Inside one of the areas being searched, not merely somewhere with a name.
+  // A town far away earns a heading of its own once enough of its events turn
+  // up — Toowoomba did — and "Nearby" counting those is how Queensland
+  // speedway ended up in a Bathurst list.
+  if (choice === NEARBY) return Boolean(ev.area);
+  if (choice === ELSEWHERE) return !ev.area && !ev.unknownLocation;
   if (choice === UNKNOWN) return ev.unknownLocation;
   return ev.place === choice;
 }
@@ -230,7 +234,9 @@ export function placesOf(events: MergedEvent[]): {
   let elsewhere = 0;
   let unknown = 0;
   for (const ev of events) {
-    if (ev.place) counts.set(ev.place, (counts.get(ev.place) ?? 0) + 1);
+    // Only towns inside an area are offered by name. The rest are far away,
+    // whatever they are called, and belong under Elsewhere with each other.
+    if (ev.place && ev.area) counts.set(ev.place, (counts.get(ev.place) ?? 0) + 1);
     else if (ev.unknownLocation) unknown++;
     else elsewhere++;
   }

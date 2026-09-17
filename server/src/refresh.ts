@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
-import { db, getSettings, setKv } from './db.js';
+import { db, getKv, getSettings, setKv } from './db.js';
 import { assignDedupeGroups, DedupeInput } from './dedupe.js';
-import { inArea } from './shared/geo.js';
+import { AREA_SLACK, inArea } from './shared/geo.js';
+import { regionsOfAreas } from './places.js';
+import { anchorQueries, Hit, pickHit, placeQueries, statedOf } from './locate.js';
 import { MAX_DURATION_MS } from './shared/when.js';
 import { photoScore } from './photoScore.js';
 import { crawlerSource } from './sources/crawler.js';
@@ -199,6 +201,7 @@ export async function refreshAll(): Promise<SourceStatus[]> {
       throw new Error('Set a location in Settings before refreshing');
     }
     const locations = await eventLocations(settings);
+    const areaRegions = regionsOfAreas(locations.map((l) => l.city));
     const now = new Date().toISOString();
 
     progress.startedAt = now;
@@ -240,7 +243,7 @@ export async function refreshAll(): Promise<SourceStatus[]> {
                 areaRejected++;
                 continue;
               }
-              const where = validateLocation(ev, [loc]);
+              const where = validateLocation(ev, [loc], areaRegions);
               if (!where.ok) {
                 areaFar++;
                 continue;
@@ -304,11 +307,10 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     // Worth its own line: this is the slow tail of a refresh. Nominatim asks
     // for a second between lookups, so sixty venues is a minute on its own,
     // and without a note here the run looks hung after the last source.
+    forgetInventedPositions();
     note('Placing venues on the map');
     const placed = await geocodeMissing(locations);
     if (placed > 0) note(`Placed ${placed} venue${placed === 1 ? '' : 's'}`);
-    const towns = await lookUpTowns();
-    if (towns > 0) note(`Looked up ${towns} town${towns === 1 ? '' : 's'} for the area rule`);
 
     note('Matching duplicate listings');
     recomputeDedupeGroups();
@@ -322,8 +324,28 @@ export async function refreshAll(): Promise<SourceStatus[]> {
   }
 }
 
-/** Venues resolved per refresh. Nominatim asks for one request a second. */
-const GEOCODE_BUDGET = 60;
+/**
+ * Forget the positions the old geocoder invented, once.
+ *
+ * Until locate.ts, a listing whose town was not one of the areas was looked up
+ * with an area's name stapled on, and "Darwin, Bathurst" is a real street in
+ * Bathurst. Every position this app looked up that way is suspect, so they go
+ * and are looked up again under the rules that replaced it. A position a
+ * source supplied is untouched: those never went through the geocoder, which
+ * is what geocode_tried marks.
+ */
+function forgetInventedPositions(): void {
+  const flag = 'migrate:anchored-geocoding';
+  if (getKv(flag)) return;
+  const cleared = db
+    .prepare('UPDATE events SET lat = NULL, lng = NULL, geocode_tried = 0 WHERE lat IS NOT NULL AND geocode_tried = 1')
+    .run().changes;
+  setKv(flag, new Date().toISOString());
+  if (cleared) console.log(`[refresh] re-placing ${cleared} events looked up under the old rules`);
+}
+
+/** Lookups per refresh. Nominatim asks for one request a second. */
+const GEOCODE_BUDGET = 120;
 const GEOCODE_SPACING_MS = 1100;
 
 /**
@@ -333,10 +355,9 @@ const GEOCODE_SPACING_MS = 1100;
  * invisible on the map — they were being fetched and stored perfectly well and
  * simply had nowhere to be drawn. The venue name is enough to place them.
  *
- * A result is only accepted if it lands inside one of the configured areas.
- * Venue names are generic ("The Victoria", "Royal Hotel") and Nominatim will
- * happily return the London one, which would scatter pins across the planet.
- * Lookups are cached, so a venue costs one request ever.
+ * The town a listing names is looked up first and anchors the rest; see
+ * locate.ts for why that matters more than anything else here. Lookups are
+ * cached, so a town costs one request ever however many listings name it.
  */
 async function geocodeMissing(locations: Location[]): Promise<number> {
   if (locations.length === 0) return 0;
@@ -354,44 +375,57 @@ async function geocodeMissing(locations: Location[]): Promise<number> {
     )
     .all() as unknown as { id: number; venue_name: string; address: string }[];
 
-  // The budget is for requests to Nominatim. A venue already looked up costs
-  // nothing, so those are never what holds the backlog back.
+  // The budget is for requests to Nominatim. A query already looked up costs
+  // nothing, so a backlog of known towns and venues is never what holds this up.
   let placed = 0;
-  let asked = 0;
+  const spend = { asked: 0, budget: GEOCODE_BUDGET };
   for (const row of rows) {
-    const uncached = geocodeCandidates(row.venue_name, row.address, locations).some((q) => !isGeocodeCached(q));
-    if (uncached && asked >= GEOCODE_BUDGET) continue;
-    if (uncached) asked++;
-    if (await placeRow(row, locations)) placed++;
+    if (await placeRow(row, locations, spend)) placed++;
   }
   return placed;
 }
 
+/** Ask the geocoder, paying the rate limit only for a question not asked before. */
+async function ask(query: string, spend: { asked: number; budget: number }): Promise<Hit[] | null> {
+  if (isGeocodeCached(query)) return geocode(query);
+  if (spend.asked >= spend.budget) return null;
+  spend.asked++;
+  await new Promise((r) => setTimeout(r, GEOCODE_SPACING_MS));
+  return geocode(query);
+}
+
 /** One row of geocodeMissing: true when it was placed. */
 async function placeRow(
-  row: { id: number; venue_name: string; address: string }, locations: Location[]
+  row: { id: number; venue_name: string; address: string },
+  locations: Location[],
+  spend: { asked: number; budget: number }
 ): Promise<boolean> {
   const markTried = db.prepare('UPDATE events SET geocode_tried = 1 WHERE id = ?');
-  const queries = geocodeCandidates(row.venue_name, row.address, locations);
-  if (queries.length === 0) {
-    markTried.run(row.id);
-    return false;
-  }
+  const stated = statedOf(row.venue_name, row.address);
   let errored = false;
+
+  // The town first. Its position is the anchor every other answer is measured
+  // against, and for a listing from far away it is the answer: a Darwin event
+  // belongs at Darwin, where the area rule can see it, not at the Darwin Drive
+  // a search for "Darwin, Bathurst" turns up.
+  let anchor: Hit | null = null;
+  for (const town of anchorQueries(stated)) {
+    try {
+      const hits = await ask(town, spend);
+      if (hits === null) return false;
+      anchor = hits.find((h) => !stated.region || !regionOf(h.displayName) || regionOf(h.displayName) === stated.region) ?? null;
+      if (anchor) break;
+    } catch {
+      errored = true;
+    }
+  }
+
+  const queries = placeQueries(row.venue_name, row.address, stated, locations.map((l) => ({ name: l.city })));
   for (const query of queries) {
     try {
-      // Only a real network call needs the rate limit; a cached answer is
-      // free, so a backlog of previously-seen venues clears in one pass.
-      if (!isGeocodeCached(query)) await new Promise((r) => setTimeout(r, GEOCODE_SPACING_MS));
-      const hits = await geocode(query);
-      // Inside an area is not enough when the address names its state: asked
-      // for "9/256 Bolton St, Eltham VIC 3095", Nominatim's Bolton Street in
-      // Bathurst was inside one, and in New South Wales.
-      const stated = regionOf(row.address) || regionOf(row.venue_name);
-      const hit = hits.find((h) =>
-        (!stated || !regionOf(h.displayName) || regionOf(h.displayName) === stated) &&
-        locations.some((loc) => inArea(h.lat, h.lng, loc))
-      );
+      const hits = await ask(query, spend);
+      if (hits === null) return false;
+      const hit = pickHit(hits, { region: stated.region, anchor, areas: locations, slack: AREA_SLACK });
       if (hit) {
         db.prepare('UPDATE events SET lat = ?, lng = ?, geocode_tried = 1 WHERE id = ?').run(hit.lat, hit.lng, row.id);
         return true;
@@ -399,6 +433,14 @@ async function placeRow(
     } catch {
       errored = true;
     }
+  }
+
+  // Nothing exact, but the town is known: the town's own position is a true
+  // answer to "where is this", and the only one that lets an event outside
+  // every area be recognised as outside every area.
+  if (anchor) {
+    db.prepare('UPDATE events SET lat = ?, lng = ?, geocode_tried = 1 WHERE id = ?').run(anchor.lat, anchor.lng, row.id);
+    return true;
   }
   // Genuinely unplaceable rather than a transient failure, so stop asking.
   if (!errored) markTried.run(row.id);
@@ -459,7 +501,7 @@ export async function addManualEvent(input: ManualEvent): Promise<string> {
 
   if (row.venue_name || row.address) {
     try {
-      await placeRow(row, await eventLocations(getSettings()));
+      await placeRow(row, await eventLocations(getSettings()), { asked: 0, budget: GEOCODE_BUDGET });
     } catch {
       // The next refresh tries again; saving must not fail on a map lookup.
     }
@@ -472,90 +514,8 @@ export async function addManualEvent(input: ManualEvent): Promise<string> {
   return group.manual_group || group.dedupe_group || `solo-${row.id}`;
 }
 
-/** Towns looked up per refresh for the area rule; the rest wait for the next. */
-const TOWN_BUDGET = 20;
-
-/**
- * Look up the towns of events nothing could place, so the area rule can judge them.
- *
- * geocodeMissing keeps a position only when it lands inside an area, which is
- * right for pins — and means "Adelaide" and "Brisbane" listings from a web
- * search never get one, so the rule that hides far-away events could not see
- * how far away they were. The town alone is looked up here and only cached;
- * cull.ts reads the cache when the list is read. Only while the rule is on,
- * since nothing else wants the answers.
- */
-async function lookUpTowns(): Promise<number> {
-  if (!getSettings().cullOutsideAreas) return 0;
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT venue_name, address FROM events
-        WHERE lat IS NULL AND archived = 0 AND (venue_name != '' OR address != '')`
-    )
-    .all() as unknown as { venue_name: string; address: string }[];
-  const towns = new Set<string>();
-  for (const row of rows) {
-    const town = localityOf(row.address) || localityOf(row.venue_name);
-    if (town && !isGeocodeCached(town)) towns.add(town);
-  }
-  let looked = 0;
-  for (const town of towns) {
-    if (looked >= TOWN_BUDGET) break;
-    await new Promise((r) => setTimeout(r, GEOCODE_SPACING_MS));
-    try {
-      await geocode(town);
-      looked++;
-    } catch {
-      // Nominatim refusing now will refuse the next one too; try next refresh.
-      break;
-    }
-  }
-  return looked;
-}
-
 /** Attempts per event, so one stubborn venue cannot eat the whole budget. */
 const GEOCODE_ATTEMPTS = 4;
-
-/**
- * Queries to try for one event, best first.
- *
- * Nominatim is free-text but not forgiving: "Australian Fossil and Mineral
- * Museum, 224 Howick Street, Bathurst" returns nothing at all, while the street
- * address alone resolves immediately. Leading with the venue name — the obvious
- * thing to do — was why most events stayed unplaced. A bare street number with
- * no town is the opposite problem: "169 COLLEGE ROAD" matched a road in North
- * Carolina, so those get an area name appended.
- */
-export function geocodeCandidates(
-  venue: string, address: string, locations: { city: string }[]
-): string[] {
-  const out: string[] = [];
-  const push = (q: string): void => {
-    const trimmed = q.trim().replace(/^,|,$/g, '').trim().slice(0, 200);
-    if (trimmed && !out.includes(trimmed)) out.push(trimmed);
-  };
-  const cities = locations.map((l) => l.city).filter(Boolean);
-  const hasLocality = (text: string): boolean =>
-    cities.some((c) => text.toLowerCase().includes(c.toLowerCase().split(',')[0].trim()));
-
-  // An address that names its state or postcode is complete, and adding an
-  // area to it only asks for the wrong answer: "Mann Street East, Armidale,
-  // NSW, 2350, Bathurst". The areas are for a bare street or a venue alone.
-  const complete = Boolean(regionOf(address)) || /\b\d{4}\b/.test(address);
-  if (address) {
-    if (complete || hasLocality(address)) push(address);
-    else for (const city of cities) push(`${address}, ${city}`);
-  }
-  if (venue && !complete) {
-    if (hasLocality(venue)) push(venue);
-    else for (const city of cities) push(`${venue}, ${city}`);
-  }
-  if (venue && address) push(`${venue}, ${address}`);
-  // "Mount Panorama Racing Circuit, Bathurst, NSW, Australia" finds nothing,
-  // where the bare name sometimes does. Worth one attempt at the head of it.
-  if (venue.includes(',')) push(venue.split(',')[0]);
-  return out.slice(0, GEOCODE_ATTEMPTS);
-}
 
 /**
  * Drop end times that cannot be true, on rows already stored.

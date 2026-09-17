@@ -15,6 +15,7 @@
  */
 
 import { haversineKm } from './shared/geo.js';
+import { cachedGeocode } from './geocode.js';
 import { regionOf, stripRegionAndPostcode } from './regions.js';
 
 /** The place an event lands at when it is near none of the user's towns. */
@@ -366,4 +367,31 @@ function hubNamedIn(ev: Placeable, hubs: Hub[]): string {
     if (containsWords(text, words(hub.name))) return hub.name;
   }
   return ELSEWHERE;
+}
+
+/**
+ * The regions the searched areas are in, as regionOf keys.
+ *
+ * From the area's own name where it carries one ("Penrith NSW"), otherwise
+ * from whatever the geocoder last said about it — an area is looked up when it
+ * is configured, so this is usually known. Empty when none of them can be
+ * told, which switches the region rule off rather than guessing.
+ */
+export function regionsOfAreas(areaNames: string[]): string[] {
+  const out = new Set<string>();
+  for (const name of areaNames) {
+    const named = regionOf(name);
+    if (named) {
+      out.add(named);
+      continue;
+    }
+    for (const hit of cachedGeocode(name) ?? []) {
+      const region = regionOf(hit.displayName);
+      if (region) {
+        out.add(region);
+        break;
+      }
+    }
+  }
+  return [...out];
 }

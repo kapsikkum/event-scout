@@ -64,6 +64,18 @@ const REGION_KEYS: Record<string, string> = {
   yukon: 'yt', nunavut: 'nu',
 };
 
+/** What to call a region in a sentence, for the key regionOf returns. */
+const REGION_NAMES: Record<string, string> = {
+  nsw: 'New South Wales', vic: 'Victoria', qld: 'Queensland', sa: 'South Australia',
+  wa: 'Western Australia', tas: 'Tasmania', nt: 'the Northern Territory',
+  act: 'the Australian Capital Territory',
+};
+
+/** A region key as a reader would say it: 'qld' is Queensland. */
+export function regionName(key: string): string {
+  return REGION_NAMES[key] ?? key.toUpperCase();
+}
+
 /**
  * The region an address states, as a key two spellings of it share, or ''
  * when it states none.

@@ -114,6 +114,7 @@ export default function Events() {
   // town does not immediately rewrite the menu it was picked from.
   const { places, elsewhere, unknown } = useMemo(() => placesOf(events), [events]);
   const nearby = events.length - elsewhere - unknown;
+
   const placeOptions = useMemo<MultiOption[]>(
     () => [
       ...(nearby > 0 ? [{ value: NEARBY, label: 'Nearby', count: nearby }] : []),

@@ -5,9 +5,10 @@ import { normalizeTitle } from './dedupe.js';
 import { localityOf, regionOf } from './regions.js';
 import { flyerHref } from './flyers.js';
 import { storedPath } from './flyerStore.js';
-import { hubsFromSettings, placeEvents } from './places.js';
+import { hubsFromSettings, placeEvents, regionsOfAreas } from './places.js';
 import { cachedGeocode } from './geocode.js';
 import { cullReason, vetting } from './cull.js';
+import { anchorQueries, coordsDisagree, statedOf } from './locate.js';
 import { vettingOn } from './enrich/pipeline.js';
 import { chooseFields, EditError, orderMembers, parseEditPatch } from './merge.js';
 import type { EditableField } from './merge.js';
@@ -287,6 +288,21 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
   // the events still to come rather than of last month's.
   const settings = getSettings();
   const positionOf = (name: string): { lat: number; lng: number } | null => cachedGeocode(name)?.[0] ?? null;
+  // A position that contradicts the town the listing names is not believed:
+  // events placed before locate.ts existed sit on a street in the area that
+  // happens to share a far town's name. See coordsDisagree.
+  for (const ev of live) {
+    if (ev.lat == null || ev.lng == null) continue;
+    const stated = statedOf(ev.venueName, ev.address);
+    const fits = (h: { displayName: string }): boolean =>
+      !stated.region || !regionOf(h.displayName) || regionOf(h.displayName) === stated.region;
+    const anchor = anchorQueries(stated).flatMap((q) => cachedGeocode(q) ?? []).find(fits) ?? null;
+    if (coordsDisagree({ lat: ev.lat, lng: ev.lng }, anchor)) {
+      ev.lat = anchor!.lat;
+      ev.lng = anchor!.lng;
+    }
+  }
+  const areaRegions = regionsOfAreas([settings.city ?? '', ...(settings.eventAreas ?? []).map((a) => a.name)].filter(Boolean));
   const hubs = hubsFromSettings(settings, positionOf);
   const regionOfEvent = (ev: MergedEvent): string => regionOf(ev.address) || regionOf(ev.venueName);
   placeEvents(live.map((ev) => ({ ...ev, region: regionOfEvent(ev) })), hubs).forEach(({ place, area, badCoords }, i) => {
@@ -304,7 +320,7 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
   // it is in the region the address states, for the same reason as above.
   for (const ev of live) {
     const region = regionOfEvent(ev);
-    ev.culled = cullReason(ev, hubs, settings, (name) =>
+    ev.culled = cullReason({ ...ev, region }, hubs, { ...settings, areaRegions }, (name) =>
       (cachedGeocode(name) ?? []).filter((hit) => !region || !regionOf(hit.displayName) || regionOf(hit.displayName) === region)
     );
   }

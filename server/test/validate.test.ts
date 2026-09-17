@@ -217,3 +217,21 @@ test('a group is date-only only when no member knew the time', (t) => {
     'a time typed in edit mode is a time'
   );
 });
+
+test('a listing that names a state none of the areas are in is rejected on arrival', () => {
+  const at = (lat: number, lng: number, address: string): RawEvent =>
+    ({ sourceId: 'x', title: 'Speedway', startTime: '2026-10-01T00:00:00.000Z', address, lat, lng }) as RawEvent;
+  const bathurst: Location = { lat: -33.4166, lng: 149.5804, radiusKm: 50, city: 'Bathurst' };
+  const toowoomba = at(-27.56, 151.95, 'Hi-Tec Oils Speedway, Toowoomba, QLD');
+  assert.deepEqual(validateLocation(toowoomba, [bathurst], ['nsw']), {
+    ok: false,
+    reason: 'in Queensland, outside every area',
+  });
+  assert.equal(validateLocation(toowoomba, [bathurst], []).ok, false, 'still too far by its coordinates');
+  // Without coordinates the region is all there is, and it is enough.
+  const stated = { sourceId: 'y', title: 'Show', startTime: '2026-10-01T00:00:00.000Z', address: 'Perth, WA' } as RawEvent;
+  assert.equal(validateLocation(stated, [bathurst], ['nsw']).ok, false);
+  assert.equal(validateLocation(stated, [bathurst], []).ok, true, 'no areas known, nothing to compare');
+  const local = { sourceId: 'z', title: 'Meet', startTime: '2026-10-01T00:00:00.000Z', address: 'Kelso, NSW 2795' } as RawEvent;
+  assert.equal(validateLocation(local, [bathurst], ['nsw']).ok, true);
+});
