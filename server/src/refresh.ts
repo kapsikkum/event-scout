@@ -59,8 +59,21 @@ const upsertStmt = () =>
       end_time = excluded.end_time,
       venue_name = excluded.venue_name,
       address = excluded.address,
-      lat = excluded.lat,
-      lng = excluded.lng,
+      -- A position looked up for this place is kept while the address is the
+      -- same (or, with none, the venue name, which repairVenueNames respells): overwriting it with the source's empty one lost it every refresh,
+      -- and geocode_tried stopped it being looked up again. A new venue or
+      -- address is looked up afresh.
+      lat = CASE WHEN excluded.lat IS NOT NULL THEN excluded.lat
+                 WHEN excluded.address = events.address AND (excluded.address != '' OR excluded.venue_name = events.venue_name) THEN events.lat END,
+      lng = CASE WHEN excluded.lat IS NOT NULL THEN excluded.lng
+                 WHEN excluded.address = events.address AND (excluded.address != '' OR excluded.venue_name = events.venue_name) THEN events.lng END,
+      geocode_tried = CASE WHEN excluded.address = events.address AND (excluded.address != '' OR excluded.venue_name = events.venue_name)
+                           THEN events.geocode_tried ELSE 0 END,
+      -- A page that moved on to its next date is live again, and new: it was
+      -- archived under the old one. Still past, it is archived again at once.
+      archived = CASE WHEN excluded.start_time > events.start_time THEN 0 ELSE events.archived END,
+      first_seen_at = CASE WHEN events.archived = 1 AND excluded.start_time > events.start_time
+                           THEN excluded.first_seen_at ELSE events.first_seen_at END,
       url = excluded.url,
       image_url = excluded.image_url,
       category = excluded.category,
@@ -193,7 +206,7 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     const where = locations.map((l) => l.city).filter(Boolean).join(', ');
     note(`Looking in ${where || 'the configured area'}`);
 
-    const results = await Promise.allSettled(
+    await Promise.allSettled(
       ADAPTERS.map(async (adapter) => {
         if (settings.enabledSources[adapter.name] === false) {
           setStatus(adapter.name, 'disabled', 'Disabled in Settings', null);
@@ -205,6 +218,7 @@ export async function refreshAll(): Promise<SourceStatus[]> {
         let missing: MissingConfigError | null = null;
         const failures: string[] = [];
         const rejected: string[] = [];
+        let far = 0;
 
         for (const [i, loc] of locations.entries()) {
           try {
@@ -215,14 +229,20 @@ export async function refreshAll(): Promise<SourceStatus[]> {
             // keep last year's startDate in their markup, and a stale one
             // sails through as a real listing unless it is checked here.
             const kept: RawEvent[] = [];
+            let areaRejected = 0;
+            let areaFar = 0;
             for (const ev of raw) {
               const dates = validateDates(ev);
               if (!dates.ok) {
                 rejected.push(`${ev.title}: ${dates.reason}`);
+                areaRejected++;
                 continue;
               }
               const where = validateLocation(ev, [loc]);
-              if (!where.ok) continue;
+              if (!where.ok) {
+                areaFar++;
+                continue;
+              }
               kept.push({ ...ev, startTime: dates.startTime, endTime: dates.endTime ?? undefined });
             }
             const stmt = upsertStmt();
@@ -230,7 +250,9 @@ export async function refreshAll(): Promise<SourceStatus[]> {
             total += kept.length;
             progress.found += kept.length;
             const area = locations.length > 1 ? ` in ${loc.city}` : '';
-            const dropped = rejected.length ? `, ${rejected.length} rejected on date` : '';
+            far += areaFar;
+            const dropped =
+              (areaRejected ? `, ${areaRejected} rejected on date` : '') + (areaFar ? `, ${areaFar} outside the area` : '');
             note(`${adapter.label}: ${kept.length} event${kept.length === 1 ? '' : 's'}${area}${dropped}`);
           } catch (err) {
             // Missing config is about the source, not the area, so stop early
@@ -261,13 +283,13 @@ export async function refreshAll(): Promise<SourceStatus[]> {
           const partly = failures.length ? ` (${failures.length} area failed)` : '';
           // Worth saying out loud: a source that suddenly has everything
           // rejected is a parser that has broken, not a quiet week.
-          const dropped = rejected.length ? `, ${rejected.length} rejected on date` : '';
+          const dropped =
+            (rejected.length ? `, ${rejected.length} rejected on date` : '') + (far ? `, ${far} outside every area` : '');
           setStatus(adapter.name, 'ok', `Fetched ${total} events${where}${dropped}${partly}`, total);
           if (rejected.length) console.warn(`[${adapter.name}] rejected: ${rejected.slice(0, 10).join('; ')}`);
         }
       })
     );
-    void results;
 
     note('Tidying dates, addresses and venue names');
     repairImplausibleDates();
@@ -318,16 +340,28 @@ async function geocodeMissing(locations: Location[]): Promise<number> {
   if (locations.length === 0) return 0;
   const rows = db
     .prepare(
-      `SELECT id, venue_name, address FROM events
-       WHERE lat IS NULL AND archived = 0 AND geocode_tried = 0
-         AND (venue_name != '' OR address != '')
-       ORDER BY start_time LIMIT ?`
+      // A venue the model or the flyer read counts, where the listing gave none.
+      `SELECT id,
+              COALESCE(NULLIF(venue_name, ''), NULLIF(vision_venue_name, ''), llm_venue_name) AS venue_name,
+              COALESCE(NULLIF(address, ''), NULLIF(vision_address, ''), llm_address) AS address
+         FROM events
+        WHERE lat IS NULL AND archived = 0 AND geocode_tried = 0
+          AND (venue_name != '' OR address != '' OR vision_venue_name != '' OR vision_address != ''
+               OR llm_venue_name != '' OR llm_address != '')
+        ORDER BY start_time`
     )
-    .all(GEOCODE_BUDGET) as unknown as { id: number; venue_name: string; address: string }[];
-  if (rows.length === 0) return 0;
+    .all() as unknown as { id: number; venue_name: string; address: string }[];
 
+  // The budget is for requests to Nominatim. A venue already looked up costs
+  // nothing, so those are never what holds the backlog back.
   let placed = 0;
-  for (const row of rows) if (await placeRow(row, locations)) placed++;
+  let asked = 0;
+  for (const row of rows) {
+    const uncached = geocodeCandidates(row.venue_name, row.address, locations).some((q) => !isGeocodeCached(q));
+    if (uncached && asked >= GEOCODE_BUDGET) continue;
+    if (uncached) asked++;
+    if (await placeRow(row, locations)) placed++;
+  }
   return placed;
 }
 
@@ -703,7 +737,8 @@ export function reclassifyAll(): number {
 
 function recomputeDedupeGroups(): void {
   const rows = db
-    .prepare('SELECT id, title, start_time AS startTime, lat, lng, venue_name AS venueName, date_only AS dateOnly FROM events')
+    // The model's name where it gave one: a caption for a title matches nothing.
+    .prepare("SELECT id, COALESCE(NULLIF(llm_title, ''), title) AS title, start_time AS startTime, lat, lng, venue_name AS venueName, date_only AS dateOnly FROM events")
     .all() as unknown as DedupeInput[];
   const groups = assignDedupeGroups(rows);
   const update = db.prepare('UPDATE events SET dedupe_group = ? WHERE id = ?');
