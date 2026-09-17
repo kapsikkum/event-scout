@@ -7,6 +7,14 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.9.2](https://github.com/kapsikkum/event-scout/compare/v0.9.1...v0.9.2) (2026-09-17)
+
+
+### Fixes
+
+* **enrich:** stop the event check letting everything through ([a2cadf4](https://github.com/kapsikkum/event-scout/commit/a2cadf4dda340cb77befc2c2611efdc5955027f8))
+* **places:** stop far towns and race names landing events in the areas ([f42958b](https://github.com/kapsikkum/event-scout/commit/f42958b382a67e3e0791e7b82f4aa1952280ba27))
+
 ## [0.9.1](https://github.com/kapsikkum/event-scout/compare/v0.9.0...v0.9.1) (2026-09-17)
 
 
