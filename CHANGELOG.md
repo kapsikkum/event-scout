@@ -7,6 +7,19 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.9.0](https://github.com/kapsikkum/event-scout/compare/v0.8.1...v0.9.0) (2026-09-17)
+
+
+### Features
+
+* check new events with the local model before showing them ([ada5889](https://github.com/kapsikkum/event-scout/commit/ada588999a69e9e68b9d7f7b50f0ec0c1f416913))
+
+
+### Fixes
+
+* **crawler:** say where Facebook searches and Pages belong ([1d9d2e0](https://github.com/kapsikkum/event-scout/commit/1d9d2e02865e4d0fcd74e33972d12eecea321265))
+* **refresh:** keep looked-up positions, and bring back events whose page moves on ([75aa7b0](https://github.com/kapsikkum/event-scout/commit/75aa7b0c819054dc715056d39573adfa3a7ff4b5))
+
 ## [0.8.1](https://github.com/kapsikkum/event-scout/compare/v0.8.0...v0.8.1) (2026-09-17)
 
 
