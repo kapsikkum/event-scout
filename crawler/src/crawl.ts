@@ -287,6 +287,17 @@ export async function crawlUrlNow(raw: string): Promise<PageReport> {
   if (!url) return { url: raw, ok: false, message: 'That is not a web address.', ...nothing };
   const social = config.social ? socialKind(url) : null;
   if (social) return readSocialNow(url, social);
+  // Facebook shows its searches and Pages only to someone signed in, which the
+  // crawler never is. The Facebook source in Settings is, with a cookie.
+  if (/^https?:\/\/([a-z]+\.)?facebook\.com\//i.test(url)) {
+    return {
+      url,
+      ok: false,
+      message:
+        'The crawler reads Facebook event pages only. For a Facebook search or Page, add the search words or the Page under Facebook in Settings, which reads them signed in.',
+      ...nothing,
+    };
+  }
   store.offer(url, 0, store.PINNED_SCORE);
 
   try {
