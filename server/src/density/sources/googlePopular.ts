@@ -401,8 +401,20 @@ export interface PopularResult {
   summary: {
     venues: number; withLive: number; withTypical: number;
     profilesUpdated: number; failed: number; quickChecked: number;
+    /** Google served its limited view of Maps, and the pass stopped there. */
+    limited: boolean;
   };
 }
+
+/**
+ * Whether the page is Google's "limited view" of Maps.
+ *
+ * What a browser Google distrusts gets instead of the full page: the place's
+ * name, hours and reviews, and no popular times for any venue. Every venue
+ * then looks barren, and a pass reads nothing while appearing to succeed —
+ * which ran unnoticed for a day. Runs in the page; returns 'true' or 'false'.
+ */
+export const LIMITED_VIEW_JS = `String(/limited view/i.test(document.body ? document.body.innerText : ''))`;
 
 /**
  * How long to wait for a venue's popular-times panel.
@@ -422,8 +434,16 @@ export interface PopularResult {
 const BARREN_AFTER = 3;
 const REPROBE_EVERY = 24;
 const BARREN_WAIT_MS = 3500;
+/** How recently a weekly profile has to have been read to prove a venue has a panel. */
+const PROFILE_FRESH_MS = 14 * 86400_000;
 
-export function panelWaitMs(venue: Venue, fullMs: number): number {
+export function panelWaitMs(venue: Venue, fullMs: number, now = Date.now()): number {
+  // A panel read within the fortnight is proof there is one, whatever the streak
+  // says. A streak can run up without the venue changing at all: while Google
+  // served a limited view with no popular times anywhere, 39 venues that had
+  // shown a panel the day before were written off as having none.
+  const seen = venue.profile?.updatedAt ? Date.parse(venue.profile.updatedAt) : NaN;
+  if (Number.isFinite(seen) && now - seen < PROFILE_FRESH_MS) return fullMs;
   const streak = venue.barrenStreak ?? 0;
   if (streak < BARREN_AFTER) return fullMs;
   return streak % REPROBE_EVERY === 0 ? fullMs : BARREN_WAIT_MS;
@@ -442,7 +462,7 @@ export async function scrapePopular(
     log('  google-popular: no venues cached - run discovery first');
     return {
       observations: [],
-      summary: { venues: 0, withLive: 0, withTypical: 0, profilesUpdated: 0, failed: 0, quickChecked: 0 },
+      summary: { venues: 0, withLive: 0, withTypical: 0, profilesUpdated: 0, failed: 0, quickChecked: 0, limited: false },
     };
   }
   // Barren venues are quick now, so counting them at full cost overstates the
@@ -462,6 +482,7 @@ export async function scrapePopular(
   const updated: Venue[] = [];
   const checks: { cid: string; sawPanel: boolean }[] = [];
   let withLive = 0, withTypical = 0, profilesUpdated = 0, failed = 0;
+  let limited = false;
   const hourNow = new Date().getHours();
 
   await withBrowser(cfg, log, async (session) => {
@@ -485,6 +506,14 @@ export async function scrapePopular(
           `document.querySelectorAll('[aria-label*="busy"]').length`,
           { timeoutMs: panelWaitMs(venue, cfg.waitMs + 6000) }
         );
+        // No panel under a limited view says nothing about the venue, and every
+        // page after it will be the same, so stop rather than record a miss
+        // for each and spend the pass reading nothing.
+        if (!sawPanel && (await page.evaluate(LIMITED_VIEW_JS)) === 'true') {
+          limited = true;
+          log(`  Google Maps is showing a limited view (no popular times) at ${venue.name}; stopping this pass`);
+          break;
+        }
         checks.push({ cid: venue.cid, sawPanel });
         const payload = JSON.parse((await page.evaluate(EXTRACT_JS)) || '{}') as {
           labels?: (string | null)[]; dayLabels?: (string | null)[][] | null;
@@ -539,7 +568,7 @@ export async function scrapePopular(
     observations,
     summary: {
       venues: venues.length, withLive, withTypical, profilesUpdated, failed,
-      quickChecked: barren,
+      quickChecked: barren, limited,
     },
   };
 }

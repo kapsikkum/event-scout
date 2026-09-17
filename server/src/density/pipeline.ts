@@ -1,4 +1,4 @@
-import { getSettings } from '../db.js';
+import { getKv, getSettings, setKv } from '../db.js';
 import { Area, densityConfig, pickAreas, resolveAreas } from './areas.js';
 import { insertObservations, insertRun, selectObservations, venueCount, loadVenues, Observation } from './store.js';
 import { scrapePopular, discoverVenues, DAY_NAMES } from './sources/googlePopular.js';
@@ -23,9 +23,25 @@ export interface AreaResult {
   error?: string;
 }
 
+/**
+ * When sampling may resume after Google served its limited view of Maps.
+ *
+ * The limited view is Google's verdict on the browser, not on any area or
+ * venue, so while it lasts every page load is a request that reads nothing —
+ * and more of them are not how it ends. Six hours rather than the next pass.
+ */
+const LIMITED_UNTIL_KEY = 'density:limitedUntil';
+const LIMITED_BACKOFF_MS = 6 * 3600_000;
+
 /** Scrape every enabled source for one area and store the result. */
 export async function scrapeArea(area: Area, log: (msg: string) => void = () => {}): Promise<AreaResult> {
   const started = Date.now();
+  const blockedUntil = Number(getKv(LIMITED_UNTIL_KEY) ?? 0);
+  if (blockedUntil > started) {
+    const when = new Date(blockedUntil).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    log(`  skipped: Google Maps was showing a limited view; trying again after ${when}`);
+    return { area: area.slug, name: area.name, ok: false, error: `Google Maps is showing a limited view - trying again after ${when}` };
+  }
   const ts = Math.floor(started / 1000);
   const settings = getSettings();
   const cfg = densityConfig(settings);
@@ -44,6 +60,13 @@ export async function scrapeArea(area: Area, log: (msg: string) => void = () => 
   for (const o of observations) bySource[o.source] = (bySource[o.source] ?? 0) + 1;
 
   log(`  stored ${observations.length} observations in ${(durationMs / 1000).toFixed(1)}s`);
+  if (popular.summary.limited) {
+    setKv(LIMITED_UNTIL_KEY, String(Date.now() + LIMITED_BACKOFF_MS));
+    return {
+      area: area.slug, name: area.name, ok: false, observations: observations.length, bySource,
+      error: 'Google Maps is showing a limited view with no popular times - pausing for 6 hours',
+    };
+  }
   return { area: area.slug, name: area.name, ok: true, observations: observations.length, bySource };
 }
 

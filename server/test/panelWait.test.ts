@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jitter, panelWaitMs } from '../src/density/sources/googlePopular.js';
+import { jitter, LIMITED_VIEW_JS, panelWaitMs } from '../src/density/sources/googlePopular.js';
 import type { Venue } from '../src/density/store.js';
 
 const venue = (barrenStreak: number): Venue => ({
@@ -37,4 +37,25 @@ test('jitter: spreads around the mean without ever stopping or doubling it', () 
   assert.ok(Math.max(...samples) <= 2800, 'never exceeds 140% of the mean');
   assert.ok(Math.abs(avg - 2000) < 100, `average cadence holds (got ${Math.round(avg)})`);
   assert.ok(new Set(samples).size > 100, 'actually varies rather than returning a constant');
+});
+
+test('panelWaitMs: a venue whose weekly profile was read lately keeps full patience, whatever its streak', () => {
+  // Google's limited view ran every venue's streak up in a day; the venues
+  // had not lost their panels.
+  const now = Date.parse('2026-09-14T00:00:00Z');
+  const profiled = (daysAgo: number): Venue => ({
+    ...venue(29),
+    profile: {
+      busiestDay: 'Saturday', busiestDayIndex: 6, busiestHour: 12, busiestPeak: 90, quietestDay: 'Monday',
+      openDays: [], byDay: {}, updatedAt: new Date(now - daysAgo * 86400_000).toISOString(),
+    },
+  });
+  assert.equal(panelWaitMs(profiled(1), FULL, now), FULL);
+  assert.ok(panelWaitMs(profiled(30), FULL, now) < FULL, 'a month-old profile proves nothing');
+});
+
+test('the limited view of Google Maps is recognised on the page', () => {
+  const run = (text: string): string => new Function('document', `return ${LIMITED_VIEW_JS}`)({ body: { innerText: text } });
+  assert.equal(run('Armada Bathurst 4.1 Shopping mall You’re seeing a limited view of Google Maps Learn more'), 'true');
+  assert.equal(run('Armada Bathurst 4.1 Shopping mall Popular times Usually not busy'), 'false');
 });
