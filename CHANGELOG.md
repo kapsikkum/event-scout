@@ -7,6 +7,13 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.9.3](https://github.com/kapsikkum/event-scout/compare/v0.9.2...v0.9.3) (2026-09-17)
+
+
+### Fixes
+
+* **crawler:** read and tidy pages, and leave placing events to the app ([168aa33](https://github.com/kapsikkum/event-scout/commit/168aa33800161ff2017b865cc90b045ee7a37fc0))
+
 ## [0.9.2](https://github.com/kapsikkum/event-scout/compare/v0.9.1...v0.9.2) (2026-09-17)
 
 
