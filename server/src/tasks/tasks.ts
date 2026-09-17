@@ -19,35 +19,6 @@ import { notifyTask } from '../notify/index.js';
 export const tasks = createRegistry({ get: getKv, set: setKv });
 
 /**
- * Carry the bookkeeping these jobs kept for themselves into the registry.
- *
- * Not cosmetic. A task with no last-run is due immediately, so without this an
- * existing install would come back up from this change and at once fire a full
- * event refresh and a density pass — the latter opening a browser — because
- * their history was written under different names. It also keeps the density
- * panel from claiming a pass has never run when one ran ten minutes ago.
- */
-function adoptLegacyState(): void {
-  if (getKv('task:migrated') === '1') return;
-  const carry: [string, string, string][] = [
-    // The event refresh has always recorded itself here, and still does: the
-    // header and the .ics feed both read it.
-    ['lastRefresh', 'task:events:lastRun', 'task:events:lastResult'],
-    ['densityLastRun', 'task:density:lastRun', 'task:density:lastResult'],
-  ];
-  for (const [from, toRun, toResult] of carry) {
-    const at = getKv(from);
-    if (!at || getKv(toRun)) continue;
-    setKv(toRun, at);
-    const legacyResult = from === 'densityLastRun' ? getKv('densityLastResult') : null;
-    setKv(toResult, legacyResult ?? 'ran before this was recorded');
-    setKv(toRun.replace(':lastRun', ':lastOk'), '1');
-  }
-  setKv('task:migrated', '1');
-}
-adoptLegacyState();
-
-/**
  * Jobs the user has paused from the Tasks page.
  *
  * Only for the ones with no natural setting of their own. Density and

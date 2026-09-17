@@ -28,7 +28,7 @@ export interface EventRow {
   category: string;
   price_text: string;
   is_online: number;
-  /** 1 when the source gave a day and no clock time. See when.ts. */
+  /** 1 when the source gave a day and no clock time. See shared/when.ts. */
   date_only: number;
   photo_score: number;
   archived: number;

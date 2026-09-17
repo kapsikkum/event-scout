@@ -1,4 +1,4 @@
-import { haversineKm } from './dedupe.js';
+import { AREA_SLACK, haversineKm } from './shared/geo.js';
 
 /**
  * Which events to keep out of sight on their own.
@@ -52,12 +52,6 @@ export interface CullRules {
   excludedCategories?: string[];
 }
 
-/**
- * The same slack the ingest check gives: a venue just over the line of a
- * radius picked for searching is not what anyone means by "outside".
- */
-const SLACK = 1.5;
-
 /** Why this event is out of sight, or null when it is not. */
 export function cullReason(
   ev: Cullable,
@@ -92,7 +86,7 @@ export function cullReason(
   for (const at of points) {
     for (const hub of positioned) {
       const km = haversineKm(at.lat, at.lng, hub.lat as number, hub.lng as number);
-      if (km <= hub.radiusKm * SLACK) return null;
+      if (km <= hub.radiusKm * AREA_SLACK) return null;
       if (!nearest || km < nearest.km) nearest = { hub, km };
     }
   }

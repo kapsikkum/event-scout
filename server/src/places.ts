@@ -14,7 +14,7 @@
  * user never asked about is elsewhere, which is exactly what it is.
  */
 
-import { haversineKm } from './dedupe.js';
+import { haversineKm } from './shared/geo.js';
 import { regionOf, stripRegionAndPostcode } from './regions.js';
 
 /** The place an event lands at when it is near none of the user's towns. */
@@ -211,11 +211,6 @@ export function hubsFromSettings(
  * listings to its name gets an entry of its own, so the fifty scattered across
  * Sydney stay findable instead of disappearing into the far-away bucket.
  */
-export function assignPlaces(events: Placeable[], hubs: Hub[], ownBucketMin = OWN_BUCKET_MIN): string[] {
-  return placeEvents(events, hubs, ownBucketMin).map((p) => p.place);
-}
-
-/** assignPlaces, with the area each event lies in as well as the name it goes by. */
 export function placeEvents(events: Placeable[], hubs: Hub[], ownBucketMin = OWN_BUCKET_MIN): Placed[] {
   const positioned = hubs.filter((h) => h.lat != null && h.lng != null);
 

@@ -14,7 +14,7 @@ export interface CrawledEvent {
   imageUrl?: string;
   priceText?: string;
   isOnline?: boolean;
-  /** The page gave a day and no clock time. See extract/when.ts. */
+  /** The page gave a day and no clock time. See shared/when.ts. */
   dateOnly?: boolean;
   /** Where it was found, for the status page and for debugging a bad find. */
   foundAt: string;

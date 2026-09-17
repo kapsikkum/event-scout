@@ -345,7 +345,7 @@ export interface RawEvent {
   priceText?: string;
   isOnline?: boolean;
   /**
-   * The listing gave a day and no clock time. See when.ts — without it a bare
+   * The listing gave a day and no clock time. See shared/when.ts — without it a bare
    * date is stored as UTC midnight and shown as a made-up morning start.
    */
   dateOnly?: boolean;

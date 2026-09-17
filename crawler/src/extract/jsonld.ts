@@ -1,5 +1,6 @@
 import { CrawledEvent } from '../types.js';
-import { isWorthKeeping, parseEnd, parseWhen } from './when.js';
+import { isWorthKeeping, parseEnd, parseWhen } from '../shared/when.js';
+import { isEventType } from '../shared/eventTypes.js';
 
 /**
  * schema.org/Event out of a page's JSON-LD.
@@ -13,19 +14,6 @@ import { isWorthKeeping, parseEnd, parseWhen } from './when.js';
  * them any more; if that changes it belongs here as a second reader rather than
  * as a rewrite of this one.
  */
-
-const EVENT_TYPES = new Set([
-  'Event', 'MusicEvent', 'Festival', 'TheaterEvent', 'ComedyEvent', 'DanceEvent',
-  'SportsEvent', 'ScreeningEvent', 'SocialEvent', 'ExhibitionEvent', 'FoodEvent',
-  'VisualArtsEvent', 'EducationEvent', 'BusinessEvent', 'ChildrensEvent',
-  'LiteraryEvent', 'CourseInstance', 'PublicationEvent', 'DeliveryEvent',
-]);
-
-function typeMatches(type: unknown): boolean {
-  if (typeof type === 'string') return EVENT_TYPES.has(type.replace(/^https?:\/\/schema\.org\//, ''));
-  if (Array.isArray(type)) return type.some(typeMatches);
-  return false;
-}
 
 function str(value: unknown): string | undefined {
   if (typeof value === 'string') return value.trim() || undefined;
@@ -70,7 +58,7 @@ function collectEvents(node: unknown, out: Record<string, unknown>[] = []): Reco
   }
   if (!node || typeof node !== 'object') return out;
   const obj = node as Record<string, unknown>;
-  if (typeMatches(obj['@type'])) out.push(obj);
+  if (isEventType(obj['@type'])) out.push(obj);
   // @graph is how most CMSes wrap a page's whole set of entities, and subEvent
   // is how a festival lists its programme — both hold events worth having.
   for (const key of ['@graph', 'subEvent', 'subEvents', 'event', 'events', 'itemListElement', 'item']) {

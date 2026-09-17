@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { PAST_GRACE_MS } from './shared/when.js';
 import { DatabaseSync } from 'node:sqlite';
 import { config, ensureDataDir } from './config.js';
 import { CrawledEvent } from './types.js';
@@ -237,7 +238,7 @@ export function finds(limit = 5000): CrawledEvent[] {
     .prepare(
       `SELECT payload FROM finds WHERE start_time > ? ORDER BY found_at DESC LIMIT ?`
     )
-    .all(new Date(Date.now() - 86400_000).toISOString(), limit) as { payload: string }[];
+    .all(new Date(Date.now() - PAST_GRACE_MS).toISOString(), limit) as { payload: string }[];
   const out: CrawledEvent[] = [];
   for (const row of rows) {
     try {
@@ -593,59 +594,3 @@ export function pageList(sort: 'reads' | 'recent', limit = 50): PageRow[] {
   }));
 }
 
-// --- once ---------------------------------------------------------------------
-
-/**
- * Fold finds keyed on the page they were read on into the event's own key.
- *
- * See findKey. Once, and oldest first, so where several old rows fold into one
- * the most recent reading is the one kept.
- */
-function rekeyFinds(): void {
-  if (db.prepare("SELECT 1 FROM kv WHERE key = 'finds-keyed-by-event'").get()) return;
-  const rows = db
-    .prepare("SELECT id, found_at, payload FROM finds WHERE id LIKE '%#%' ORDER BY found_at ASC")
-    .all() as { id: string; found_at: string; payload: string }[];
-  const remove = db.prepare('DELETE FROM finds WHERE id = ?');
-  const put = db.prepare('INSERT OR REPLACE INTO finds (id, start_time, found_at, payload) VALUES (?, ?, ?, ?)');
-  db.exec('BEGIN');
-  try {
-    for (const row of rows) {
-      let ev: CrawledEvent;
-      try {
-        ev = JSON.parse(row.payload) as CrawledEvent;
-      } catch {
-        remove.run(row.id);
-        continue;
-      }
-      const id = findKey(ev.url ?? ev.foundOn, ev.title, ev.startTime);
-      if (id === row.id) continue;
-      remove.run(row.id);
-      put.run(id, ev.startTime, row.found_at, JSON.stringify({ ...ev, sourceId: id }));
-    }
-    db.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES ('finds-keyed-by-event', ?)").run(JSON.stringify(now()));
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
-}
-rekeyFinds();
-
-/**
- * Instagram and Facebook pages turned away by robots.txt, back in the queue.
- *
- * Before these two had their own path, a link to either went through the
- * robots.txt check like any other page and was marked skipped for good — a
- * post pinned in Settings among them, which was then never read. Nothing marks
- * them that way now, so this finds only those old rows, and costs nothing to
- * run on every start.
- */
-function unskipSocial(): void {
-  db.prepare(
-    `UPDATE pages SET state = 'queued', note = ''
-      WHERE state = 'skipped' AND note LIKE 'robots%'
-        AND (site = 'instagram.com' OR url LIKE '%facebook.com/events/%')`
-  ).run();
-}
-unskipSocial();

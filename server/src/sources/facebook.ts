@@ -4,7 +4,6 @@
 // parser on the result.
 // @ts-ignore - internal subpath, typed via the package's own .d.ts
 import * as fbParser from 'facebook-event-scraper/dist/utils/htmlParser.js';
-import { haversineKm } from '../dedupe.js';
 import { EventSourceAdapter, Location, RawEvent, Settings } from './types.js';
 import { expandTopics, fbQuery, rotateQueries } from './topics.js';
 import { BROWSER_HEADERS } from '../useragent.js';
@@ -175,11 +174,6 @@ export const facebook: EventSourceAdapter = {
         const html = await fetchFb(`https://www.facebook.com/events/${id}`, cookie);
         const ev = parseEvent(html, id);
         if (!ev) continue;
-        // Search can surface far-away events; keep those without coords (often
-        // small community events) but drop clearly distant ones.
-        if (ev.lat != null && ev.lng != null && haversineKm(loc.lat, loc.lng, ev.lat, ev.lng) > loc.radiusKm * 1.5) {
-          continue;
-        }
         events.push(ev);
       } catch (err) {
         if (err instanceof LoginWallError) detailWalls++;

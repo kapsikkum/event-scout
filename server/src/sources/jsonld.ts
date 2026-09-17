@@ -1,30 +1,6 @@
 import { RawEvent } from './types.js';
-import { parseEnd, parseWhen } from '../when.js';
-
-const EVENT_TYPES = new Set([
-  'Event',
-  'MusicEvent',
-  'Festival',
-  'TheaterEvent',
-  'ComedyEvent',
-  'DanceEvent',
-  'SportsEvent',
-  'ScreeningEvent',
-  'SocialEvent',
-  'ExhibitionEvent',
-  'FoodEvent',
-  'VisualArtsEvent',
-  'EducationEvent',
-  'BusinessEvent',
-  'ChildrensEvent',
-  'LiteraryEvent',
-]);
-
-function typeMatches(type: unknown): boolean {
-  if (typeof type === 'string') return EVENT_TYPES.has(type.replace(/^https?:\/\/schema\.org\//, ''));
-  if (Array.isArray(type)) return type.some(typeMatches);
-  return false;
-}
+import { parseEnd, parseWhen } from '../shared/when.js';
+import { isEventType } from '../shared/eventTypes.js';
 
 function firstString(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
@@ -57,7 +33,7 @@ function collectEventNodes(node: unknown, out: Record<string, unknown>[], depth 
   }
   if (typeof node !== 'object') return;
   const obj = node as Record<string, unknown>;
-  if (typeMatches(obj['@type'])) out.push(obj);
+  if (isEventType(obj['@type'])) out.push(obj);
   for (const key of ['@graph', 'subEvent', 'subEvents', 'events', 'itemListElement', 'item']) {
     if (obj[key]) collectEventNodes(obj[key], out, depth + 1);
   }

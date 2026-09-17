@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { db, getSettings, setKv } from './db.js';
-import { assignDedupeGroups, DedupeInput, haversineKm } from './dedupe.js';
+import { assignDedupeGroups, DedupeInput } from './dedupe.js';
+import { inArea } from './shared/geo.js';
+import { MAX_DURATION_MS } from './shared/when.js';
 import { photoScore } from './photoScore.js';
 import { crawlerSource } from './sources/crawler.js';
 import { eventbrite } from './sources/eventbrite.js';
@@ -388,7 +390,7 @@ async function placeRow(
       const stated = regionOf(row.address) || regionOf(row.venue_name);
       const hit = hits.find((h) =>
         (!stated || !regionOf(h.displayName) || regionOf(h.displayName) === stated) &&
-        locations.some((loc) => haversineKm(loc.lat, loc.lng, h.lat, h.lng) <= loc.radiusKm * 1.5)
+        locations.some((loc) => inArea(h.lat, h.lng, loc))
       );
       if (hit) {
         db.prepare('UPDATE events SET lat = ?, lng = ?, geocode_tried = 1 WHERE id = ?').run(hit.lat, hit.lng, row.id);
@@ -566,7 +568,7 @@ export function repairImplausibleDates(): number {
       `UPDATE events SET end_time = NULL
        WHERE end_time IS NOT NULL
          AND (end_time <= start_time
-              OR julianday(end_time) - julianday(start_time) > 21)`
+              OR julianday(end_time) - julianday(start_time) > ${MAX_DURATION_MS / 86400_000})`
     )
     .run().changes;
   return Number(changed);

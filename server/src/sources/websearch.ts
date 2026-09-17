@@ -1,4 +1,3 @@
-import { haversineKm } from '../dedupe.js';
 import { extractEventsFromHtml } from './jsonld.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
 import { expandTopics, rotateQueries, webQuery } from './topics.js';
@@ -169,10 +168,6 @@ export const websearch: EventSourceAdapter = {
       try {
         const html = await fetchText(url, PAGE_TIMEOUT_MS);
         for (const ev of extractEventsFromHtml(html, url)) {
-          // Drop clearly far-away events when coordinates are present.
-          if (ev.lat != null && ev.lng != null && haversineKm(loc.lat, loc.lng, ev.lat, ev.lng) > loc.radiusKm * 1.5) {
-            continue;
-          }
           if (seenEvents.has(ev.sourceId)) continue;
           seenEvents.add(ev.sourceId);
           events.push(ev);

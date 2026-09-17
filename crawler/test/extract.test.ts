@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isWorthKeeping, parseWhen } from '../src/extract/when.js';
+import { isWorthKeeping, parseWhen } from '../src/shared/when.js';
 import { eventsFromHtml, jsonLdBlocks } from '../src/extract/jsonld.js';
 import { crawlableLinks, feedsFrom, linksFrom } from '../src/extract/links.js';
 import { eventLikeness, normalizeUrl, sameSite, siteOf } from '../src/urls.js';
@@ -31,7 +31,7 @@ test('a stated time is kept, and is not flagged as missing', (t) => {
   t.after(() => { if (before === undefined) delete process.env.TZ; else process.env.TZ = before; });
   process.env.TZ = 'Australia/Sydney';
 
-  // Floating: read as local, which is the assumption stated in when.ts.
+  // Floating: read as local, which is the assumption stated in shared/when.ts.
   const floating = parseWhen('2026-10-08T10:00:00')!;
   assert.equal(floating.dateOnly, false);
   assert.equal(floating.startTime, '2026-10-07T23:00:00.000Z', '10am AEDT');

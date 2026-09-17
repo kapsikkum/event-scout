@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DEFAULT_TERMS, queriesFor } from '../src/queries.js';
-import { parseEnd } from '../src/extract/when.js';
+import { parseEnd } from '../src/shared/when.js';
 
 /**
  * Taking the first few phrases, which is what this did before, meant the rest

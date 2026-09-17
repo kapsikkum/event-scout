@@ -1,29 +1,8 @@
 import { localDay } from './day.js';
-import { haversineKm } from './dedupe.js';
+import { haversineKm, inArea } from './shared/geo.js';
+import { FUTURE_HORIZON_MS, MAX_DURATION_MS, PAST_GRACE_MS } from './shared/when.js';
 import { Location, RawEvent } from './sources/types.js';
 import { expandRegion, isCountry, stripRegionAndPostcode } from './regions.js';
-
-/**
- * How far into the past a listing's start may sit and still be believed.
- *
- * A day's grace covers events already running and clock skew between a source
- * and us. Anything older is not "an event we caught late" — it is a stale
- * schema.org block on a recurring event's page, which is the single most
- * common way a bad date reaches the database: a weekly market's page carried
- * startDate 2025-08-22 all through 2026, and that year-old Friday was shown
- * as the next occurrence of a Saturday market.
- */
-const PAST_GRACE_MS = 36 * 3600 * 1000;
-
-/** Listings further out than this are almost always a mis-parsed year. */
-const FUTURE_HORIZON_DAYS = 400;
-
-/**
- * Longest run we will believe for a single listing. Festivals and exhibitions
- * genuinely last weeks; an end 14 months after the start is a page that reuses
- * one JSON-LD block for a whole season of occurrences.
- */
-const MAX_DURATION_MS = 21 * 24 * 3600 * 1000;
 
 export interface DateVerdict {
   ok: boolean;
@@ -53,7 +32,7 @@ export function validateDates(
   if (start < now - PAST_GRACE_MS) {
     return fail(`start ${new Date(start).toISOString().slice(0, 10)} is in the past`);
   }
-  if (start > now + FUTURE_HORIZON_DAYS * 24 * 3600 * 1000) {
+  if (start > now + FUTURE_HORIZON_MS) {
     return fail(`start ${new Date(start).toISOString().slice(0, 10)} is beyond the horizon`);
   }
 
@@ -70,13 +49,11 @@ export function validateDates(
  * Reject listings that sit outside every area being searched.
  *
  * Only listings that arrive with coordinates can be judged here; the ones
- * without are checked later, when geocoding places them. The 1.5x slack keeps
- * a venue just over the line from being dropped on a radius the user picked
- * for search, not for relevance.
+ * without are checked later, when geocoding places them. See AREA_SLACK.
  */
 export function validateLocation(ev: RawEvent, locations: Location[]): { ok: boolean; reason: string } {
   if (ev.lat == null || ev.lng == null) return { ok: true, reason: '' };
-  const near = locations.some((loc) => haversineKm(loc.lat, loc.lng, ev.lat!, ev.lng!) <= loc.radiusKm * 1.5);
+  const near = locations.some((loc) => inArea(ev.lat!, ev.lng!, loc));
   if (near) return { ok: true, reason: '' };
   const nearest = Math.min(...locations.map((loc) => haversineKm(loc.lat, loc.lng, ev.lat!, ev.lng!)));
   return { ok: false, reason: `${Math.round(nearest)} km outside every area` };

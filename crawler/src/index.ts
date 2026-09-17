@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { config } from './config.js';
 import { crawlUrlNow, hasWork, knownInterests, peekPost, runCycle, setInterests, status } from './crawl.js';
-import { haversineKm } from './geo.js';
+import { inArea } from './shared/geo.js';
 import { Interest, queriesFor } from './queries.js';
 import * as store from './store.js';
 import { normalizeUrl } from './urls.js';
@@ -125,7 +125,7 @@ const server = http.createServer((req, res) => {
     // event-scout geocodes and will place them better than a guess would.
     if (lat !== null && lng !== null) {
       events = events.filter(
-        (e) => e.lat == null || e.lng == null || haversineKm(lat, lng, e.lat, e.lng) <= radiusKm
+        (e) => e.lat == null || e.lng == null || inArea(e.lat, e.lng, { lat, lng, radiusKm })
       );
     }
     return json(res, 200, { events, count: events.length });

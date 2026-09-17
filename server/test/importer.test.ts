@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { candidateFromPage, candidatesFromHtml } from '../src/importer.js';
-import { whenFromText } from '../src/textWhen.js';
+import { whenFromText } from '../src/shared/textWhen.js';
 import { useZone } from './zone.js';
 
 const AREAS = ['Bathurst', 'Penrith NSW', 'Orange NSW'];

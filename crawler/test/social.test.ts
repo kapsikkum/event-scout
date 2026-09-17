@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { placeFromText, whenFromText } from '../src/shared/textWhen.js';
 
 import {
-  eventFromPost, instagramPost, instagramProfilePosts, placeFromText, postTime, socialKind, titleOf, whenFromCaption,
+  eventFromPost, instagramPost, instagramProfilePosts, postTime, socialKind, titleOf,
 } from '../src/extract/social.js';
 import { queriesFor, SOCIAL_QUERIES_PER_AREA } from '../src/queries.js';
 
@@ -81,28 +82,28 @@ test('dates in the ways captions write them', (t) => {
   inSydney(t);
   const sept10 = on(2026, 9, 10);
   // A time straight after the date, and not mistaken for "September 7".
-  assert.deepEqual(whenFromCaption('MQAS AGM 2026 is happening Thursday 24th September 7:30PM!', sept10),
+  assert.deepEqual(whenFromText('MQAS AGM 2026 is happening Thursday 24th September 7:30PM!', sept10),
     { startTime: '2026-09-24T09:30:00.000Z', dateOnly: false });
   // Month first, no time: the day and nothing invented.
-  assert.deepEqual(whenFromCaption('Swap meet, Saturday May 2. All welcome', on(2026, 4, 1)),
+  assert.deepEqual(whenFromText('Swap meet, Saturday May 2. All welcome', on(2026, 4, 1)),
     { startTime: on(2026, 5, 2).toISOString(), dateOnly: true });
   // Day first with a year, after daylight saving has started.
-  assert.deepEqual(whenFromCaption('Cars & coffee Sat 12/10/2026 from 9am', sept10),
+  assert.deepEqual(whenFromText('Cars & coffee Sat 12/10/2026 from 9am', sept10),
     { startTime: '2026-10-11T22:00:00.000Z', dateOnly: false });
   // A December post about January means next January.
-  assert.equal(whenFromCaption('Back again Jan 10th!', on(2026, 12, 20))?.startTime, on(2027, 1, 10).toISOString());
+  assert.equal(whenFromText('Back again Jan 10th!', on(2026, 12, 20))?.startTime, on(2027, 1, 10).toISOString());
 });
 
 test('a caption that names no upcoming date is not an event', (t) => {
   inSydney(t);
   const sept4 = on(2026, 9, 4);
-  assert.equal(whenFromCaption('Great night at the track, thanks all!', sept4), null);
+  assert.equal(whenFromText('Great night at the track, thanks all!', sept4), null);
   // Looking back: rolls to next August, nine months out and more, so passed over.
-  assert.equal(whenFromCaption('Thanks for coming out on 30th August', sept4), null);
+  assert.equal(whenFromText('Thanks for coming out on 30th August', sept4), null);
   // "may" the verb.
-  assert.equal(whenFromCaption('you may 2 wheel it in if you like', sept4), null);
+  assert.equal(whenFromText('you may 2 wheel it in if you like', sept4), null);
   // A date that does not exist is not moved to one that does.
-  assert.equal(whenFromCaption('See you 31st September', sept4), null);
+  assert.equal(whenFromText('See you 31st September', sept4), null);
 });
 
 test('a post shortcode says when it was made', () => {
@@ -117,17 +118,17 @@ test('a post shortcode says when it was made', () => {
 test('a day named relative to the post, when the caption gives no date', (t) => {
   inSydney(t);
   const wed = on(2026, 9, 9);
-  assert.deepEqual(whenFromCaption('Cars and coffee this Sunday from 7am, all welcome', wed),
+  assert.deepEqual(whenFromText('Cars and coffee this Sunday from 7am, all welcome', wed),
     { startTime: new Date(2026, 8, 13, 7, 0).toISOString(), dateOnly: false });
-  assert.deepEqual(whenFromCaption('Live music tonight 8pm!', wed),
+  assert.deepEqual(whenFromText('Live music tonight 8pm!', wed),
     { startTime: new Date(2026, 8, 9, 20, 0).toISOString(), dateOnly: false });
-  assert.deepEqual(whenFromCaption('Markets back tomorrow', wed),
+  assert.deepEqual(whenFromText('Markets back tomorrow', wed),
     { startTime: on(2026, 9, 10).toISOString(), dateOnly: true });
-  assert.equal(whenFromCaption('See you this weekend', wed)?.startTime, on(2026, 9, 12).toISOString());
+  assert.equal(whenFromText('See you this weekend', wed)?.startTime, on(2026, 9, 12).toISOString());
   // A stated date still wins over a relative word.
-  assert.equal(whenFromCaption('This Sunday? No — 20th September', wed)?.startTime, on(2026, 9, 20).toISOString());
+  assert.equal(whenFromText('This Sunday? No — 20th September', wed)?.startTime, on(2026, 9, 20).toISOString());
   // "Book today" is not a date.
-  assert.equal(whenFromCaption('Book today, spots are limited', wed), null);
+  assert.equal(whenFromText('Book today, spots are limited', wed), null);
 });
 
 test('a profile page lists its recent posts', () => {

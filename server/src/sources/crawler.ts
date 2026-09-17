@@ -1,4 +1,3 @@
-import { haversineKm } from '../dedupe.js';
 import { fetchFb, parseEvent } from './facebook.js';
 import { expandTopics, rotateQueries } from './topics.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
@@ -151,9 +150,6 @@ async function facebookFromCrawler(base: string, loc: Location, settings: Settin
     }
     const ev = seen.event;
     if (!ev) continue;
-    // Placed events are kept to the area, as the Facebook source does; unplaced
-    // ones are kept, since they are usually the small local ones.
-    if (ev.lat != null && ev.lng != null && haversineKm(loc.lat, loc.lng, ev.lat, ev.lng) > loc.radiusKm * 1.5) continue;
     out.push({ ...ev, sourceId: `crawl:fb:${id}` });
   }
   return out;

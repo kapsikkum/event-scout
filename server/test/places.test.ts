@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { assignPlaces, hubsFromSettings, Hub, Placeable, placeEvents } from '../src/places.js';
+import { hubsFromSettings, Hub, Placeable, placeEvents } from '../src/places.js';
+
+/** The place alone, for the tests that ask nothing else. */
+const assignPlaces = (events: Placeable[], hubs: Hub[], ownBucketMin?: number): string[] =>
+  placeEvents(events, hubs, ownBucketMin).map((p) => p.place);
 import { isOver } from '../src/validate.js';
 
 /**

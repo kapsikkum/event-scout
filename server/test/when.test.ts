@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseEnd, parseWhen } from '../src/when.js';
+import { parseEnd, parseWhen } from '../src/shared/when.js';
 import { useZone } from './zone.js';
 
 /**
