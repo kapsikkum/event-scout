@@ -7,6 +7,14 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.9.4](https://github.com/kapsikkum/event-scout/compare/v0.9.3...v0.9.4) (2026-09-18)
+
+
+### Fixes
+
+* **places:** place an event by the town it names, not the town you searched ([f5aa3b4](https://github.com/kapsikkum/event-scout/commit/f5aa3b48739d5475f09dc7befd1085c43371623a))
+* **places:** read the town out of a venue field that is only a shout ([4e437cf](https://github.com/kapsikkum/event-scout/commit/4e437cfcc328e7b84844e14973083b4a4c378688))
+
 ## [0.9.3](https://github.com/kapsikkum/event-scout/compare/v0.9.2...v0.9.3) (2026-09-17)
 
 
