@@ -7,6 +7,13 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.9.5](https://github.com/kapsikkum/event-scout/compare/v0.9.4...v0.9.5) (2026-09-18)
+
+
+### Fixes
+
+* **places:** look a town up in your own country, and never move an event to it ([b74fd22](https://github.com/kapsikkum/event-scout/commit/b74fd2241868a480fc531ba0a5137178787081d3))
+
 ## [0.9.4](https://github.com/kapsikkum/event-scout/compare/v0.9.3...v0.9.4) (2026-09-18)
 
 
