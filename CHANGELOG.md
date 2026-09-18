@@ -7,6 +7,13 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.9.6](https://github.com/kapsikkum/event-scout/compare/v0.9.5...v0.9.6) (2026-09-18)
+
+
+### Fixes
+
+* generate initial Zenith password ([#18](https://github.com/kapsikkum/event-scout/issues/18)) ([fb98d43](https://github.com/kapsikkum/event-scout/commit/fb98d43f192f7dcfd317a984a6e0dcf55b953494))
+
 ## [0.9.5](https://github.com/kapsikkum/event-scout/compare/v0.9.4...v0.9.5) (2026-09-18)
 
 
