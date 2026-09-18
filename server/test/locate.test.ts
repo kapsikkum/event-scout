@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { anchorQueries, coordsDisagree, pickHit, placeQueries, statedOf } from '../src/locate.js';
+import { anchorQueries, coordsDisagree, isPlace, pickHit, placeQueries, statedOf, textAnchorQuery } from '../src/locate.js';
 
 const BATHURST = { lat: -33.4166, lng: 149.5804, radiusKm: 50 };
 const PENRITH = { lat: -33.751, lng: 150.694, radiusKm: 25 };
@@ -59,4 +59,19 @@ test('stored coordinates that contradict the town are not believed', () => {
   assert.equal(coordsDisagree({ lat: darwinDrive.lat, lng: darwinDrive.lng }, darwin), true);
   assert.equal(coordsDisagree({ lat: -12.47, lng: 130.85 }, darwin), false, 'the other side of Darwin is still Darwin');
   assert.equal(coordsDisagree({ lat: 0, lng: 0 }, null), false, 'no town named, nothing to contradict');
+});
+
+test('a venue field that is really a shout gets one last try as text', () => {
+  const shout = statedOf('MXGP DARWIN AUSTRALIA', '');
+  assert.equal(textAnchorQuery('MXGP DARWIN AUSTRALIA', '', shout), 'MXGP DARWIN AUSTRALIA');
+  const named = statedOf('', '12 Main St, Orange, NSW');
+  assert.equal(textAnchorQuery('', '12 Main St, Orange, NSW', named), '', 'a real town needs no guessing');
+  assert.equal(textAnchorQuery('', '', { region: '', locality: '' }), '');
+});
+
+test('only a populated place may anchor a listing', () => {
+  assert.equal(isPlace({ ...darwin, kind: 'place:city' }), true);
+  assert.equal(isPlace({ ...darwinDrive, kind: 'highway:residential' }), false);
+  assert.equal(isPlace({ ...darwin, kind: 'amenity:pub' }), false);
+  assert.equal(isPlace(darwin), true, 'an older cached answer is allowed');
 });

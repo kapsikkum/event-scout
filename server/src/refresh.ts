@@ -3,7 +3,7 @@ import { db, getKv, getSettings, setKv } from './db.js';
 import { assignDedupeGroups, DedupeInput } from './dedupe.js';
 import { AREA_SLACK, inArea } from './shared/geo.js';
 import { regionsOfAreas } from './places.js';
-import { anchorQueries, Hit, pickHit, placeQueries, statedOf } from './locate.js';
+import { anchorQueries, Hit, isPlace, pickHit, placeQueries, statedOf, textAnchorQuery } from './locate.js';
 import { MAX_DURATION_MS } from './shared/when.js';
 import { photoScore } from './photoScore.js';
 import { crawlerSource } from './sources/crawler.js';
@@ -409,12 +409,25 @@ async function placeRow(
   // belongs at Darwin, where the area rule can see it, not at the Darwin Drive
   // a search for "Darwin, Bathurst" turns up.
   let anchor: Hit | null = null;
+  const fits = (h: Hit): boolean => !stated.region || !regionOf(h.displayName) || regionOf(h.displayName) === stated.region;
   for (const town of anchorQueries(stated)) {
     try {
       const hits = await ask(town, spend);
       if (hits === null) return false;
-      anchor = hits.find((h) => !stated.region || !regionOf(h.displayName) || regionOf(h.displayName) === stated.region) ?? null;
+      anchor = hits.find(fits) ?? null;
       if (anchor) break;
+    } catch {
+      errored = true;
+    }
+  }
+  // A venue field that is really a shout — "MXGP DARWIN AUSTRALIA" — names its
+  // town and nothing else useful. Only an answer that is a town is taken.
+  const text = anchor ? '' : textAnchorQuery(row.venue_name, row.address, stated);
+  if (text) {
+    try {
+      const hits = await ask(text, spend);
+      if (hits === null) return false;
+      anchor = hits.find((h) => fits(h) && isPlace(h)) ?? null;
     } catch {
       errored = true;
     }

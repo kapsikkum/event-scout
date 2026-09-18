@@ -34,6 +34,8 @@ export interface Hit {
   displayName: string;
   lat: number;
   lng: number;
+  /** What the geocoder called it, "place:town". Absent in older cached answers. */
+  kind?: string;
 }
 
 /** An area being searched: enough of it to measure a result against. */
@@ -71,6 +73,46 @@ export const ANCHOR_REACH_KM = 50;
 export function anchorQueries(stated: Stated): string[] {
   if (!stated.locality) return [];
   return stated.region ? [`${stated.locality}, ${stated.region}`, stated.locality] : [stated.locality];
+}
+
+/**
+ * What a town, suburb or city comes back as. A pub, a park or a street may
+ * share a town's name — Darwin Drive, the Victoria Hotel — and cannot stand
+ * in for one.
+ */
+const PLACE_KINDS = new Set([
+  'city', 'town', 'village', 'hamlet', 'suburb', 'quarter', 'neighbourhood', 'locality',
+  'municipality', 'county', 'district', 'region', 'state', 'province', 'island',
+]);
+
+/**
+ * Whether a result is a populated place rather than a thing inside one.
+ *
+ * An answer cached before the kind was kept says nothing either way, and is
+ * allowed: those were all looked up as towns.
+ */
+export function isPlace(hit: Hit): boolean {
+  if (!hit.kind) return true;
+  const [group, type] = hit.kind.split(':');
+  return (group === 'place' || group === 'boundary') && PLACE_KINDS.has(type);
+}
+
+/**
+ * A last try at the town, for a listing whose "town" is not one.
+ *
+ * Instagram and flyer text leaves things like "MXGP DARWIN AUSTRALIA" in the
+ * venue field: no address, no state, and localityOf can only hand back the
+ * whole shout. The geocoder reads it as Darwin, and a populated place is
+ * exactly what this needs — so the answer is taken only when it is one.
+ */
+export function textAnchorQuery(venueName: string, address: string, stated: Stated): string {
+  const text = (address || venueName).trim();
+  if (!text || !stated.locality) return '';
+  // Only when the town on offer is not a plausible town: several words, or
+  // shouted. A real one has already been tried by anchorQueries.
+  const words = stated.locality.trim().split(/\s+/);
+  const shouted = stated.locality === stated.locality.toUpperCase();
+  return words.length > 2 || shouted ? text.slice(0, 120) : '';
 }
 
 /**

@@ -6,6 +6,12 @@ export interface GeocodeResult {
   displayName: string;
   lat: number;
   lng: number;
+  /**
+   * What the geocoder says this is — "place:town", "amenity:pub" — or absent
+   * for an answer cached before this was kept. Only a populated place can
+   * anchor a listing; see locate.ts.
+   */
+  kind?: string;
 }
 
 const cacheKeyFor = (query: string): string => `geocode:${query.toLowerCase().trim()}`;
@@ -41,11 +47,13 @@ export async function geocode(query: string): Promise<GeocodeResult[]> {
 
   const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
   if (!res.ok) throw new Error(`Nominatim returned ${res.status}`);
-  const data = (await res.json()) as { display_name: string; lat: string; lon: string }[];
+  const data = (await res.json()) as
+    { display_name: string; lat: string; lon: string; class?: string; type?: string }[];
   const results = data.map((r) => ({
     displayName: r.display_name,
     lat: parseFloat(r.lat),
     lng: parseFloat(r.lon),
+    kind: `${r.class ?? ''}:${r.type ?? ''}`,
   }));
   setKv(cacheKey, JSON.stringify(results));
   return results;
