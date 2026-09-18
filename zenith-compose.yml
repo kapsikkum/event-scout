@@ -31,6 +31,7 @@ x-zenith:
     # Anyone who can reach the app can read the list; this is what stops them
     # changing anything, or reading Settings, which holds every API key.
     AUTH_PASSWORD:
+      generate: '[A-Za-z0-9]{32}'
       input:
         label: Password
         description: Needed to change anything, and to see Settings.
