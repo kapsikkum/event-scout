@@ -218,8 +218,10 @@ whose category you set by hand (for the category rule), and events with
 usually the small local thing posted only on Instagram, not something far away.
 
 **A listing is placed by the town it names, never by the town you searched.**
-Its town is looked up first, on its own, and everything else is measured
-against that: a venue is believed where it sits within 50 km of it, and a
+Its town is looked up first, on its own — in the country your areas are in,
+and in the state the listing names, since there is a Penrith in England and an
+Orange in California and the geocoder ranks both first — and everything else is
+measured against that: a venue is believed where it sits within 50 km of it, and a
 listing that names no town at all is the only one tried with your area names
 added. This is the difference between an event being where it says it is and
 being dragged to your doorstep — looking up "Darwin, Bathurst" finds Darwin

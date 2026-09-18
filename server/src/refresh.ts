@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import { db, getKv, getSettings, setKv } from './db.js';
 import { assignDedupeGroups, DedupeInput } from './dedupe.js';
 import { AREA_SLACK, inArea } from './shared/geo.js';
-import { regionsOfAreas } from './places.js';
-import { anchorQueries, Hit, isPlace, pickHit, placeQueries, statedOf, textAnchorQuery } from './locate.js';
+import { countriesOfAreas, regionsOfAreas } from './places.js';
+import { anchorQueries, Hit, isPlace, pickAnchor, pickHit, placeQueries, statedOf, textAnchorQuery } from './locate.js';
 import { MAX_DURATION_MS } from './shared/when.js';
 import { photoScore } from './photoScore.js';
 import { crawlerSource } from './sources/crawler.js';
@@ -361,6 +361,7 @@ const GEOCODE_SPACING_MS = 1100;
  */
 async function geocodeMissing(locations: Location[]): Promise<number> {
   if (locations.length === 0) return 0;
+  const countries = countriesOfAreas(locations.map((l) => l.city));
   const rows = db
     .prepare(
       // A venue the model or the flyer read counts, where the listing gave none.
@@ -380,7 +381,7 @@ async function geocodeMissing(locations: Location[]): Promise<number> {
   let placed = 0;
   const spend = { asked: 0, budget: GEOCODE_BUDGET };
   for (const row of rows) {
-    if (await placeRow(row, locations, spend)) placed++;
+    if (await placeRow(row, locations, spend, countries)) placed++;
   }
   return placed;
 }
@@ -398,7 +399,8 @@ async function ask(query: string, spend: { asked: number; budget: number }): Pro
 async function placeRow(
   row: { id: number; venue_name: string; address: string },
   locations: Location[],
-  spend: { asked: number; budget: number }
+  spend: { asked: number; budget: number },
+  countries: string[] = []
 ): Promise<boolean> {
   const markTried = db.prepare('UPDATE events SET geocode_tried = 1 WHERE id = ?');
   const stated = statedOf(row.venue_name, row.address);
@@ -414,7 +416,7 @@ async function placeRow(
     try {
       const hits = await ask(town, spend);
       if (hits === null) return false;
-      anchor = hits.find(fits) ?? null;
+      anchor = pickAnchor(hits, { region: stated.region, areas: locations, slack: AREA_SLACK, countries });
       if (anchor) break;
     } catch {
       errored = true;
@@ -427,7 +429,8 @@ async function placeRow(
     try {
       const hits = await ask(text, spend);
       if (hits === null) return false;
-      anchor = hits.find((h) => fits(h) && isPlace(h)) ?? null;
+      const found = pickAnchor(hits, { region: stated.region, areas: locations, slack: AREA_SLACK, countries });
+      anchor = found && isPlace(found) ? found : null;
     } catch {
       errored = true;
     }
@@ -514,7 +517,8 @@ export async function addManualEvent(input: ManualEvent): Promise<string> {
 
   if (row.venue_name || row.address) {
     try {
-      await placeRow(row, await eventLocations(getSettings()), { asked: 0, budget: GEOCODE_BUDGET });
+      const here = await eventLocations(getSettings());
+      await placeRow(row, here, { asked: 0, budget: GEOCODE_BUDGET }, countriesOfAreas(here.map((l) => l.city)));
     } catch {
       // The next refresh tries again; saving must not fail on a map lookup.
     }

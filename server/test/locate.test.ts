@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { anchorQueries, coordsDisagree, isPlace, pickHit, placeQueries, statedOf, textAnchorQuery } from '../src/locate.js';
+import { anchorQueries, coordsDisagree, countryOf, isPlace, pickAnchor, pickHit, placeQueries, statedOf, textAnchorQuery } from '../src/locate.js';
 
 const BATHURST = { lat: -33.4166, lng: 149.5804, radiusKm: 50 };
 const PENRITH = { lat: -33.751, lng: 150.694, radiusKm: 25 };
@@ -74,4 +74,38 @@ test('only a populated place may anchor a listing', () => {
   assert.equal(isPlace({ ...darwinDrive, kind: 'highway:residential' }), false);
   assert.equal(isPlace({ ...darwin, kind: 'amenity:pub' }), false);
   assert.equal(isPlace(darwin), true, 'an older cached answer is allowed');
+});
+
+// Penrith, England and Orange, California both outrank the New South Wales
+// ones in the geocoder's own order. Taking its first answer put 121 events on
+// the wrong continent, Penrith RSL among them.
+const penrithUk = { displayName: 'Penrith, Westmorland and Furness, England, United Kingdom', lat: 54.66, lng: -2.75, kind: 'place:town' };
+const penrithNsw = { displayName: 'Penrith, Sydney, New South Wales, 2750, Australia', lat: -33.751, lng: 150.694, kind: 'place:suburb' };
+const orangeCa = { displayName: 'Orange County, California, United States', lat: 33.79, lng: -117.85, kind: 'boundary:county' };
+const orangeNsw = { displayName: 'Orange, New South Wales, 2800, Australia', lat: -33.28, lng: 149.1, kind: 'place:city' };
+
+test('the town is chosen in the country the areas are in', () => {
+  const opts = { region: '', areas, slack: SLACK, countries: ['australia'] };
+  assert.equal(pickAnchor([penrithUk, penrithNsw], opts), penrithNsw);
+  assert.equal(pickAnchor([orangeCa, orangeNsw], opts), orangeNsw);
+  assert.equal(pickAnchor([orangeCa], opts), null, 'nothing here is in the country');
+  assert.equal(pickAnchor([penrithUk], { ...opts, countries: [] }), penrithUk, 'no country known, no rule');
+});
+
+test('a stated region must match the town, not merely fail to contradict it', () => {
+  const opts = { region: 'nsw', areas, slack: SLACK, countries: ['australia'] };
+  assert.equal(pickAnchor([penrithUk, penrithNsw], opts), penrithNsw);
+  assert.equal(pickAnchor([penrithUk], opts), null);
+});
+
+test('a town outside every area still anchors, so it can be seen to be far', () => {
+  const opts = { region: '', areas, slack: SLACK, countries: ['australia'] };
+  assert.equal(pickAnchor([darwinDrive, { ...darwin, kind: 'place:city' }], opts), darwinDrive, 'in an area wins');
+  assert.equal(pickAnchor([{ ...darwin, kind: 'place:city' }], opts)?.displayName, darwin.displayName);
+});
+
+test('the country is read off the end of a result', () => {
+  assert.equal(countryOf(penrithNsw.displayName), 'australia');
+  assert.equal(countryOf(penrithUk.displayName), 'united kingdom');
+  assert.equal(countryOf('Mount Panorama, Bathurst'), '', 'no country named');
 });

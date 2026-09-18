@@ -1,5 +1,5 @@
 import { haversineKm } from './shared/geo.js';
-import { localityOf, regionOf } from './regions.js';
+import { isCountry, localityOf, regionOf } from './regions.js';
 
 /**
  * Working out where a listing is, without inventing an answer.
@@ -155,6 +155,41 @@ export function placeQueries(
 
 /** Lookups one listing may cost, so a stubborn one cannot eat a whole refresh. */
 export const MAX_QUERIES = 4;
+
+/** The country a result ends with, lowercased. '' when it names none. */
+export function countryOf(displayName: string): string {
+  const parts = displayName.split(',').map((p) => p.trim()).filter(Boolean);
+  const last = parts[parts.length - 1] ?? '';
+  return isCountry(last) ? last.toLowerCase() : '';
+}
+
+/**
+ * The town a listing means, out of everything that shares its name.
+ *
+ * There is a Penrith in England and an Orange in California, and the geocoder
+ * ranks both above the New South Wales ones. Taking its first answer pinned
+ * 121 events on the wrong continent. So: the region the listing states must
+ * match, the country must be one the areas are in, and of what is left an
+ * answer inside an area wins, then a populated place, then whatever remains.
+ */
+export function pickAnchor(
+  hits: Hit[],
+  opts: { region: string; areas: LocateArea[]; slack: number; countries: string[] }
+): Hit | null {
+  const candidates = hits.filter((hit) => {
+    // Strict, unlike a precise result: an anchor decides everything after it,
+    // and "Penrith, England" names no region this app would recognise.
+    if (opts.region && regionOf(hit.displayName) !== opts.region) return false;
+    const country = countryOf(hit.displayName);
+    return !(opts.countries.length > 0 && country !== '' && !opts.countries.includes(country));
+  });
+  return (
+    candidates.find((h) => inAnyArea(h.lat, h.lng, opts.areas, opts.slack)) ??
+    candidates.find((h) => isPlace(h)) ??
+    candidates[0] ??
+    null
+  );
+}
 
 /** Whether a result names the region the listing does. A result that names none is allowed. */
 export function regionFits(hit: Hit, region: string): boolean {

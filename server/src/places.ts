@@ -16,6 +16,7 @@
 
 import { haversineKm } from './shared/geo.js';
 import { cachedGeocode } from './geocode.js';
+import { countryOf } from './locate.js';
 import { regionOf, stripRegionAndPostcode } from './regions.js';
 
 /** The place an event lands at when it is near none of the user's towns. */
@@ -377,6 +378,19 @@ function hubNamedIn(ev: Placeable, hubs: Hub[]): string {
  * is configured, so this is usually known. Empty when none of them can be
  * told, which switches the region rule off rather than guessing.
  */
+export function countriesOfAreas(areaNames: string[]): string[] {
+  const out = new Set<string>();
+  for (const name of areaNames) {
+    const region = regionOf(name);
+    const hits = cachedGeocode(name) ?? [];
+    const hit = hits.find((h) => !region || regionOf(h.displayName) === region) ?? hits[0];
+    const country = hit ? countryOf(hit.displayName) : '';
+    if (country) out.add(country);
+  }
+  return [...out];
+}
+
+/** The regions the searched areas are in, as regionOf keys. */
 export function regionsOfAreas(areaNames: string[]): string[] {
   const out = new Set<string>();
   for (const name of areaNames) {

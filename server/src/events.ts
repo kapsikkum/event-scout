@@ -5,10 +5,11 @@ import { normalizeTitle } from './dedupe.js';
 import { localityOf, regionOf } from './regions.js';
 import { flyerHref } from './flyers.js';
 import { storedPath } from './flyerStore.js';
-import { hubsFromSettings, placeEvents, regionsOfAreas } from './places.js';
+import { countriesOfAreas, hubsFromSettings, placeEvents, regionsOfAreas } from './places.js';
 import { cachedGeocode } from './geocode.js';
+import { AREA_SLACK } from './shared/geo.js';
 import { cullReason, vetting } from './cull.js';
-import { anchorQueries, coordsDisagree, statedOf } from './locate.js';
+import { anchorQueries, coordsDisagree, pickAnchor, statedOf } from './locate.js';
 import { vettingOn } from './enrich/pipeline.js';
 import { chooseFields, EditError, orderMembers, parseEditPatch } from './merge.js';
 import type { EditableField } from './merge.js';
@@ -291,19 +292,23 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
   // A position that contradicts the town the listing names is not believed:
   // events placed before locate.ts existed sit on a street in the area that
   // happens to share a far town's name. See coordsDisagree.
+  const hubs = hubsFromSettings(settings, positionOf);
+  const areaNames = [settings.city ?? '', ...(settings.eventAreas ?? []).map((a) => a.name)].filter(Boolean);
+  const countries = countriesOfAreas(areaNames);
   for (const ev of live) {
     if (ev.lat == null || ev.lng == null) continue;
     const stated = statedOf(ev.venueName, ev.address);
-    const fits = (h: { displayName: string }): boolean =>
-      !stated.region || !regionOf(h.displayName) || regionOf(h.displayName) === stated.region;
-    const anchor = anchorQueries(stated).flatMap((q) => cachedGeocode(q) ?? []).find(fits) ?? null;
+    const hits = anchorQueries(stated).flatMap((q) => cachedGeocode(q) ?? []);
+    const anchor = pickAnchor(hits, { region: stated.region, areas: hubs, slack: AREA_SLACK, countries });
+    // Dropped, never replaced. A town's own pin is the wrong place to put an
+    // event, and the cached answer for a bare town name is what put Penrith
+    // RSL in England; without coordinates the town still decides the heading.
     if (coordsDisagree({ lat: ev.lat, lng: ev.lng }, anchor)) {
-      ev.lat = anchor!.lat;
-      ev.lng = anchor!.lng;
+      ev.lat = null;
+      ev.lng = null;
     }
   }
-  const areaRegions = regionsOfAreas([settings.city ?? '', ...(settings.eventAreas ?? []).map((a) => a.name)].filter(Boolean));
-  const hubs = hubsFromSettings(settings, positionOf);
+  const areaRegions = regionsOfAreas(areaNames);
   const regionOfEvent = (ev: MergedEvent): string => regionOf(ev.address) || regionOf(ev.venueName);
   placeEvents(live.map((ev) => ({ ...ev, region: regionOfEvent(ev) })), hubs).forEach(({ place, area, badCoords }, i) => {
     live[i].place = place;
