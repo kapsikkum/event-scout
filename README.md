@@ -1,3 +1,5 @@
+[![Deploy with Zenith](https://cdn.zenith.hosting/buttons/deploy-with-zenith.svg)](https://zenith.hosting/apps/event-scout)
+
 # Event Scout
 
 Aggregates upcoming local events from several sources into one list, scored and
