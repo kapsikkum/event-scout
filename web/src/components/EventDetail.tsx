@@ -92,8 +92,18 @@ export function findSocials(ev: MergedEvent): Social[] {
   return [...found.values()];
 }
 
-export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose: () => void }) {
-  const { settings, setGroupFlag, unmergeGroup, setMergeParent, editEvent, editMode } = useStore();
+export default function EventDetail({
+  ev: initialEv,
+  onClose,
+  editMode: editModeProp = false,
+}: {
+  ev: MergedEvent;
+  onClose: () => void;
+  editMode?: boolean;
+}) {
+  const { events, settings, setGroupFlag, unmergeGroup, setMergeParent, editEvent, editMode: storeEditMode } = useStore();
+  const editMode = editModeProp || storeEditMode;
+  const ev = events.find((e) => e.group === initialEv.group) ?? initialEv;
   // Only the originals: a stored copy is a path on this server, and an image
   // override has to be an address a card can load anywhere.
   const flyers = [...new Set(ev.images.filter((src) => /^https?:\/\//i.test(src)))];
@@ -185,7 +195,7 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
         )}
 
         <div className="detail__meta">
-          <span className="detail__when">{formatWhen(ev)}</span>
+          <span className="detail__when">{formatWhen(ev, { full: true })}</span>
           {ev.category && <span className="tag">{ev.category}</span>}
           {ev.priceText && <span className="tag">{ev.priceText}</span>}
           {ev.isOnline && <span className="tag">Online</span>}
@@ -286,7 +296,13 @@ export default function EventDetail({ ev, onClose }: { ev: MergedEvent; onClose:
               ))}
             </ul>
             {ev.manual && (
-              <button className="ghost detail__unmerge" onClick={() => void unmergeGroup(ev.group)}>
+              <button
+                className="ghost detail__unmerge"
+                onClick={async () => {
+                  await unmergeGroup(ev.group);
+                  onClose();
+                }}
+              >
                 Unmerge
               </button>
             )}

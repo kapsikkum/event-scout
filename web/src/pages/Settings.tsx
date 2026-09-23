@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import CrawlerPanel from '../components/CrawlerPanel';
 import NotifyPanel from '../components/NotifyPanel';
-import { api, DensityStatus, EventTopic, GeocodeResult, LlmStatus, Settings as SettingsType, SourceStatus, VersionInfo } from '../api';
+import { api, DensityStatus, EventTopic, GeocodeResult, LlmQueueItem, LlmStatus, Settings as SettingsType, SourceStatus, VersionInfo } from '../api';
 import { useStore } from '../store';
 import Tasks from './Tasks';
 
@@ -570,7 +570,189 @@ function LocalModelSection({
       </section>
 
       <VisionSection draft={draft} set={set} llm={llm} reload={() => void reload()} />
+
+      <LlmQueueSection />
     </>
+  );
+}
+
+/**
+ * Events currently waiting for or recently checked by the local model.
+ *
+ * Shows the raw queued events in the database so the user can verify
+ * that crawled and scraped events are actually being put in, and inspect
+ * their vetting verdicts.
+ */
+function LlmQueueSection() {
+  const [queue, setQueue] = useState<LlmQueueItem[]>([]);
+  const [totalWaiting, setTotalWaiting] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'pending' | 'vetted'>('all');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [runMsg, setRunMsg] = useState('');
+
+  const loadQueue = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.llmQueue(filter, 300);
+      setQueue(res.queue);
+      setTotalWaiting(res.totalWaiting);
+    } catch {
+      // Ignored if failed
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    void loadQueue();
+  }, [loadQueue]);
+
+  const runCheck = async () => {
+    setRunning(true);
+    setRunMsg('');
+    try {
+      const res = await api.runTask('enrich');
+      setRunMsg(res.message || (res.ok ? 'Started model check.' : 'Could not run.'));
+      setTimeout(() => void loadQueue(), 2000);
+    } catch (err) {
+      setRunMsg((err as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const filtered = queue.filter((item) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      item.title.toLowerCase().includes(q) ||
+      (item.venueName && item.venueName.toLowerCase().includes(q)) ||
+      (item.address && item.address.toLowerCase().includes(q)) ||
+      item.source.toLowerCase().includes(q)
+    );
+  });
+
+  const PAGE_SIZE = 25;
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const displayed = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  return (
+    <section>
+      <h2>
+        📋 Events queued to be checked
+        {totalWaiting > 0 && (
+          <span className="badge" style={{ marginLeft: 8, fontSize: '0.8rem', verticalAlign: 'middle' }}>
+            {totalWaiting} waiting
+          </span>
+        )}
+      </h2>
+      <p className="hint">
+        Raw events stored in the database waiting for or processed by the local model.
+        Use this to verify that events from the crawler and other sources are being ingested.
+      </p>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <input
+          type="search"
+          placeholder="Filter by title, venue, source…"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+          style={{ maxWidth: 280 }}
+        />
+        <select value={filter} onChange={(e) => { setFilter(e.target.value as 'all' | 'pending' | 'vetted'); setPage(0); }}>
+          <option value="all">All ({queue.length})</option>
+          <option value="pending">Waiting to be checked</option>
+          <option value="vetted">Already checked / enriched</option>
+        </select>
+        <button onClick={() => void loadQueue()} disabled={loading}>
+          {loading ? 'Refreshing…' : '↻ Refresh'}
+        </button>
+        <button className="primary" onClick={() => void runCheck()} disabled={running}>
+          {running ? 'Starting…' : '▶ Run check now'}
+        </button>
+        {runMsg && <span className="hint" style={{ margin: 0 }}>{runMsg}</span>}
+      </div>
+
+      {displayed.length === 0 ? (
+        <p className="hint">{loading ? 'Loading queue…' : 'No queued events match.'}</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="crawltable crawltable--wide" style={{ width: '100%', fontSize: '0.85rem' }}>
+            <thead>
+              <tr>
+                <th style={{ width: 90 }}>Source</th>
+                <th>When</th>
+                <th>Title</th>
+                <th>Where</th>
+                <th style={{ width: 140 }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayed.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <span className="badge" style={{ fontSize: '0.75rem', padding: '2px 6px' }}>
+                      {item.source}
+                    </span>
+                  </td>
+                  <td className="crawltable__when" style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
+                    {new Date(item.startTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  </td>
+                  <td>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noreferrer" style={{ fontWeight: 500 }}>
+                        {item.title}
+                      </a>
+                    ) : (
+                      <span style={{ fontWeight: 500 }}>{item.title}</span>
+                    )}
+                  </td>
+                  <td style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>
+                    {[item.venueName, item.address].filter(Boolean).join(' · ') || '—'}
+                  </td>
+                  <td>
+                    {item.status === 'waiting' && (
+                      <span style={{ color: 'var(--accent, #38bdf8)' }}>⏳ Waiting</span>
+                    )}
+                    {item.status === 'accepted' && (
+                      <span style={{ color: 'var(--green, #4ade80)' }}>✓ Event</span>
+                    )}
+                    {item.status === 'rejected' && (
+                      <span style={{ color: 'var(--red, #f87171)' }} title={item.vetNote}>
+                        ✕ Not event
+                      </span>
+                    )}
+                    {item.status === 'enriched' && (
+                      <span style={{ color: 'var(--green, #4ade80)' }}>✓ Enriched</span>
+                    )}
+                    {item.status === 'failed' && (
+                      <span style={{ color: 'var(--muted)' }}>⚠ Failed</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {pages > 1 && (
+            <div className="pager" style={{ marginTop: 8 }}>
+              <button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+                ‹ Prev
+              </button>
+              <span className="hint">
+                {page + 1} of {pages} ({filtered.length} events)
+              </span>
+              <button disabled={page >= pages - 1} onClick={() => setPage((p) => p + 1)}>
+                Next ›
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

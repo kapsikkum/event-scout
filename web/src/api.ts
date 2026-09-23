@@ -281,6 +281,25 @@ export interface LlmStatus {
   vision: { enabled: boolean; model: string; modelInstalled: boolean; backlog: number; read: number };
 }
 
+export interface LlmQueueItem {
+  id: number;
+  title: string;
+  startTime: string;
+  source: string;
+  venueName?: string;
+  address?: string;
+  url?: string;
+  vettedAt?: string;
+  vetNote?: string;
+  status: 'waiting' | 'accepted' | 'rejected' | 'failed' | 'enriched';
+}
+
+export interface LlmQueueResponse {
+  queue: LlmQueueItem[];
+  totalWaiting: number;
+  count: number;
+}
+
 /** One line in the tasks console. */
 export interface LogEntry {
   seq: number;
@@ -543,6 +562,20 @@ export interface CrawlerStatus {
   feedList?: { url: string; site: string; foundOn: string }[];
 }
 
+/** A single event held in the crawler's queue, before server filtering. */
+export interface CrawlerFind {
+  id: string;
+  title: string;
+  startTime: string;
+  dateOnly?: boolean;
+  venueName?: string;
+  address?: string;
+  lat?: number | null;
+  lng?: number | null;
+  url?: string;
+  sourceId?: string;
+}
+
 /** What reading one page turned up. */
 export interface CrawlPageReport {
   url: string;
@@ -646,6 +679,8 @@ export const api = {
   crawlerStatus: () => fetch('/api/crawler/status').then((r) => json<CrawlerStatus>(r)),
   crawlerPages: (sort: 'reads' | 'recent') =>
     fetch(`/api/crawler/pages?sort=${sort}`).then((r) => json<{ pages: CrawlerPageRow[]; problem?: string }>(r)),
+  crawlerEvents: () =>
+    fetch('/api/crawler/events').then((r) => json<{ events: CrawlerFind[]; count: number; problem?: string }>(r)),
   crawlerRun: () =>
     fetch('/api/crawler/run', { method: 'POST' }).then((r) => json<{ ok: boolean; message?: string }>(r)),
   crawlerCrawl: (url: string) =>
@@ -724,6 +759,8 @@ export const api = {
   revokeApiToken: () =>
     fetch('/api/auth/token', { method: 'DELETE' }).then((r) => json<{ token: string }>(r)),
   llmStatus: () => fetch('/api/llm/status').then((r) => json<LlmStatus>(r)),
+  llmQueue: (status = 'all', limit = 100) =>
+    fetch(`/api/llm/queue?status=${encodeURIComponent(status)}&limit=${limit}`).then((r) => json<LlmQueueResponse>(r)),
   llmReset: () => fetch('/api/llm/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),
   visionReset: () => fetch('/api/vision/reset', { method: 'POST' }).then((r) => json<{ cleared: number }>(r)),
   // `since` is the highest sequence number already held, so a poll carries only
@@ -773,9 +810,9 @@ export const api = {
       body: JSON.stringify({ id }),
     }).then((r) => json<{ event: MergedEvent | null }>(r)),
   unmerge: (group: string) =>
-    fetch(`/api/unmerge/${group}`, { method: 'POST' }).then((r) => json<{ split: number }>(r)),
+    fetch(`/api/unmerge/${encodeURIComponent(group)}`, { method: 'POST' }).then((r) => json<{ split: number }>(r)),
   setGroupFlag: (group: string, flags: { starred?: boolean; hidden?: boolean }) =>
-    fetch(`/api/groups/${group}`, {
+    fetch(`/api/groups/${encodeURIComponent(group)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(flags),

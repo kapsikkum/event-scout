@@ -175,7 +175,9 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   line-height: 1.15;
 }
 .card .datebadge .mon { font-size: 10.5px; color: var(--accent); font-weight: 700; letter-spacing: 1px; }
+.card .datebadge .mon.is-range { font-size: 8.5px; letter-spacing: 0.2px; }
 .card .datebadge .day { font-size: 17px; font-weight: 700; }
+.card .datebadge .day.is-range { font-size: 13.5px; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
 .card .score {
   position: absolute;
   top: 10px;
@@ -210,6 +212,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .badge.src-websearch { color: #c4b5fd; border-color: #43367a; }
 .badge.src-crawler { color: #5eead4; border-color: #1f5f58; cursor: help; }
 .badge--series { color: #93c5fd; border-color: #2b4a73; cursor: help; }
+.badge--multiday { color: #38bdf8; border-color: rgba(56, 189, 248, 0.45); background: rgba(56, 189, 248, 0.12); cursor: help; font-weight: 500; }
 /* First found within the week. Filled rather than outlined like the sources,
    because it is the one badge that stops being true. */
 .badge--new { color: #86efac; border-color: rgba(134, 239, 172, 0.45); background: rgba(134, 239, 172, 0.12); cursor: help; }

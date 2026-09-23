@@ -12,3 +12,33 @@ export function decodeEntities(text: string): string {
   el.innerHTML = text;
   return el.value;
 }
+
+/**
+ * Escapes special HTML characters (&, <, >, ", ') to prevent DOM XSS.
+ */
+export function escapeHtml(str: string): string {
+  if (!str) return '';
+  return str.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return c;
+    }
+  });
+}
+
+/**
+ * Verifies that a URL parses successfully and uses strictly http: or https: protocol.
+ */
+export function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+

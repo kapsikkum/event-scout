@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { api, CrawlerHistoryRow, CrawlerPageRow, CrawlerStatus, CrawlPageReport, IcalPreview, Unauthorized } from '../api';
+import { api, CrawlerFind, CrawlerHistoryRow, CrawlerPageRow, CrawlerStatus, CrawlPageReport, IcalPreview, Unauthorized } from '../api';
 import { useStore } from '../store';
 
 /**
@@ -513,6 +513,90 @@ function PagesSection() {
   );
 }
 
+/**
+ * All events held in the crawler's queue, before the server refresh picks
+ * them up. Useful for confirming that the crawler is actually finding
+ * things, and for diagnosing why something does not appear in the app.
+ */
+function FindsSection({
+  finds,
+  loading,
+  problem,
+  onRefresh,
+}: {
+  finds: CrawlerFind[];
+  loading: boolean;
+  problem: string;
+  onRefresh: () => void;
+}) {
+  const { rows, page, pages, setPage } = usePaged(finds, 50);
+  return (
+    <section>
+      <h2>Events queued for the app</h2>
+      <p className="hint">
+        Everything the crawler has found and is offering to the app, before
+        the server&apos;s next refresh filters them by date and area. If
+        something appears here but not in the main view, the refresh is
+        filtering it out — a mismatched state in the address or a venue
+        outside the area are the usual causes.
+      </p>
+      <div className="formrow" style={{ marginBottom: '0.5rem' }}>
+        <button onClick={onRefresh} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+        {finds.length > 0 && (
+          <span className="hint" style={{ marginLeft: '0.5rem' }}>
+            {NUMBER.format(finds.length)} event{finds.length === 1 ? '' : 's'} held
+          </span>
+        )}
+      </div>
+      {problem ? (
+        <p className="hint" style={{ color: 'var(--red)' }}>{problem}</p>
+      ) : loading && finds.length === 0 ? (
+        <p className="hint">Loading…</p>
+      ) : finds.length === 0 ? (
+        <p className="hint">Nothing held yet — the crawler has not found any events, or has not run.</p>
+      ) : (
+        <Fold id="raw-finds" title="All queued events" count={finds.length} defaultOpen={true}>
+          <table className="crawltable crawltable--wide">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Event</th>
+                <th>Where</th>
+                <th>Coords</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((ev) => (
+                <tr key={ev.id}>
+                  <td className="crawltable__when">{whenOf(ev)}</td>
+                  <td>
+                    {ev.url ? (
+                      <a href={ev.url} target="_blank" rel="noreferrer">
+                        {ev.title}
+                      </a>
+                    ) : (
+                      ev.title
+                    )}
+                  </td>
+                  <td>{[ev.venueName, ev.address].filter(Boolean).join(' · ')}</td>
+                  <td className="hint">
+                    {ev.lat != null && ev.lng != null
+                      ? `${ev.lat.toFixed(3)}, ${ev.lng.toFixed(3)}`
+                      : 'no coords'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pager page={page} pages={pages} total={finds.length} setPage={setPage} />
+        </Fold>
+      )}
+    </section>
+  );
+}
+
 export default function CrawlerPanel() {
   const [status, setStatus] = useState<CrawlerStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -520,6 +604,23 @@ export default function CrawlerPanel() {
   const [pageUrl, setPageUrl] = useState('');
   const [reading, setReading] = useState(false);
   const [report, setReport] = useState<CrawlPageReport | null>(null);
+  const [finds, setFinds] = useState<CrawlerFind[]>([]);
+  const [findsLoading, setFindsLoading] = useState(false);
+  const [findsProblem, setFindsProblem] = useState('');
+
+  const loadFinds = useCallback(async () => {
+    setFindsLoading(true);
+    setFindsProblem('');
+    try {
+      const answer = await api.crawlerEvents();
+      if (answer.problem) setFindsProblem(answer.problem);
+      setFinds((answer.events ?? []).sort((a, b) => a.startTime.localeCompare(b.startTime)));
+    } catch (err) {
+      setFindsProblem((err as Error).message);
+    } finally {
+      setFindsLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -531,11 +632,12 @@ export default function CrawlerPanel() {
 
   useEffect(() => {
     void load();
+    void loadFinds();
     // While a cycle is running the numbers move; the rest of the time this is
     // a page nobody is watching, so it polls slowly and only when it matters.
     const id = setInterval(() => void load(), 10000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, loadFinds]);
 
   const run = async (): Promise<void> => {
     setBusy(true);
@@ -809,6 +911,8 @@ export default function CrawlerPanel() {
       </section>
 
       <PagesSection />
+
+      <FindsSection finds={finds} loading={findsLoading} problem={findsProblem} onRefresh={() => void loadFinds()} />
 
       <section>
         <h2>How it is set up</h2>

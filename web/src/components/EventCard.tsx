@@ -35,26 +35,86 @@ function sourceTitle(ev: MergedEvent, source: string): string | undefined {
   return hosts.size ? `Found by the crawler on ${[...hosts].join(', ')}` : 'Found by the crawler';
 }
 
+export function isMultiDay(ev: { startTime: string; endTime?: string | null; dateOnly?: boolean }): boolean {
+  if (!ev.endTime) return false;
+  const start = new Date(ev.startTime);
+  const end = new Date(ev.endTime);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) return false;
+
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
+  if (startDay === endDay) return false;
+
+  if (ev.dateOnly) return true;
+
+  const durationHours = (end.getTime() - start.getTime()) / 3600_000;
+  if (durationHours >= 18) return true;
+  if (end.getHours() >= 6) return true;
+
+  return false;
+}
+
+export function multiDaySpan(ev: { startTime: string; endTime?: string | null; dateOnly?: boolean }): number {
+  if (!ev.endTime) return 1;
+  const start = new Date(ev.startTime);
+  const end = new Date(ev.endTime);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) return 1;
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
+  return Math.max(1, Math.round((endDay - startDay) / 86400_000) + 1);
+}
+
 /**
  * When an event is on, as it appears on a card, the map and the detail panel.
  *
- * The year is shown only when it is not the current one. Most of what is listed
- * is within the next few months, where "Sat, Sep 12" is how a person would say
- * it and a year is noise on every card — but the sources do carry dates a year
- * or more out, and those read as though they were this year's.
+ * For multi-day events, shows the date span (e.g. "Fri, Sep 25 – Mon, Sep 28").
+ * For single-day events with end times, shows the time range.
+ * The year is shown only when it is not the current one.
  */
-export function formatWhen(ev: MergedEvent): string {
+export function formatWhen(ev: MergedEvent, opts: { full?: boolean } = {}): string {
   const start = new Date(ev.startTime);
-  const otherYear = start.getFullYear() !== new Date().getFullYear();
-  const day = start.toLocaleDateString(undefined, {
+  const end = ev.endTime ? new Date(ev.endTime) : null;
+  const multi = isMultiDay(ev);
+  const now = new Date();
+  const startOtherYear = start.getFullYear() !== now.getFullYear();
+
+  const startDay = start.toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric',
-    ...(otherYear ? { year: 'numeric' } : {}),
+    ...(startOtherYear ? { year: 'numeric' } : {}),
   });
-  // A day with no stated time is shown as the day. It is stored as local
-  // midnight, and printing that would be inventing "12:00 am".
-  if (ev.dateOnly) return day;
+
+  if (multi && end && !isNaN(end.getTime())) {
+    const endOtherYear = end.getFullYear() !== now.getFullYear() || end.getFullYear() !== start.getFullYear();
+    const endDay = end.toLocaleDateString(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric',
+      ...(endOtherYear ? { year: 'numeric' } : {}),
+    });
+
+    const span = multiDaySpan(ev);
+
+    if (opts.full && !ev.dateOnly) {
+      const startTime = start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      const endTime = end.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      return `${startDay}, ${startTime} – ${endDay}, ${endTime} (${span} days)`;
+    }
+
+    if (opts.full && ev.dateOnly) {
+      return `${startDay} – ${endDay} (${span} days)`;
+    }
+
+    return `${startDay} – ${endDay}`;
+  }
+
+  if (ev.dateOnly) return startDay;
+
   const time = start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  return `${day} · ${time}`;
+  if (end && !isNaN(end.getTime()) && end > start) {
+    const endTime = end.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const isNextDay = end.getDate() !== start.getDate();
+    return `${startDay} · ${time} – ${endTime}${isNextDay ? ' (+1)' : ''}`;
+  }
+
+  return `${startDay} · ${time}`;
 }
 
 /** "Also on Tue 15 Sept, Fri 18 Sept … and 12 more", for the series badge. */
@@ -88,6 +148,12 @@ export default function EventCard({ ev, dates, onOpen, selected, onSelect }: Eve
   };
   const [noImage, setNoImage] = useState(false);
   const start = new Date(ev.startTime);
+  const end = ev.endTime ? new Date(ev.endTime) : null;
+  const multiDay = isMultiDay(ev);
+  const span = multiDay ? multiDaySpan(ev) : 1;
+  const startMon = MONTHS[start.getMonth()];
+  const endMon = end && multiDay && !isNaN(end.getTime()) ? MONTHS[end.getMonth()] : startMon;
+  const isMonthRange = startMon !== endMon;
   const distance =
     settings?.lat != null && settings.lng != null && ev.lat != null && ev.lng != null
       ? haversineKm(settings.lat, settings.lng, ev.lat, ev.lng)
@@ -116,9 +182,16 @@ export default function EventCard({ ev, dates, onOpen, selected, onSelect }: Eve
         ) : (
           <span>📷</span>
         )}
-        <div className="datebadge">
-          <div className="mon">{MONTHS[start.getMonth()]}</div>
-          <div className="day">{start.getDate()}</div>
+        <div
+          className="datebadge"
+          title={multiDay && end ? `Multi-day event: ${formatWhen(ev, { full: true })}` : undefined}
+        >
+          <div className={`mon${isMonthRange ? ' is-range' : ''}`}>
+            {isMonthRange ? `${startMon}–${endMon}` : startMon}
+          </div>
+          <div className={`day${multiDay ? ' is-range' : ''}`}>
+            {multiDay && end ? `${start.getDate()}–${end.getDate()}` : start.getDate()}
+          </div>
         </div>
         {ev.photoScore >= 40 && <div className="score">📷 {Math.round(ev.photoScore)}</div>}
       </div>
@@ -151,6 +224,14 @@ export default function EventCard({ ev, dates, onOpen, selected, onSelect }: Eve
         {ev.priceText && <div className="venue">{ev.priceText}</div>}
         <div className="badges">
           {ev.category && <span className="badge badge--cat">{ev.category}</span>}
+          {multiDay && (
+            <span
+              className="badge badge--multiday"
+              title={end ? `Multi-day event running across ${span} days (ends ${end.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })})` : undefined}
+            >
+              📅 {span} days
+            </span>
+          )}
           {ev.members.length > 1 && (
             <span className="badge badge--merged" title={ev.manual ? 'Merged by hand' : 'Matched automatically'}>
               {ev.manual ? '⛓ ' : '⧉ '}{ev.members.length} listings

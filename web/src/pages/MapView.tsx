@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { formatWhen } from '../components/EventCard';
 import { api, DensityArea, DensityGeoJson, VenueReading } from '../api';
 import { busyColour } from '../busy';
-import { decodeEntities } from '../text';
+import { decodeEntities, escapeHtml, isSafeUrl } from '../text.js';
 import { outOfSight } from '../filtering';
 
 // Distinct pin colors keyed by category hash.
@@ -15,9 +15,6 @@ function colorFor(category: string): string {
   for (const ch of category) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return PIN_COLORS[h % PIN_COLORS.length];
 }
-
-const escape = (s: string): string => s.replace(/[&<>"]/g, (c) =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
 /**
  * Venues can share a name - Bathurst has two "Mount Panorama" entries - so the
@@ -226,22 +223,22 @@ export default function MapView() {
       );
 
       marker.bindPopup(
-        `<strong>${escape(v.name)}</strong><br/>` +
+        `<strong>${escapeHtml(v.name)}</strong><br/>` +
           (isLive
             ? `<span style="color:${busyColour(v.score)}">● ${pct}% busy now</span>` +
               (v.typical != null ? ` <span style="opacity:.7">(usually ${v.typical}%)</span>` : '')
             : `<span style="opacity:.7">${pct}% typical for this hour</span>`) +
           (v.busiestDay
-            ? `<br/><span style="opacity:.7">Busiest ${escape(v.busiestDay)}` +
+            ? `<br/><span style="opacity:.7">Busiest ${escapeHtml(v.busiestDay)}` +
               (v.busiestHour != null ? ` around ${v.busiestHour}:00` : '') +
-              (v.quietestDay ? ` · quietest ${escape(v.quietestDay)}` : '') +
+              (v.quietestDay ? ` · quietest ${escapeHtml(v.quietestDay)}` : '') +
               `</span>`
             : '') +
           (here.length
             ? `<hr style="opacity:.2;margin:6px 0"/><strong>${here.length} event${here.length === 1 ? '' : 's'} here</strong><br/>` +
               here
                 .slice(0, 4)
-                .map((ev) => `${escape(decodeEntities(ev.title))}<br/><span style="opacity:.7">${escape(formatWhen(ev))}</span>`)
+                .map((ev) => `${escapeHtml(decodeEntities(ev.title))}<br/><span style="opacity:.7">${escapeHtml(formatWhen(ev))}</span>`)
                 .join('<br/>')
             : '')
       );
@@ -265,11 +262,11 @@ export default function MapView() {
         weight: ev.starred ? 3 : 1.5,
       });
       marker.bindPopup(
-        `<strong>${escape(decodeEntities(ev.title))}</strong><br/>` +
-          `${escape(formatWhen(ev))}<br/>` +
-          (ev.category ? `<span style="opacity:.7">${escape(ev.category)}</span><br/>` : '') +
-          `${escape(decodeEntities(ev.venueName || ev.address || ''))}<br/>` +
-          (url ? `<a href="${url}" target="_blank" rel="noreferrer">Open event page</a>` : '')
+        `<strong>${escapeHtml(decodeEntities(ev.title))}</strong><br/>` +
+          `${escapeHtml(formatWhen(ev))}<br/>` +
+          (ev.category ? `<span style="opacity:.7">${escapeHtml(ev.category)}</span><br/>` : '') +
+          `${escapeHtml(decodeEntities(ev.venueName || ev.address || ''))}<br/>` +
+          (url && isSafeUrl(url) ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Open event page</a>` : '')
       );
       marker.addTo(layer);
     }

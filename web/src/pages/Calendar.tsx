@@ -45,7 +45,7 @@ const addDays = (d: Date, n: number): Date => new Date(d.getFullYear(), d.getMon
 const isPast = (ev: MergedEvent): boolean => isOver(ev);
 
 export default function Calendar() {
-  const { events, settings } = useStore();
+  const { events, settings, auth } = useStore();
   const [view, setView] = useState<View>('agenda');
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState<string | null>(null);
@@ -53,6 +53,7 @@ export default function Calendar() {
   const [category, setCategory] = useState('');
   const [starredOnly, setStarredOnly] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [feedToken, setFeedToken] = useState<string | null>(null);
   // Past events, fetched a page at a time as the grid is paged back through.
   // The store holds only what is still to come, which is what every other
   // page wants; a month grid is the one place last week is worth seeing.
@@ -97,6 +98,25 @@ export default function Calendar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey]);
 
+  useEffect(() => {
+    if (!auth?.required || !auth?.authed) {
+      setFeedToken(null);
+      return;
+    }
+    let stale = false;
+    api
+      .feedToken()
+      .then((r) => {
+        if (!stale) setFeedToken(r.token);
+      })
+      .catch(() => {
+        if (!stale) setFeedToken(null);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [auth?.required, auth?.authed]);
+
   const all = useMemo(() => {
     const live = new Set(events.map((ev) => ev.group));
     return [...events, ...past.filter((ev) => !live.has(ev.group))];
@@ -140,6 +160,7 @@ export default function Calendar() {
   const feedQuery = [
     starredOnly ? 'starred=1' : '',
     category ? `category=${encodeURIComponent(category)}` : '',
+    auth?.required && feedToken ? `token=${encodeURIComponent(feedToken)}` : '',
   ].filter(Boolean).join('&');
   const feedPath = `/api/calendar.ics${feedQuery ? `?${feedQuery}` : ''}`;
   const feedUrl = `${window.location.origin}${feedPath}`;
