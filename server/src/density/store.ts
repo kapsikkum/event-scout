@@ -255,7 +255,10 @@ export function selectObservations(opts: SelectOpts = {}): StoredObservation[] {
   const where: string[] = [];
   const params: unknown[] = [];
   if (opts.area) { where.push('area = ?'); params.push(opts.area); }
-  if (opts.sinceTs) { where.push('ts >= ?'); params.push(opts.sinceTs); }
+  if (opts.sinceTs != null && Number.isFinite(opts.sinceTs)) {
+    where.push('ts >= ?');
+    params.push(opts.sinceTs);
+  }
   if (opts.sources?.length) {
     where.push(`source IN (${opts.sources.map(() => '?').join(',')})`);
     params.push(...opts.sources);

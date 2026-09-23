@@ -117,17 +117,62 @@ export interface RenderOpts {
   sources?: string[];
 }
 
+export function parseDensityParams(query: {
+  hours?: unknown;
+  all?: unknown;
+  hour?: unknown;
+  days?: unknown;
+}): RenderOpts {
+  const rawHours = query.hours != null && String(query.hours).trim() !== ''
+    ? Number(query.hours)
+    : NaN;
+  const hours = Number.isFinite(rawHours) && rawHours > 0 ? rawHours : undefined;
+
+  const rawHour = query.hour != null && String(query.hour).trim() !== ''
+    ? Number(query.hour)
+    : NaN;
+  const hourOfDay = Number.isInteger(rawHour) && rawHour >= 0 && rawHour <= 23 ? rawHour : undefined;
+
+  const parsedDays = query.days != null
+    ? String(query.days)
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s !== '')
+        .map(Number)
+        .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    : undefined;
+  const daysOfWeek = parsedDays && parsedDays.length > 0 ? parsedDays : undefined;
+
+  return {
+    hours,
+    all: query.all === '1',
+    hourOfDay,
+    daysOfWeek,
+  };
+}
+
+export function parseHistoryDays(days: unknown, defaultDays = 14): number {
+  const rawDays = days != null && String(days).trim() !== ''
+    ? Number(days)
+    : NaN;
+  return Number.isFinite(rawDays) && rawDays > 0 ? rawDays : defaultDays;
+}
+
 /**
  * Build the density grid for an area, as GeoJSON. Computed on demand — the
  * grid is small enough that caching it would cost more than it saves.
  */
 export function renderArea(area: Area, opts: RenderOpts = {}): unknown | null {
-  const hours = opts.hours ?? 24;
+  const hours = opts.hours != null && Number.isFinite(opts.hours) && opts.hours > 0 ? opts.hours : 24;
+  const hourOfDay = opts.hourOfDay != null && Number.isInteger(opts.hourOfDay) && opts.hourOfDay >= 0 && opts.hourOfDay <= 23 ? opts.hourOfDay : undefined;
+  const parsedDays = opts.daysOfWeek?.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  const daysOfWeek = parsedDays && parsedDays.length > 0 ? parsedDays : undefined;
+
   const rows = selectObservations({
     area: area.slug,
     sinceTs: opts.all ? undefined : Math.floor(Date.now() / 1000) - hours * 3600,
-    hourOfDay: opts.hourOfDay,
-    daysOfWeek: opts.daysOfWeek,
+    hourOfDay,
+    daysOfWeek,
     sources: opts.sources,
   });
   if (rows.length === 0) return null;
@@ -293,7 +338,8 @@ export function venueHistory(area: Area, venueName: string, days = 14): VenueHis
   const venue = loadVenues(area.slug).find((v) => v.name === venueName);
   if (!venue) return null;
 
-  const since = Math.floor(Date.now() / 1000) - days * 86400;
+  const validDays = Number.isFinite(days) && days > 0 ? days : 14;
+  const since = Math.floor(Date.now() / 1000) - validDays * 86400;
   const rows = selectObservations({ area: area.slug, sinceTs: since, sources: ['google-popular'] })
     .filter((r) => (r.meta as { name?: string } | null)?.name === venueName)
     .sort((a, b) => a.ts - b.ts);

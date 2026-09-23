@@ -1,5 +1,6 @@
 import ical from 'node-ical';
 import crypto from 'node:crypto';
+import { assertPublicUrl } from '../nethost.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
 
 /** How far ahead a feed is read. Council calendars publish years of bin nights. */
@@ -86,14 +87,30 @@ export function parseFeed(body: string, url: string, name: string, now = new Dat
   return { calendarName, total, events };
 }
 
+const MAX_REDIRECTS = 5;
+
 /** Fetch a feed and read it. Throws with a reason a person can act on. */
 export async function readFeed(url: string, name: string): Promise<ParsedFeed> {
-  const res = await fetch(feedUrl(url), {
-    signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
-    headers: { Accept: 'text/calendar, text/plain;q=0.9, */*;q=0.5' },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return parseFeed(await res.text(), url, name);
+  let target = feedUrl(url);
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    await assertPublicUrl(target);
+    const res = await fetch(target, {
+      signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+      headers: { Accept: 'text/calendar, text/plain;q=0.9, */*;q=0.5' },
+      redirect: 'manual',
+    });
+    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+      try {
+        target = new URL(res.headers.get('location')!, target).toString();
+      } catch {
+        throw new Error('bad redirect');
+      }
+      continue;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return parseFeed(await res.text(), url, name);
+  }
+  throw new Error('too many redirects');
 }
 
 export const icalSource: EventSourceAdapter = {

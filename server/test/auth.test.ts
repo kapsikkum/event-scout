@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
-import { needsAuth, readBearer, readCookie, secureEqual, signSession, verifySession } from '../src/auth.js';
+import { needsAuth, normalizePath, readBearer, readCookie, secureEqual, signSession, verifySession } from '../src/auth.js';
 
 const SECRET = crypto.randomBytes(32);
 
@@ -12,10 +12,58 @@ const SECRET = crypto.randomBytes(32);
  * anyone who could reach the port.
  */
 test('a read that returns a secret is gated like a write', () => {
-  for (const path of ['/api/settings', '/api/auth/feed-token', '/api/auth/token']) {
+  for (const path of ['/api/settings', '/api/auth/feed-token', '/api/auth/token', '/api/notify/status']) {
     assert.equal(needsAuth('GET', path), true, `${path} must not be readable`);
     assert.equal(needsAuth('HEAD', path), true, `${path} must not be readable by HEAD either`);
   }
+});
+
+test('gated reads with trailing slashes remain gated', () => {
+  for (const path of ['/api/settings/', '/api/auth/token/', '/api/auth/feed-token/', '/api/notify/status/']) {
+    assert.equal(needsAuth('GET', path), true, `${path} must be gated with trailing slash`);
+    assert.equal(needsAuth('HEAD', path), true, `${path} must be gated with trailing slash by HEAD`);
+  }
+});
+
+test('gated reads with varying casing remain gated', () => {
+  for (const path of [
+    '/api/Settings',
+    '/api/SETTINGS/',
+    '/API/settings',
+    '/API/AUTH/TOKEN',
+    '/api/Auth/Feed-Token/',
+    '/api/Notify/Status',
+    '/api/notify/status/',
+    '/api/settings?format=json',
+    '/api/Settings/?format=json',
+  ]) {
+    assert.equal(needsAuth('GET', path), true, `${path} must be gated regardless of casing, slashes, or query`);
+    assert.equal(needsAuth('HEAD', path), true, `${path} must be gated regardless of casing, slashes, or query by HEAD`);
+  }
+});
+
+test('open routes with trailing slashes or varying casing remain open', () => {
+  for (const path of [
+    '/api/auth/login/',
+    '/api/auth/logout/',
+    '/api/auth/status/',
+    '/api/Auth/Login',
+    '/API/AUTH/STATUS/',
+    '/api/auth/status?redirect=home',
+  ]) {
+    const method = path.includes('status') ? 'GET' : 'POST';
+    assert.equal(needsAuth(method, path), false, `${method} ${path} should be open`);
+  }
+});
+
+test('normalizePath cleans trailing slashes, casing, and query strings', () => {
+  assert.equal(normalizePath('/'), '/');
+  assert.equal(normalizePath('///'), '/');
+  assert.equal(normalizePath(''), '/');
+  assert.equal(normalizePath('/?test=1'), '/');
+  assert.equal(normalizePath('/api/settings/'), '/api/settings');
+  assert.equal(normalizePath('/API/Settings?foo=bar'), '/api/settings');
+  assert.equal(normalizePath('/api/auth/token/?query=1'), '/api/auth/token');
 });
 
 test('reading is open and changing is not', () => {

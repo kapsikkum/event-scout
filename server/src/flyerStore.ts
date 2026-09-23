@@ -54,23 +54,37 @@ function candidates(): Candidate[] {
     .all() as unknown as Candidate[];
 }
 
+const MAX_REDIRECTS = 5;
+
 /** Fetch one flyer, refusing anything that is not a believable image. */
-async function download(url: string): Promise<{ bytes: Buffer; extension: string }> {
+export async function download(url: string): Promise<{ bytes: Buffer; extension: string }> {
   // The address comes from a scraped listing, so it is chosen by whoever wrote
   // that listing rather than by anyone here. See nethost.ts.
-  await assertPublicUrl(url);
-  const res = await fetch(url, {
-    headers: BROWSER_HEADERS,
-    redirect: 'follow',
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const extension = extensionFor(res.headers.get('content-type') ?? '');
-  if (!extension) throw new Error(`not an image (${res.headers.get('content-type') || 'no type'})`);
-  const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length === 0) throw new Error('empty');
-  if (bytes.length > MAX_BYTES) throw new Error(`${Math.round(bytes.length / 1e6)} MB is too large`);
-  return { bytes, extension };
+  let target = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    await assertPublicUrl(target);
+    const res = await fetch(target, {
+      headers: BROWSER_HEADERS,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+      try {
+        target = new URL(res.headers.get('location')!, target).toString();
+      } catch {
+        throw new Error('bad redirect');
+      }
+      continue;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const extension = extensionFor(res.headers.get('content-type') ?? '');
+    if (!extension) throw new Error(`not an image (${res.headers.get('content-type') || 'no type'})`);
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length === 0) throw new Error('empty');
+    if (bytes.length > MAX_BYTES) throw new Error(`${Math.round(bytes.length / 1e6)} MB is too large`);
+    return { bytes, extension };
+  }
+  throw new Error('too many redirects');
 }
 
 /**

@@ -157,23 +157,74 @@ export function apiTokenValid(header: string | undefined): boolean {
  * in seconds is enough to make an online guessing attack pointless without ever
  * locking the owner out for long.
  */
-const FREE_ATTEMPTS = 5;
-const LOCKOUT_MS = 30_000;
-const attempts = new Map<string, { count: number; until: number }>();
+export const FREE_ATTEMPTS = 5;
+export const LOCKOUT_MS = 30_000;
+export const MAX_ATTEMPTS = 10_000;
+
+interface AttemptEntry {
+  count: number;
+  until: number;
+  lastAttempt: number;
+}
+
+const attempts = new Map<string, AttemptEntry>();
+
+export function pruneAttempts(now = Date.now()): void {
+  for (const [key, entry] of attempts) {
+    if (now - entry.lastAttempt > LOCKOUT_MS * 2 && entry.until <= now) {
+      attempts.delete(key);
+    }
+  }
+}
 
 export function loginBlockedFor(ip: string, now = Date.now()): number {
   const entry = attempts.get(ip);
-  if (!entry || entry.until <= now) return 0;
+  if (!entry) return 0;
+  if (now - entry.lastAttempt > LOCKOUT_MS * 2 && entry.until <= now) {
+    attempts.delete(ip);
+    return 0;
+  }
+  if (entry.until > 0 && entry.until <= now) {
+    entry.count = 0;
+    entry.until = 0;
+    return 0;
+  }
+  if (entry.until <= now) return 0;
   return entry.until - now;
 }
 
 export function noteLoginFailure(ip: string, now = Date.now()): void {
-  const entry = attempts.get(ip) ?? { count: 0, until: 0 };
+  pruneAttempts(now);
+  if (!attempts.has(ip) && attempts.size >= MAX_ATTEMPTS) {
+    const oldest = attempts.keys().next().value;
+    if (oldest !== undefined) attempts.delete(oldest);
+  }
+  const entry = attempts.get(ip) ?? { count: 0, until: 0, lastAttempt: now };
+  if (entry.until > 0 && entry.until <= now) {
+    entry.count = 0;
+    entry.until = 0;
+  }
+  if (now - entry.lastAttempt > LOCKOUT_MS) {
+    entry.count = 0;
+    entry.until = 0;
+  }
   entry.count++;
-  if (entry.count > FREE_ATTEMPTS) entry.until = now + LOCKOUT_MS;
+  entry.lastAttempt = now;
+  if (entry.count > FREE_ATTEMPTS) {
+    entry.until = now + LOCKOUT_MS;
+  }
+  attempts.delete(ip);
   attempts.set(ip, entry);
 }
 
 export function noteLoginSuccess(ip: string): void {
   attempts.delete(ip);
+}
+
+export function _resetAttemptsForTest(): void {
+  attempts.clear();
+}
+
+export function _attemptsCountForTest(): number {
+  return attempts.size;
 }

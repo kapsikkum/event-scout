@@ -2,6 +2,7 @@ import { extractEventsFromHtml } from './jsonld.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
 import { expandTopics, rotateQueries, webQuery } from './topics.js';
 import { BROWSER_HEADERS } from '../useragent.js';
+import { assertPublicUrl } from '../nethost.js';
 
 
 // DuckDuckGo's html endpoint flags the full Chrome fingerprint as a bot (a real
@@ -71,15 +72,34 @@ const ENGINES: { name: string; url: (q: string) => string; decode: (html: string
   { name: 'bing', url: (q) => `https://www.bing.com/search?q=${encodeURIComponent(q)}&setlang=en`, decode: decodeBingLinks },
 ];
 
-async function fetchText(url: string, timeoutMs: number, extraHeaders: Record<string, string> = {}): Promise<string> {
+const MAX_REDIRECTS = 5;
+
+export async function fetchText(url: string, timeoutMs: number, extraHeaders: Record<string, string> = {}): Promise<string> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { headers: { ...PAGE_HEADERS, ...extraHeaders }, redirect: 'follow', signal: ctrl.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const ct = res.headers.get('content-type') ?? '';
-    if (!/text\/html|application\/xhtml/i.test(ct) && ct !== '') throw new Error(`non-HTML (${ct})`);
-    return await res.text();
+    let target = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      await assertPublicUrl(target);
+      const res = await fetch(target, {
+        headers: { ...PAGE_HEADERS, ...extraHeaders },
+        redirect: 'manual',
+        signal: ctrl.signal,
+      });
+      if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        try {
+          target = new URL(res.headers.get('location')!, target).toString();
+        } catch {
+          throw new Error('bad redirect');
+        }
+        continue;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const ct = res.headers.get('content-type') ?? '';
+      if (!/text\/html|application\/xhtml/i.test(ct) && ct !== '') throw new Error(`non-HTML (${ct})`);
+      return await res.text();
+    }
+    throw new Error('too many redirects');
   } finally {
     clearTimeout(timer);
   }

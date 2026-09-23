@@ -41,6 +41,18 @@ const OPEN_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/s
 const GATED_READS = new Set(['/api/settings', '/api/auth/feed-token', '/api/auth/token', '/api/notify/status']);
 
 /**
+ * Normalizes a URL path for route matching:
+ * - Strips query strings if present
+ * - Converts to lowercase
+ * - Strips trailing slashes, preserving '/' for root
+ */
+export function normalizePath(path: string): string {
+  const withoutQuery = path.split('?')[0].toLowerCase();
+  const trimmed = withoutQuery.replace(/\/+$/, '');
+  return trimmed === '' ? '/' : trimmed;
+}
+
+/**
  * Whether a request needs a signed-in session.
  *
  * Classified here rather than route by route, because a per-route sprinkle is
@@ -49,8 +61,9 @@ const GATED_READS = new Set(['/api/settings', '/api/auth/feed-token', '/api/auth
  * called out by name.
  */
 export function needsAuth(method: string, path: string): boolean {
-  if (OPEN_ROUTES.has(path)) return false;
-  if (GATED_READS.has(path)) return true;
+  const normalized = normalizePath(path);
+  if (OPEN_ROUTES.has(normalized)) return false;
+  if (GATED_READS.has(normalized)) return true;
   return method !== 'GET' && method !== 'HEAD';
 }
 
