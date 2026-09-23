@@ -19,6 +19,8 @@ interface EbEvent {
   };
 }
 
+const TIMEOUT_MS = 15_000;
+
 export const eventbrite: EventSourceAdapter = {
   name: 'eventbrite',
   label: 'Eventbrite',
@@ -36,7 +38,10 @@ export const eventbrite: EventSourceAdapter = {
       url.searchParams.set('status', 'live');
       url.searchParams.set('order_by', 'start_asc');
       url.searchParams.set('expand', 'venue');
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${settings.eventbriteToken}` } });
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${settings.eventbriteToken}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
       if (res.status === 401) throw new MissingConfigError('Eventbrite rejected the token.');
       if (res.status === 404) continue; // bad organizer id — skip, don't fail the whole source
       if (!res.ok) throw new Error(`Eventbrite returned HTTP ${res.status} for organizer ${orgId}`);

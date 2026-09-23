@@ -21,6 +21,8 @@ interface TmEvent {
   };
 }
 
+const TIMEOUT_MS = 15_000;
+
 export const ticketmaster: EventSourceAdapter = {
   name: 'ticketmaster',
   label: 'Ticketmaster',
@@ -41,7 +43,7 @@ export const ticketmaster: EventSourceAdapter = {
       url.searchParams.set('sort', 'date,asc');
       url.searchParams.set('page', String(page));
 
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
       if (res.status === 401) throw new MissingConfigError('Ticketmaster rejected the API key.');
       if (!res.ok) throw new Error(`Ticketmaster returned HTTP ${res.status}`);
       const data = (await res.json()) as {

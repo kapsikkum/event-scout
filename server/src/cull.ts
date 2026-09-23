@@ -37,7 +37,7 @@ export interface Cullable {
   category: string;
   starred: boolean;
   unknownLocation: boolean;
-  sources: { source: string }[];
+  sources: { source: string; url?: string }[];
   edited: string[];
   /** The model's reason this is not an event at all, '' when it is or has not said. */
   notEvent?: string;
@@ -45,6 +45,89 @@ export interface Cullable {
   pending?: boolean;
   /** The region the listing names ('qld'), '' when it names none. */
   region?: string;
+  /** The event title, used for rule-based non-event detection. */
+  title?: string;
+  /** The event description, used for rule-based non-event detection. */
+  description?: string;
+}
+
+/**
+ * Rule-based detection of non-event listings.
+ *
+ * Returns a human-readable reason string when the listing is clearly not a
+ * genuine event (homepage, contact page, volunteer application, etc.), or null
+ * when no rule fires and the listing may be a real event.
+ *
+ * Does NOT fire on root-path URLs alone — many real event websites use their
+ * root URL as the canonical event page (e.g. challengebathurst.com/).
+ * Homepage detection requires a homepage-style title as well.
+ */
+export function detectNotAnEvent(title?: string, description?: string, url?: string): string | null {
+  const t = (title ?? '').trim();
+  const tLc = t.toLowerCase();
+
+  // Homepages: title must match a homepage pattern (root URL alone is not enough,
+  // as real events like challengebathurst.com use their root as the event page).
+  if (/^home\s*[-|–—:]/i.test(t)) return 'Homepage title';
+  if (/^welcome\s+to\s+/i.test(t)) return 'Homepage title';
+  if (/^homepage\b/i.test(t)) return 'Homepage title';
+
+  // Site information & contact pages — exact title matches
+  const exactNonEvent = [
+    'contact', 'contact us', 'about', 'about us',
+    'terms', 'terms and conditions', 'privacy policy', 'privacy',
+  ];
+  if (exactNonEvent.includes(tLc)) return 'Site information page';
+
+  // Site information & contact pages — URL path segments
+  if (url) {
+    try {
+      const path = new URL(url).pathname;
+      if (/\/(contact|about-us|privacy|terms)(\/|$)/i.test(path)) return 'Site information page';
+    } catch { /* invalid URL, skip */ }
+  }
+
+  // Volunteer / staff recruitment & applications
+  const volunteerPhrases = [
+    'volunteer application', 'volunteers needed', 'call for volunteers',
+    'officials & volunteers', 'officials and volunteers', 'volunteering calendar',
+    'volunteer resources', 'officials application', 'marshals wanted', 'marshals application',
+  ];
+  for (const phrase of volunteerPhrases) {
+    if (tLc.includes(phrase)) return 'Volunteer or staff recruitment page';
+  }
+
+  // Vendor / stallholder / grant applications
+  const vendorPhrases = [
+    'stallholders application', 'stallholder application', 'vendor application',
+    'exhibitor application', 'stallholder info', 'stallholder packages',
+    'grant application', 'grants application', 'scholarship application',
+  ];
+  for (const phrase of vendorPhrases) {
+    if (tLc.includes(phrase)) return 'Vendor or application page';
+  }
+
+  // Standalone navigation-only section titles
+  const navSections = ['stallholders', 'sponsors', 'volunteers', 'officials', 'marshals'];
+  if (navSections.includes(tLc)) return 'Site navigation section, not an event';
+
+  // News articles / race recaps identified by URL path + title keywords
+  if (url) {
+    try {
+      const path = new URL(url).pathname;
+      if (/\/(news|blog|press)(\/|$)/i.test(path)) {
+        const recapKeywords = [
+          'recap', 'results', 'breakthrough', 'at odds', 'health update',
+          'clash', 'emotional', 'stunned', 'delighted',
+        ];
+        for (const kw of recapKeywords) {
+          if (tLc.includes(kw)) return 'News article or race recap';
+        }
+      }
+    } catch { /* invalid URL, skip */ }
+  }
+
+  return null;
 }
 
 export interface CullHub {
@@ -70,8 +153,10 @@ export function cullReason(
 ): string | null {
   if (ev.starred) return null;
   if (ev.sources.some((s) => s.source === 'manual')) return null;
+  const nonEventReason = detectNotAnEvent(ev.title, ev.description, ev.sources[0]?.url);
+  if (nonEventReason) return `Not an event: ${nonEventReason}`;
   if (ev.notEvent) return `Not an event: ${ev.notEvent}`;
-  if (ev.pending) return 'Waiting to be checked';
+  if (ev.pending && !ev.area) return 'Waiting to be checked';
 
   const excluded = new Set((rules.excludedCategories ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean));
   if (excluded.has(ev.category.trim().toLowerCase()) && !ev.edited.includes('category')) {
@@ -123,14 +208,14 @@ export const VET_WAIT_MS = 6 * 3600_000;
  * was turned down. Pending while none has been read and the wait is not up.
  */
 export function vetting(
-  members: { llm_vet_note: string; llm_vetted_at: string }[],
+  members: { llm_vet_note: string; llm_vetted_at: string; enrichment_failed?: boolean }[],
   firstSeenAt: string | null,
   on: boolean,
   now = Date.now()
 ): { notEvent: string; pending: boolean; shownAt: string | null } {
   if (!on || !firstSeenAt) return { notEvent: '', pending: false, shownAt: firstSeenAt };
-  const read = members.filter((m) => m.llm_vetted_at);
-  const yes = read.filter((m) => !m.llm_vet_note).map((m) => m.llm_vetted_at).sort()[0];
+  const read = members.filter((m) => m.llm_vetted_at || m.enrichment_failed);
+  const yes = read.filter((m) => !m.llm_vet_note).map((m) => m.llm_vetted_at || firstSeenAt).sort()[0];
   const giveUp = new Date(Date.parse(firstSeenAt) + VET_WAIT_MS).toISOString();
   // Never before it was found, never after the wait ran out: an old event the
   // model gets round to today is not new today.

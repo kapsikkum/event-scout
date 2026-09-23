@@ -1,6 +1,7 @@
 import { fetchFb, parseEvent } from './facebook.js';
 import { expandTopics, rotateQueries } from './topics.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
+import { ollamaUrl } from '../enrich/pipeline.js';
 
 /**
  * Events from the crawler, which is a separate program.
@@ -48,6 +49,8 @@ export interface CrawlerConfig {
   interests: { city: string; terms: string[] }[];
   /** Pages to read every few hours, whatever the searches find. */
   seeds: string[];
+  ollamaUrl?: string;
+  llmModel?: string;
 }
 
 /**
@@ -76,7 +79,12 @@ export function crawlerConfigFrom(settings: Settings): CrawlerConfig {
   const seeds = [
     ...new Set((settings.crawlerUrls ?? []).map((u) => u.trim()).filter((u) => /^https?:\/\/\S+$/i.test(u))),
   ];
-  return { interests, seeds };
+  return {
+    interests,
+    seeds,
+    ollamaUrl: settings.llmEnabled ? ollamaUrl(settings.llmUrl) : undefined,
+    llmModel: settings.llmModel,
+  };
 }
 
 /**
@@ -94,7 +102,13 @@ export async function syncCrawler(settings: Settings): Promise<{ ok: boolean; me
   const base = crawlerBase(settings);
   if (!base) return { ok: false, message: 'no crawler address' };
   const off = settings.enabledSources?.crawler === false;
-  const body: CrawlerConfig = off ? { interests: [], seeds: [] } : crawlerConfigFrom(settings);
+  const config = crawlerConfigFrom(settings);
+  const body: CrawlerConfig = {
+    interests: off ? [] : config.interests,
+    seeds: off ? [] : config.seeds,
+    ollamaUrl: settings.llmEnabled ? ollamaUrl(settings.llmUrl) : undefined,
+    llmModel: settings.llmModel,
+  };
   try {
     const res = await fetch(`${base}/config`, {
       method: 'PUT',

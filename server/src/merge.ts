@@ -173,7 +173,7 @@ export function isSocialRow(row: Pick<EventRow, 'url'>): boolean {
  * post about it used to hand the post the title, because it happened to be
  * found first.
  */
-export function orderMembers(members: EventRow[]): EventRow[] {
+export function orderMembers<T extends EventRow>(members: T[]): T[] {
   const rank = (r: EventRow): number => (r.manual_parent === 1 ? 0 : isSocialRow(r) ? 2 : 1);
   return members
     .map((row, i) => ({ row, i }))

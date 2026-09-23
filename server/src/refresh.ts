@@ -681,7 +681,7 @@ function insertRaw(
     ev.imageUrl ?? '',
     // Sources are hopeless at this: Facebook labels everything "Facebook" and
     // most of the rest say "Event", which is what all of them are.
-    classifyEvent(ev.title, ev.description ?? '', ev.category ?? ''),
+    classifyEvent(ev.title, ev.description ?? '', ev.category ?? '', ev.venueName ?? ''),
     ev.priceText ?? '',
     ev.isOnline ? 1 : 0,
     photoScore(ev),
@@ -702,14 +702,14 @@ function insertRaw(
  */
 export function reclassifyAll(): number {
   const rows = db
-    .prepare('SELECT id, title, description, category FROM events')
-    .all() as unknown as { id: number; title: string; description: string; category: string }[];
+    .prepare('SELECT id, title, description, category, venue_name FROM events')
+    .all() as unknown as { id: number; title: string; description: string; category: string; venue_name: string | null }[];
   const update = db.prepare('UPDATE events SET category = ? WHERE id = ?');
   let changed = 0;
   for (const row of rows) {
     // The stored category may itself be a previous verdict, so classify from
     // the text alone and let the source's original value stay out of it.
-    const next = classifyEvent(row.title, row.description ?? '', '');
+    const next = classifyEvent(row.title, row.description ?? '', '', row.venue_name ?? '');
     if (next !== row.category) {
       update.run(next, row.id);
       changed++;
@@ -721,7 +721,7 @@ export function reclassifyAll(): number {
 function recomputeDedupeGroups(): void {
   const rows = db
     // The model's name where it gave one: a caption for a title matches nothing.
-    .prepare("SELECT id, COALESCE(NULLIF(llm_title, ''), title) AS title, start_time AS startTime, lat, lng, venue_name AS venueName, date_only AS dateOnly FROM events")
+    .prepare("SELECT id, COALESCE(NULLIF(llm_title, ''), title) AS title, start_time AS startTime, end_time AS endTime, lat, lng, venue_name AS venueName, date_only AS dateOnly FROM events ORDER BY start_time ASC, id ASC")
     .all() as unknown as DedupeInput[];
   const groups = assignDedupeGroups(rows);
   const update = db.prepare('UPDATE events SET dedupe_group = ? WHERE id = ?');

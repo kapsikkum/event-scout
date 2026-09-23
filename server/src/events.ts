@@ -171,12 +171,19 @@ function seriesKey(title: string, place: string): string {
  */
 export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[] {
   const rows = db
-    .prepare(`SELECT * FROM events ${opts.archived ? '' : 'WHERE archived = 0 '}ORDER BY start_time ASC`)
-    .all() as unknown as EventRow[];
+    .prepare(
+      `SELECT e.*, x.ok AS enrichment_ok, x.note AS enrichment_note, x.enriched_at AS enrichment_at
+         FROM events e
+         LEFT JOIN event_enrichment x ON x.event_id = e.id
+        ${opts.archived ? '' : 'WHERE e.archived = 0 '}
+        ORDER BY e.start_time ASC`
+    )
+    .all() as unknown as (EventRow & { enrichment_ok: number | null; enrichment_note: string | null; enrichment_at: string | null })[];
   const archivedGroups = new Set<string>();
   const vetOn = vettingOn();
 
-  const byGroup = new Map<string, EventRow[]>();
+  type MergedRow = EventRow & { enrichment_ok?: number | null; enrichment_note?: string | null; enrichment_at?: string | null };
+  const byGroup = new Map<string, MergedRow[]>();
   for (const row of rows) {
     const key = groupKey(row);
     const list = byGroup.get(key);
@@ -252,7 +259,15 @@ export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[
       starred: members.some((m) => m.starred === 1),
       hidden: members.some((m) => m.hidden === 1),
       firstSeenAt,
-      ...vetting(members, firstSeenAt, vetOn),
+      ...vetting(
+        members.map((m) => ({
+          llm_vet_note: m.llm_vet_note,
+          llm_vetted_at: m.llm_vetted_at,
+          enrichment_failed: m.enrichment_ok === 0,
+        })),
+        firstSeenAt,
+        vetOn
+      ),
       unknownLocation:
         !members.some((m) => m.lat != null && m.lng != null) && !venueName && !address && !locality,
       // Decided below, with the place.

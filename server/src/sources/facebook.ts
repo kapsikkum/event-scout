@@ -44,7 +44,7 @@ export class LoginWallError extends Error {}
 export async function fetchFb(url: string, cookie: string): Promise<string> {
   const headers: Record<string, string> = { ...FULL_HEADERS };
   if (cookie) headers.Cookie = cookie;
-  const res = await fetch(url, { headers, redirect: 'follow' });
+  const res = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(15_000) });
   const html = await res.text();
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   if (/You must log in to continue|Log in to Facebook|name="checkpoint"|temporarily blocked|confirm your identity/i.test(html.slice(0, 8000))) {

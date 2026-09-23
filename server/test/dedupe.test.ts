@@ -121,3 +121,93 @@ test('a post naming an event joins the one listing that day that says where it i
   assert.notEqual(vague.get(5), vague.get(3));
   assert.notEqual(vague.get(5), vague.get(4));
 });
+
+test('order of input events does not affect assigned dedupe group IDs', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const events = [
+    { id: 10, title: 'Spring Fair', startTime: '2026-10-07T13:00:00.000Z', lat: null, lng: null },
+    { id: 2, title: 'Spring Fair', startTime: '2026-10-08T00:00:00.000Z', lat: null, lng: null },
+    { id: 5, title: 'Farmers Market', startTime: '2026-10-08T01:00:00.000Z', lat: -33.8688, lng: 151.2093, venueName: 'Sydney Market' },
+    { id: 1, title: 'Farmers Market', startTime: '2026-10-08T01:00:00.000Z', lat: -33.4199, lng: 149.5776, venueName: 'Bathurst Market' },
+    { id: 8, title: 'Kavisha Mazzella live at Jack Duggans', startTime: at730, ...pub, venueName: 'Jack Duggans Irish Pub' },
+    { id: 3, title: 'Kavisha Mazzella in concert with Support The Skinks', startTime: at730, ...pub, venueName: 'Jack Duggan Irish Pub' },
+    { id: 12, title: 'SMSP Open Pit Lane: Bathurst Shakedown', startTime: '2026-09-23T09:00:00.000Z', lat: null, lng: null, venueName: 'Sydney Motorsport Park' },
+    { id: 4, title: 'SMSP OPEN PIT LANE', startTime: '2026-09-22T14:00:00.000Z', lat: null, lng: null, venueName: '', dateOnly: 1 },
+    { id: 7, title: 'Solo Acoustic Night', startTime: '2026-10-15T09:00:00.000Z', lat: -33.8, lng: 151.0, venueName: 'Acoustic Bar' },
+  ];
+
+  const canonical = assignDedupeGroups(events);
+  const reversed = assignDedupeGroups([...events].reverse());
+
+  const shuffle = (arr: typeof events, seed: number) => {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = (seed * (i + 1) + 7) % (i + 1);
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  };
+
+  assert.equal(canonical.size, events.length);
+  for (const ev of events) {
+    assert.equal(reversed.get(ev.id), canonical.get(ev.id), `reversed order mismatch for event ${ev.id}`);
+  }
+
+  for (let seed = 1; seed <= 5; seed++) {
+    const shuffled = assignDedupeGroups(shuffle(events, seed));
+    for (const ev of events) {
+      assert.equal(shuffled.get(ev.id), canonical.get(ev.id), `shuffled (seed ${seed}) mismatch for event ${ev.id}`);
+    }
+  }
+});
+
+test('the same event on the same day with slightly differing geocoder positions merges', (t) => {
+  useZone(t, 'Australia/Sydney');
+  // Two scrapers geocoded the same town center ~470m apart
+  const groups = assignDedupeGroups([
+    { id: 1, title: '2026 Rally of Oberon', startTime: '2026-11-13T23:00:00.000Z', lat: -33.70415, lng: 149.8588, venueName: 'Oberon' },
+    { id: 2, title: '2026 Rally of Oberon', startTime: '2026-11-13T13:00:00.000Z', lat: -33.705002, lng: 149.863754, venueName: 'Oberon' },
+  ]);
+  assert.equal(groups.get(1), groups.get(2));
+});
+
+test('year suffix is ignored when deduplicating: Challenge Bathurst and Challenge Bathurst 2026 at same venue same day merge', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const circuit = { lat: -33.44199, lng: 149.557571 };
+  const groups = assignDedupeGroups([
+    { id: 1, title: 'Challenge Bathurst', startTime: '2026-11-18T13:00:00.000Z', ...circuit, venueName: 'Mount Panorama Circuit', dateOnly: 1 },
+    { id: 2, title: 'Challenge Bathurst 2026', startTime: '2026-11-18T13:00:00.000Z', ...circuit, venueName: 'Mount Panorama Circuit', dateOnly: 1 },
+  ]);
+  assert.equal(groups.get(1), groups.get(2));
+});
+
+test('multi-day spans that overlap at the same venue merge', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const circuit = { lat: -33.44199, lng: 149.557571 };
+  // Nov 18-22 and Nov 20-22 overlap at Mount Panorama
+  const groups = assignDedupeGroups([
+    { id: 1, title: 'Challenge Bathurst', startTime: '2026-11-18T13:00:00.000Z', endTime: '2026-11-22T13:00:00.000Z', ...circuit, venueName: 'Mount Panorama Circuit', dateOnly: 1 },
+    { id: 2, title: 'Challenge Bathurst', startTime: '2026-11-20T13:00:00.000Z', endTime: '2026-11-22T13:00:00.000Z', ...circuit, venueName: 'Mount Panorama Circuit', dateOnly: 1 },
+  ]);
+  assert.equal(groups.get(1), groups.get(2));
+});
+
+test('pipelined sub-event title merges with parent via title venue extraction', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const circuit = { lat: -33.44199, lng: 149.557571 };
+  const groups = assignDedupeGroups([
+    { id: 1, title: 'Challenge Bathurst', startTime: '2026-11-18T13:00:00.000Z', ...circuit, venueName: 'Mount Panorama Circuit', dateOnly: 1 },
+    { id: 2, title: 'Challenge Bathurst | Regularity Event | Mount Panorama', startTime: '2026-11-18T13:00:00.000Z', lat: -33.4166482, lng: 149.5803725, venueName: '', dateOnly: 1 },
+  ]);
+  assert.equal(groups.get(1), groups.get(2));
+});
+
+test('overlapping date spans with different sub-titles at different venues stay apart', () => {
+  const circuit = { lat: -33.44199, lng: 149.557571 };
+  const oval = { lat: -33.42, lng: 149.56 };
+  const groups = assignDedupeGroups([
+    { id: 1, title: 'Bathurst Racing Festival', startTime: '2026-11-18T13:00:00.000Z', endTime: '2026-11-22T13:00:00.000Z', ...circuit, venueName: 'Mount Panorama Circuit', dateOnly: 1 },
+    { id: 2, title: 'Bathurst Racing Festival', startTime: '2026-11-20T13:00:00.000Z', endTime: '2026-11-22T13:00:00.000Z', lat: -34.0, lng: 150.0, venueName: 'Some Other Circuit', dateOnly: 1 },
+  ]);
+  assert.notEqual(groups.get(1), groups.get(2));
+});

@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getKv, getSettings, saveSettings } from './db.js';
+import { db, getKv, getSettings, saveSettings } from './db.js';
 import { needsAuth, readCookie, SESSION_COOKIE } from './auth.js';
 import { corsDecision, readOrigins } from './cors.js';
 import { mergeSecrets, redactSettings } from './secrets.js';
@@ -31,7 +31,8 @@ import { filterEvents, paginate, parseEventQuery, QueryError } from './query.js'
 import { geocode } from './geocode.js';
 import { buildIcs } from './ics.js';
 import { crawlerBase, syncCrawler } from './sources/crawler.js';
-import { readFeed } from './sources/ical.js';
+import { feedUrl, readFeed } from './sources/ical.js';
+import { assertPublicUrl } from './nethost.js';
 import { addManualEvent, archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
 import { readEventPage } from './importer.js';
 import { notifyStatus, sendLooks, sendTest, startMatrix } from './notify/index.js';
@@ -374,12 +375,33 @@ app.get('/api/density/areas', (_req, res) => {
 app.get('/api/density/:area', (req, res) => {
   const [area] = pickAreas([req.params.area]);
   if (!area) return res.status(404).json({ error: `Unknown area: ${req.params.area}` });
+
+  const rawHours = req.query.hours != null && String(req.query.hours).trim() !== ''
+    ? Number(req.query.hours)
+    : NaN;
+  const hours = Number.isFinite(rawHours) && rawHours > 0 ? rawHours : undefined;
+
+  const rawHour = req.query.hour != null && String(req.query.hour).trim() !== ''
+    ? Number(req.query.hour)
+    : NaN;
+  const hourOfDay = Number.isInteger(rawHour) && rawHour >= 0 && rawHour <= 23 ? rawHour : undefined;
+
+  const parsedDays = req.query.days != null
+    ? String(req.query.days)
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s !== '')
+        .map(Number)
+        .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    : undefined;
+  const daysOfWeek = parsedDays && parsedDays.length > 0 ? parsedDays : undefined;
+
   // Rendered on demand, so the map always reflects the latest pass.
   const geojson = renderArea(area, {
-    hours: req.query.hours ? Number(req.query.hours) : undefined,
+    hours,
     all: req.query.all === '1',
-    hourOfDay: req.query.hour != null ? Number(req.query.hour) : undefined,
-    daysOfWeek: req.query.days ? String(req.query.days).split(',').map(Number) : undefined,
+    hourOfDay,
+    daysOfWeek,
   });
   if (!geojson) return res.status(404).json({ error: 'No observations for that area yet.' });
   res.json(geojson);
@@ -390,7 +412,13 @@ app.get('/api/density/:area/history', (req, res) => {
   if (!area) return res.status(404).json({ error: `Unknown area: ${req.params.area}` });
   const name = String(req.query.venue ?? '');
   if (!name) return res.status(400).json({ error: 'venue is required' });
-  const history = venueHistory(area, name, req.query.days ? Number(req.query.days) : 14);
+
+  const rawDays = req.query.days != null && String(req.query.days).trim() !== ''
+    ? Number(req.query.days)
+    : NaN;
+  const days = Number.isFinite(rawDays) && rawDays > 0 ? rawDays : 14;
+
+  const history = venueHistory(area, name, days);
   if (!history) return res.status(404).json({ error: `Unknown venue: ${name}` });
   res.json(history);
 });
@@ -464,6 +492,62 @@ app.post('/api/refresh', async (_req, res) => {
 
 app.get('/api/llm/status', async (_req, res) => {
   res.json({ ...(await getLlmStatus()), availableJobs: ENRICH_JOBS });
+});
+
+/**
+ * Events currently queued for checking or recently vetted by the model.
+ *
+ * Lets Settings display the raw events in the database waiting for inference,
+ * confirming they were put in and showing their current status.
+ */
+app.get('/api/llm/queue', (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+  const filter = String(req.query.status ?? 'all');
+
+  let sql = `
+    SELECT e.id, e.title, e.start_time, e.source, e.venue_name, e.address, e.url, e.last_seen_at,
+           e.llm_vet_note, e.llm_vetted_at, x.ok AS enrichment_ok, x.enriched_at,
+           CASE
+             WHEN e.llm_vetted_at != '' AND e.llm_vet_note != '' THEN 'rejected'
+             WHEN e.llm_vetted_at != '' THEN 'accepted'
+             WHEN x.ok = 0 THEN 'failed'
+             WHEN x.ok = 1 THEN 'enriched'
+             ELSE 'waiting'
+           END AS status
+    FROM events e
+    LEFT JOIN event_enrichment x ON x.event_id = e.id
+    WHERE e.archived = 0
+  `;
+
+  if (filter === 'pending') {
+    sql += ` AND (e.llm_vetted_at = '' OR e.llm_vetted_at IS NULL) AND (x.ok IS NULL OR x.ok = 0)`;
+  } else if (filter === 'vetted') {
+    sql += ` AND (e.llm_vetted_at != '' OR x.ok = 1)`;
+  }
+
+  sql += ` ORDER BY e.id DESC LIMIT ?`;
+
+  const rows = db.prepare(sql).all(limit) as Record<string, unknown>[];
+  const totalWaiting = (
+    db.prepare(`SELECT count(*) as c FROM events WHERE archived = 0 AND (llm_vetted_at = '' OR llm_vetted_at IS NULL)`).get() as { c: number }
+  ).c;
+
+  res.json({
+    queue: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      startTime: r.start_time,
+      source: r.source,
+      venueName: r.venue_name,
+      address: r.address,
+      url: r.url,
+      vettedAt: r.llm_vetted_at,
+      vetNote: r.llm_vet_note,
+      status: r.status,
+    })),
+    totalWaiting,
+    count: rows.length,
+  });
 });
 
 // Forget every verdict so the next pass reconsiders everything. What you reach
@@ -569,6 +653,26 @@ app.post('/api/crawler/run', async (_req, res) => {
 });
 
 /**
+ * All events the crawler is currently holding, unfiltered.
+ *
+ * No lat/lng filter is sent to the crawler so that every find is returned,
+ * regardless of whether it has coordinates. The Settings page uses this to
+ * show the raw queue so the user can see what is being held before the server
+ * refresh picks it up.
+ */
+app.get('/api/crawler/events', async (_req, res) => {
+  const base = crawlerBase(getSettings());
+  if (!base) return res.json({ events: [], count: 0, problem: 'No crawler address set.' });
+  try {
+    const answer = await fetch(`${base}/events`, { signal: AbortSignal.timeout(8000) });
+    if (!answer.ok) return res.json({ events: [], count: 0, problem: `HTTP ${answer.status}` });
+    res.json(await answer.json());
+  } catch (err) {
+    res.json({ events: [], count: 0, problem: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
+/**
  * Read a calendar feed and say what is in it, without adding it.
  *
  * Through the same reader the Calendar feeds source uses, so what this shows is
@@ -580,6 +684,11 @@ app.post('/api/ical/preview', async (req, res) => {
   const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
   if (!/^(https?|webcals?):\/\/\S+$/i.test(url)) {
     return res.status(400).json({ ok: false, message: 'Give a full address, starting https:// or webcal://.' });
+  }
+  try {
+    await assertPublicUrl(feedUrl(url));
+  } catch {
+    return res.status(400).json({ ok: false, message: 'Private or invalid network address' });
   }
   try {
     const feed = await readFeed(url, '');

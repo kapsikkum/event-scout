@@ -18,6 +18,8 @@ interface SgEvent {
   stats?: { lowest_price?: number | null };
 }
 
+const TIMEOUT_MS = 15_000;
+
 export const seatgeek: EventSourceAdapter = {
   name: 'seatgeek',
   label: 'SeatGeek',
@@ -38,7 +40,7 @@ export const seatgeek: EventSourceAdapter = {
       url.searchParams.set('page', String(page));
       url.searchParams.set('sort', 'datetime_utc.asc');
 
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
       if (res.status === 401 || res.status === 403) throw new MissingConfigError('SeatGeek rejected the client ID.');
       if (!res.ok) throw new Error(`SeatGeek returned HTTP ${res.status}`);
       const data = (await res.json()) as { events?: SgEvent[]; meta?: { total?: number; page?: number; per_page?: number } };

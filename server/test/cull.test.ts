@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Cullable, cullReason, vetting } from '../src/cull.js';
+import { Cullable, cullReason, detectNotAnEvent, vetting } from '../src/cull.js';
 
 const bathurst = { name: 'Bathurst', lat: -33.4166, lng: 149.5804, radiusKm: 85 };
 const penrith = { name: 'Penrith', lat: -33.751, lng: 150.694, radiusKm: 25 };
@@ -72,6 +72,7 @@ test('the model turning a listing down culls it with its reason, unless starred'
   assert.equal(cullReason(ev({ notEvent: 'a race report' }), hubs, {}), 'Not an event: a race report');
   assert.equal(cullReason(ev({ notEvent: 'a race report', starred: true }), hubs, {}), null);
   assert.equal(cullReason(ev({ pending: true }), hubs, {}), 'Waiting to be checked');
+  assert.equal(cullReason(ev({ pending: true, area: 'Bathurst' }), hubs, {}), null);
   assert.equal(cullReason(ev({ pending: true, sources: [{ source: 'manual' }] }), hubs, {}), null);
 });
 
@@ -106,3 +107,103 @@ test('a listing that names a state none of the areas are in is culled', () => {
   assert.equal(cullReason(ev({ region: 'qld' }), hubs, ON), null, 'nothing known about the areas, no rule');
   assert.equal(cullReason(ev({ region: 'qld', starred: true }), hubs, rules), null);
 });
+
+// ---------- detectNotAnEvent ----------------------------------------------------
+
+test('detectNotAnEvent: homepage titles are detected', () => {
+  assert.ok(detectNotAnEvent('Home - Bathurst 6 Hour', undefined, 'https://bathurst6hour.com.au/'), 'homepage dash pattern');
+  assert.ok(detectNotAnEvent('Home | Bathurst Cycling Festival', undefined, undefined), 'homepage pipe pattern without URL');
+  assert.ok(detectNotAnEvent('Welcome to Bathurst Events', undefined, undefined), 'welcome-to pattern');
+  assert.ok(detectNotAnEvent('Homepage – Events', undefined, undefined), 'homepage word');
+});
+
+test('detectNotAnEvent: contact page titles are detected', () => {
+  assert.ok(detectNotAnEvent('Contact Us', undefined, 'https://bathurstbiggestexpo.com/contact-us/'), 'contact us with url');
+  assert.ok(detectNotAnEvent('contact', undefined, undefined), 'lowercase contact');
+});
+
+test('detectNotAnEvent: about page titles are detected', () => {
+  assert.ok(detectNotAnEvent('About', undefined, 'https://www.bathurst.nsw.gov.au/About'), 'about title');
+  assert.ok(detectNotAnEvent('about us', undefined, undefined), 'about us lowercase');
+});
+
+test('detectNotAnEvent: site info URL paths are detected', () => {
+  assert.ok(detectNotAnEvent('Something', undefined, 'https://example.com/about-us/team'), 'about-us url path');
+  assert.ok(detectNotAnEvent('Something', undefined, 'https://example.com/privacy/policy'), 'privacy url path');
+  assert.ok(detectNotAnEvent('Something', undefined, 'https://example.com/terms/'), 'terms url path');
+  assert.ok(detectNotAnEvent('Something', undefined, 'https://example.com/contact/form'), 'contact url path');
+});
+
+test('detectNotAnEvent: volunteer / staff recruitment pages are detected', () => {
+  assert.ok(detectNotAnEvent('Volunteer Application - Challenge Bathurst'), 'volunteer application');
+  assert.ok(detectNotAnEvent('Motorsport Officials & Volunteers | Challenge Bathurst Event'), 'officials & volunteers');
+  assert.ok(detectNotAnEvent('Officials Application - Challenge Bathurst'), 'officials application');
+  assert.ok(detectNotAnEvent('Volunteers Needed for the Bathurst 12 Hour'), 'volunteers needed');
+  assert.ok(detectNotAnEvent('Call for Volunteers - Bathurst Running Festival'), 'call for volunteers');
+  assert.ok(detectNotAnEvent('Marshals Wanted – Bathurst 1000'), 'marshals wanted');
+});
+
+test('detectNotAnEvent: vendor / stallholder / grant application pages are detected', () => {
+  assert.ok(detectNotAnEvent('Stallholders Application - Bathurst Expo'), 'stallholders application');
+  assert.ok(detectNotAnEvent('Stallholder Application'), 'stallholder application');
+  assert.ok(detectNotAnEvent('Vendor Application – Markets'), 'vendor application');
+  assert.ok(detectNotAnEvent('Exhibitor Application - Motor Show'), 'exhibitor application');
+  assert.ok(detectNotAnEvent('Grant Application 2026'), 'grant application');
+});
+
+test('detectNotAnEvent: standalone nav section titles are detected', () => {
+  assert.ok(detectNotAnEvent('Stallholders'), 'stallholders nav section');
+  assert.ok(detectNotAnEvent('Sponsors'), 'sponsors nav section');
+  assert.ok(detectNotAnEvent('Volunteers'), 'volunteers nav section');
+  assert.ok(detectNotAnEvent('Officials'), 'officials nav section');
+  assert.ok(detectNotAnEvent('Marshals'), 'marshals nav section');
+});
+
+test('detectNotAnEvent: news / blog / press recaps are detected', () => {
+  assert.ok(
+    detectNotAnEvent('Engel emotional after Bathurst breakthrough | Bathurst 12 Hour', undefined, 'https://www.bathurst12hour.com.au/news/engel-emotional'),
+    'news article with emotional + breakthrough keywords'
+  );
+  assert.ok(
+    detectNotAnEvent('Race Results – Round 3', undefined, 'https://example.com/blog/results-2026'),
+    'blog post with results keyword'
+  );
+  assert.ok(
+    detectNotAnEvent('Stunning recap of the Bathurst 1000', undefined, 'https://example.com/press/recap'),
+    'press recap'
+  );
+});
+
+test('detectNotAnEvent: real events return null', () => {
+  // Root URL but non-homepage title — should NOT be detected
+  assert.equal(detectNotAnEvent('Challenge Bathurst', undefined, 'https://www.challengebathurst.com/'), null, 'real event at root URL');
+  // Normal real event titles
+  assert.equal(detectNotAnEvent('Echoes of Pink Floyd - Shine On Tour'), null, 'real music event');
+  assert.equal(detectNotAnEvent('Repco Bathurst 1000'), null, 'real motorsport event');
+  assert.equal(detectNotAnEvent('Bathurst Track Day 2026'), null, 'real track day event');
+  // A news URL without recap keywords should NOT be blocked
+  assert.equal(
+    detectNotAnEvent('Bathurst 12 Hour Preview 2026', undefined, 'https://example.com/news/preview'),
+    null,
+    'news URL without recap keyword is fine'
+  );
+});
+
+test('detectNotAnEvent: cullReason uses rule-based detection before LLM notEvent', () => {
+  // Should be culled by rule-based detection even without notEvent set
+  const homepageEv = ev({ title: 'Home - Bathurst Events', sources: [{ source: 'crawler', url: 'https://bathurst.com/' }] });
+  assert.ok(cullReason(homepageEv, hubs, {}), 'homepage detected by rule');
+
+  // A volunteer application page should be culled regardless of LLM
+  const volunteerEv = ev({ title: 'Volunteer Application - Bathurst Festival', sources: [{ source: 'crawler' }] });
+  assert.ok(cullReason(volunteerEv, hubs, {}), 'volunteer application detected by rule');
+
+  // Starred even with a bad title should never be culled
+  const starredEv = ev({ title: 'Home - Bathurst Events', starred: true, sources: [{ source: 'crawler' }] });
+  assert.equal(cullReason(starredEv, hubs, {}), null, 'starred events are never culled');
+
+  // Manual source should never be culled
+  const manualEv = ev({ title: 'Contact Us', sources: [{ source: 'manual' }] });
+  assert.equal(cullReason(manualEv, hubs, {}), null, 'manual source is never culled');
+});
+
