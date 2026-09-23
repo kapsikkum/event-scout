@@ -7,6 +7,27 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.10.0](https://github.com/kapsikkum/event-scout/compare/v0.9.5...v0.10.0) (2026-09-23)
+
+
+### Features
+
+* **crawler:** expand event extraction with microdata, natural language & search fallbacks ([55556bc](https://github.com/kapsikkum/event-scout/commit/55556bc0f61b84775a1814b9ff55bcd6cda9efb5))
+* **server:** harden auth store, add SSRF validation and density pipeline tests ([095ae43](https://github.com/kapsikkum/event-scout/commit/095ae43995541a9260ec8aa969134c0456ef461d))
+* **server:** overhaul topic classification and improve location heuristics ([823e83c](https://github.com/kapsikkum/event-scout/commit/823e83cdaa476ff3a47c126e4b11aaa0ad6d6bf5))
+* **web:** add multi-day span rendering and LLM queue inspector ([05e9323](https://github.com/kapsikkum/event-scout/commit/05e9323a9a7c0fcef8c6ed331a2fb60a5cdd6785))
+
+
+### Fixes
+
+* generate initial Zenith password ([#18](https://github.com/kapsikkum/event-scout/issues/18)) ([fb98d43](https://github.com/kapsikkum/event-scout/commit/fb98d43f192f7dcfd317a984a6e0dcf55b953494))
+* **server:** implement rule-based non-event culling and multi-day deduplication ([6d17d74](https://github.com/kapsikkum/event-scout/commit/6d17d74b30a8326554a756087044a79a14bc8827))
+
+
+### Documentation
+
+* add Deploy with Zenith badge ([#20](https://github.com/kapsikkum/event-scout/issues/20)) ([d3cc03c](https://github.com/kapsikkum/event-scout/commit/d3cc03ccf04622d0b440265778f252887f048794))
+
 ## [0.9.5](https://github.com/kapsikkum/event-scout/compare/v0.9.4...v0.9.5) (2026-09-18)
 
 
