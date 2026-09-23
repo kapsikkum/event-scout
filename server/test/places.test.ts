@@ -137,6 +137,23 @@ test('a town of its own inside an area keeps its name, and says which area it is
   assert.deepEqual(found.map((p) => p.area), Array(4).fill('Bathurst'));
 });
 
+test('a town with tightly clustered events keeps its area despite a stray outlier', () => {
+  // Oberon is 41 km from Bathurst (inside the 85 km radius). Six events sit
+  // within 3 km of town, and one stray listing is 27 km away at Rockley.
+  const oberon = [
+    at(-33.705, 149.863, 'Oberon'),
+    at(-33.704, 149.858, 'Oberon'),
+    at(-33.708, 149.859, 'Oberon'),
+    at(-33.705, 149.854, 'Oberon'),
+    at(-33.718, 149.827, 'Oberon'),
+    // outlier
+    at(-33.689, 149.566, 'Oberon'),
+  ];
+  const found = placeEvents(oberon, HUBS);
+  assert.deepEqual(found.map((p) => p.place), Array(6).fill('Oberon'));
+  assert.deepEqual(found.map((p) => p.area), Array(6).fill('Bathurst'));
+});
+
 test('an address in another state is not placed by a same-named street or town in the area', () => {
   const nsw = Array.from({ length: 10 }, (_, i) => ({
     ...at(-33.42 + i * 0.001, 149.58, 'Bathurst', 'William St, Bathurst NSW 2795'),

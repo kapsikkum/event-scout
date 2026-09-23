@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { extractEventsFromHtml } from '../src/sources/jsonld.js';
-import { nearArea } from '../src/sources/midnightspec.js';
+import { nearArea, refineMidnightSpecEvent } from '../src/sources/midnightspec.js';
 import { localitiesFrom } from '../src/venues.js';
 
 /**
@@ -276,4 +276,33 @@ test('a town whose name is a word inside another is not matched loosely', () => 
   const wagga = localitiesFrom(['Wagga Wagga, NSW'], []);
   const kept = events.filter((ev) => nearArea(ev, wagga)).map((ev) => ev.title);
   assert.deepEqual(kept, ['First National AGM']);
+});
+
+test('refineMidnightSpecEvent replaces coarse regional city with venue town', () => {
+  const base = {
+    sourceId: 'http://test',
+    title: 'Test',
+    description: '',
+    startTime: '2026-11-14T00:00:00Z',
+    url: 'http://test',
+    category: 'Event',
+    priceText: '',
+    isOnline: false,
+  };
+
+  // Oberon: site normalises addressLocality to Bathurst, but venue is Oberon
+  const oberon = refineMidnightSpecEvent({ ...base, venueName: 'Oberon', address: 'Bathurst, NSW' }, 'nsw');
+  assert.equal(oberon.address, 'Oberon, NSW');
+
+  // Goulburn: site normalises addressLocality to Sydney, but venue is One Raceway, Goulburn
+  const goulburn = refineMidnightSpecEvent({ ...base, venueName: 'One Raceway, Goulburn', address: 'Sydney, NSW' }, 'nsw');
+  assert.equal(goulburn.address, 'Goulburn, NSW');
+
+  // Street address: site normalises to Sydney, venue contains street number
+  const street = refineMidnightSpecEvent({ ...base, venueName: '457 Great Western Highway, St Marys', address: 'Sydney, NSW' }, 'nsw');
+  assert.equal(street.address, '457 Great Western Highway, St Marys, NSW');
+
+  // Mount Panorama in Bathurst: addressLocality is Bathurst, venue is in Bathurst, address is kept
+  const bathurst = refineMidnightSpecEvent({ ...base, venueName: 'Mount Panorama, Bathurst', address: 'Bathurst, NSW' }, 'nsw');
+  assert.equal(bathurst.address, 'Bathurst, NSW');
 });

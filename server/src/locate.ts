@@ -133,13 +133,15 @@ export function placeQueries(
   };
 
   if (stated.locality) {
-    if (address) push(address);
+    const hasStreetAddress = Boolean(address && /\d/.test(address));
+    if (hasStreetAddress) push(address);
     if (venueName) {
       push(`${venueName}, ${stated.locality}${stated.region ? `, ${stated.region}` : ''}`);
       // A venue whose own name carries its town — "Sydney Motorsport Park" —
       // answers better without the town repeated after it.
       push(venueName);
     }
+    if (address && !hasStreetAddress) push(address);
     return out.slice(0, MAX_QUERIES);
   }
 

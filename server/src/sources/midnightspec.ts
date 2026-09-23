@@ -1,6 +1,7 @@
 import { extractEventsFromHtml } from './jsonld.js';
 import { EventSourceAdapter, Location, RawEvent, Settings } from './types.js';
 import { localitiesFrom } from '../venues.js';
+import { localityOf } from '../regions.js';
 import { BROWSER_HEADERS } from '../useragent.js';
 
 /**
@@ -81,6 +82,35 @@ export function nearArea(ev: RawEvent, localities: Set<string>): boolean {
   return false;
 }
 
+/**
+ * Normalise a MIDNIGHT_SPEC event's address to its actual venue/town.
+ *
+ * MIDNIGHT_SPEC buckets all NSW listings into five or six broad regions in its
+ * address field ("Sydney", "Bathurst", "Newcastle", etc.). For an event held in
+ * Oberon, its JSON-LD says name: "Oberon" and addressLocality: "Bathurst". If
+ * kept verbatim, Oberon events are pinned to Bathurst Town Hall (0.0 km) with
+ * address "Bathurst, NSW". When the venue names its own distinct town or
+ * street address, that town is its real address.
+ */
+export function refineMidnightSpecEvent(ev: RawEvent, state: string): RawEvent {
+  if (!ev.venueName) return ev;
+  const stateCode = state.toUpperCase();
+  const addressLoc = localityOf(ev.address ?? '');
+  const venueLoc = localityOf(ev.venueName);
+
+  if (venueLoc && venueLoc.toLowerCase() !== addressLoc.toLowerCase()) {
+    const hasStreetDetails = /\d/.test(ev.venueName);
+    const newAddress = hasStreetDetails
+      ? `${ev.venueName}, ${stateCode}`
+      : `${venueLoc}, ${stateCode}`;
+    return {
+      ...ev,
+      address: newAddress,
+    };
+  }
+  return ev;
+}
+
 export const midnightspec: EventSourceAdapter = {
   name: 'midnightspec',
   label: 'MIDNIGHT_SPEC car meets (unofficial)',
@@ -105,11 +135,11 @@ export const midnightspec: EventSourceAdapter = {
         // Only a page we actually go and get needs the pacing; a cached one is
         // free, which is what makes the per-area repetition cheap.
         if (i > 0 && !cache.has(state)) await sleep(PAGE_SPACING_MS);
-        for (const ev of await fetchState(state)) {
-          if (seen.has(ev.sourceId)) continue;
-          if (!nearArea(ev, localities)) continue;
-          seen.add(ev.sourceId);
-          events.push(ev);
+        for (const raw of await fetchState(state)) {
+          if (seen.has(raw.sourceId)) continue;
+          if (!nearArea(raw, localities)) continue;
+          seen.add(raw.sourceId);
+          events.push(refineMidnightSpecEvent(raw, state));
         }
       } catch (err) {
         failures.push(`${state.toUpperCase()}: ${(err as Error).message}`);

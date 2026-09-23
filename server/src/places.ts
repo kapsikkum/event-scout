@@ -340,13 +340,39 @@ function hubRegions(events: Placeable[], townOf: string[], hubs: Hub[]): Map<str
   return out;
 }
 
-/** The widest gap between any two of these positions, in kilometres. */
+/**
+ * The spread of these positions, in kilometres.
+ *
+ * For a small handful of listings (<= 3), the widest pairwise gap is used.
+ * With four or more, the spread is measured over the core 80% closest to the
+ * median position — so a single mislabelled or misgeocoded listing (like an
+ * event twenty-seven kilometres away with the town's name in its address)
+ * does not cause an entire real town to be marked as an unplaceable sprawl.
+ */
 function spreadKm(events: Placeable[]): number {
+  const positioned = events.filter((e) => e.lat != null && e.lng != null);
+  if (positioned.length <= 1) return 0;
+  if (positioned.length <= 3) {
+    let widest = 0;
+    for (const a of positioned) {
+      for (const b of positioned) {
+        widest = Math.max(widest, haversineKm(a.lat as number, a.lng as number, b.lat as number, b.lng as number));
+      }
+    }
+    return widest;
+  }
+  const lats = positioned.map((e) => e.lat as number).sort((a, b) => a - b);
+  const lngs = positioned.map((e) => e.lng as number).sort((a, b) => a - b);
+  const medLat = lats[Math.floor(lats.length / 2)];
+  const medLng = lngs[Math.floor(lngs.length / 2)];
+  const dists = positioned
+    .map((e) => ({ p: e, d: haversineKm(e.lat as number, e.lng as number, medLat, medLng) }))
+    .sort((a, b) => a.d - b.d);
+  const core = dists.slice(0, Math.ceil(positioned.length * 0.8)).map((x) => x.p);
   let widest = 0;
-  for (const a of events) {
-    for (const b of events) {
-      if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) continue;
-      widest = Math.max(widest, haversineKm(a.lat, a.lng, b.lat, b.lng));
+  for (const a of core) {
+    for (const b of core) {
+      widest = Math.max(widest, haversineKm(a.lat as number, a.lng as number, b.lat as number, b.lng as number));
     }
   }
   return widest;

@@ -28,28 +28,55 @@ export const EVENT_TOPICS: EventTopic[] = [
   {
     key: 'motorsport',
     category: 'Motorsport',
-    hints: ['v8', 'supercars', 'sprint', 'circuit', 'grand prix', 'raceway', 'go kart', 'karting', 'burnout', 'drag racing', 'speedway'],
+    hints: [
+      'v8', 'supercars', 'sprint', 'circuit', 'grand prix', 'raceway', 'go kart', 'karting', 'burnout', 'drag racing', 'speedway',
+      'rally', 'dragway', 'time attack', 'superbike', 'motocross', 'speedway racing', 'bathurst 1000',
+    ],
     label: '🏁 Motorsport',
     terms: ['motorsport', 'race meeting', 'track day', 'drift day', 'hillclimb', 'motorkhana'],
   },
   {
     key: 'cars',
     category: 'Cars & bikes',
-    hints: ['classic car', 'hot rod', 'motorbike', 'motorcycle', 'ute muster', 'auto', 'v-twin', 'harley', 'cars and coffee', 'cruise', 'car club', 'shine', 'holden', 'falcon', 'mustang'],
+    hints: [
+      'classic car', 'hot rod', 'motorbike', 'motorcycle', 'ute muster', 'auto', 'v-twin',
+      'harley', 'cars and coffee', 'cruise', 'car club', 'holden', 'falcon', 'mustang',
+      'car and bike show', 'car & bike show', 'bike show', 'car show', 'truck show', 'ute show',
+      "show 'n' shine", 'show & shine', 'car meet', 'bike meet', 'car rally',
+    ],
     label: '🚗 Cars & bikes',
     terms: ['car show', 'car meet', 'cruise night', 'swap meet', 'motorcycle rally', 'bike run', 'show and shine'],
   },
   {
     key: 'music',
     category: 'Live music',
-    hints: ['band', 'dj', 'acoustic', 'orchestra', 'choir', 'tribute', 'jazz', 'blues', 'rock', 'singer'],
+    hints: [
+      'band', 'dj', 'acoustic', 'orchestra', 'choir', 'tribute', 'jazz', 'blues', 'rock', 'singer',
+      // Tour patterns
+      'tour', 'on tour', 'touring', 'world tour', 'australian tour', 'national tour', 'album tour',
+      // Performance terms
+      'live in concert', 'live on stage', 'live performance', 'tribute show', 'tribute band', 'cover band',
+      'covers', 'soundtrack', 'album launch', 'ep launch', 'headline show', 'headlining',
+      // Instruments
+      'guitar', 'bass', 'drums', 'piano', 'keys', 'synthesizer', 'vocalist', 'vocals',
+      // Classical / choral
+      'symphony', 'philharmonic', 'quartet', 'ensemble', 'recital', 'opera', 'aria', 'choral',
+      // Genres
+      'metal', 'heavy metal', 'punk', 'pop', 'indie', 'folk', 'hip hop', 'rap', 'r&b', 'soul',
+      'funk', 'electronic', 'techno', 'edm', 'house music', 'disco', 'reggae', 'ska', 'bluegrass', 'country music',
+      // Iconic touring acts / bands
+      'pink floyd', 'led zeppelin', 'beatles', 'queen', 'fleetwood mac', 'ac/dc', 'elton john', 'david bowie', 'inxs', 'coldplay', 'metallica',
+    ],
     label: '🎸 Live music',
     terms: ['live music', 'gig', 'concert', 'music festival', 'open mic'],
   },
   {
     key: 'nightlife',
     category: 'Nightlife',
-    hints: ['bar', 'nightclub', 'karaoke', 'bingo', 'quiz night'],
+    hints: [
+      'bar', 'nightclub', 'karaoke', 'bingo', 'quiz night',
+      'rave', 'dj set', 'silent disco', 'club night', 'cocktails', 'karaoke night',
+    ],
     label: '🎉 Parties & nightlife',
     terms: ['party', 'club night', 'dance party', 'trivia night'],
   },
@@ -84,7 +111,10 @@ export const EVENT_TOPICS: EventTopic[] = [
   {
     key: 'arts',
     category: 'Arts & culture',
-    hints: ['art', 'museum', 'play', 'musical', 'workshop', 'poetry', 'film', 'cinema', 'drawing', 'craft'],
+    hints: [
+      'art', 'museum', 'play', 'musical', 'workshop', 'poetry', 'film', 'cinema', 'drawing', 'craft',
+      'comedy', 'stand up', 'comedian', 'theatre', 'theater', 'ballet', 'stage play', 'broadway', 'cabaret', 'magic show', 'circus',
+    ],
     label: '🎨 Arts & culture',
     terms: ['exhibition', 'gallery opening', 'theatre', 'comedy night'],
   },
@@ -183,31 +213,143 @@ function mentions(haystack: string, needle: string): boolean {
   return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(haystack);
 }
 
+const VENUE_PERFORMANCE_REGEX = /\b(entertainment centre|theatre|theater|concert hall|opera house|auditorium|amphitheatre)\b/i;
+const VENUE_MOTORSPORT_REGEX = /\b(circuit|raceway|speedway|dragway|motorsport park)\b/i;
+
+const AUTO_ANCHORS = [
+  'car', 'cars', 'bike', 'bikes', 'motorcycle', 'motorbike', 'vehicle', 'auto',
+  'ute', 'harley', 'truck', '4x4', 'hot rod', 'cruiz', 'drive', 'race', 'racing',
+  'raceway', 'speedway', 'motorsport', 'kart', 'drift', 'rally', 'circuit', 'dragway', 'bathurst 1000',
+  'show and shine', "show 'n' shine", 'show & shine', 'cars and coffee', 'swap meet',
+];
+
+function hasAutomotiveAnchor(text: string): boolean {
+  return AUTO_ANCHORS.some((anchor) => mentions(text, anchor)) || VENUE_MOTORSPORT_REGEX.test(text);
+}
+
+function phraseWeight(phrase: string): { title: number; body: number } {
+  const words = phrase.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 3) {
+    return { title: 25, body: 5 };
+  }
+  if (words.length === 2) {
+    return { title: 16, body: 3 };
+  }
+  if (phrase.trim().length >= 4) {
+    return { title: 8, body: 1 };
+  }
+  return { title: 4, body: 1 };
+}
+
+function topicMatchesSourceCategory(topic: EventTopic, sourceCat: string): boolean {
+  const normCat = sourceCat.trim().toLowerCase();
+  if (!normCat) return false;
+
+  const cleanLabel = topic.label.replace(/^[^\w\s]+/, '').trim().toLowerCase();
+  const cleanCat = topic.category.toLowerCase();
+
+  if (normCat === cleanCat || normCat === cleanLabel) return true;
+
+  const stripS = (s: string) => s.replace(/s$/, '');
+  if (stripS(normCat) === stripS(cleanCat) || stripS(normCat) === stripS(cleanLabel)) return true;
+
+  if (mentions(topic.label, normCat) || mentions(normCat, topic.category)) return true;
+
+  for (const term of topic.terms) {
+    const normTerm = term.toLowerCase();
+    if (
+      normCat === normTerm ||
+      stripS(normCat) === stripS(normTerm) ||
+      mentions(normCat, term) ||
+      mentions(term, normCat)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Work out what kind of event this is, from what it says about itself.
  *
- * The title carries the signal and the description mostly carries noise — venue
- * boilerplate, sponsor lists, ticket terms — so a title match outranks any
- * number of description matches. A category the source supplied is kept only
- * when it says something the classifier could not work out for itself.
+ * Specificity weighting favours multi-word phrases over single words, and
+ * title matches over body matches. Contextual clues like venue types and
+ * source categories provide priors, while automotive categories require an
+ * explicit automotive anchor to prevent false positives.
  */
 export function classifyEvent(
-  title: string, description = '', sourceCategory = ''
+  title: string,
+  description = '',
+  sourceCategory = '',
+  venueName = ''
 ): string {
-  const head = title.toLowerCase();
-  const body = `${title} ${description}`.toLowerCase().slice(0, 1500);
-
-  let best: { category: string; score: number } | null = null;
-  for (const topic of EVENT_TOPICS) {
-    let score = 0;
-    for (const phrase of [...topic.terms, ...(topic.hints ?? [])]) {
-      if (mentions(head, phrase)) score += 10;
-      else if (mentions(body, phrase)) score += 1;
-    }
-    if (score > 0 && (!best || score > best.score)) best = { category: topic.category, score };
-  }
-  if (best) return best.category;
+  const head = title;
+  const body = `${title} ${description}`.slice(0, 1500);
+  const fullText = `${title} ${description} ${venueName}`;
 
   const supplied = sourceCategory.trim();
-  return supplied && !USELESS.has(supplied.toLowerCase()) ? supplied : GENERAL_CATEGORY;
+  const validSourceCat = supplied && !USELESS.has(supplied.toLowerCase());
+
+  let best: { category: string; score: number } | null = null;
+
+  for (const topic of EVENT_TOPICS) {
+    let score = 0;
+
+    const phrases = new Set([...topic.terms, ...(topic.hints ?? [])]);
+    for (const phrase of phrases) {
+      const { title: titlePts, body: bodyPts } = phraseWeight(phrase);
+      if (mentions(head, phrase)) {
+        score += titlePts;
+      } else if (mentions(body, phrase)) {
+        score += bodyPts;
+      }
+    }
+
+    // Venue Context Prior
+    if (venueName) {
+      if (VENUE_PERFORMANCE_REGEX.test(venueName)) {
+        if (topic.category === 'Live music' || topic.category === 'Arts & culture') {
+          score += 6;
+        }
+      }
+      if (VENUE_MOTORSPORT_REGEX.test(venueName)) {
+        if (topic.category === 'Motorsport' || topic.category === 'Cars & bikes') {
+          score += 12;
+        }
+      }
+    }
+
+    // Source Category Boost
+    if (validSourceCat && topicMatchesSourceCategory(topic, supplied)) {
+      score += 12;
+    }
+
+    // Automotive Anchor Requirement:
+    // For Cars & bikes and Motorsport, do NOT assign the category unless the text has at least one automotive anchor
+    if (
+      (topic.category === 'Cars & bikes' || topic.category === 'Motorsport') &&
+      !hasAutomotiveAnchor(fullText)
+    ) {
+      score = 0;
+    }
+
+    if (score > 0 && (!best || score > best.score)) {
+      best = { category: topic.category, score };
+    }
+  }
+
+  if (best) return best.category;
+
+  if (validSourceCat) {
+    if (
+      (supplied.toLowerCase() === 'cars & bikes' || supplied.toLowerCase() === 'motorsport') &&
+      !hasAutomotiveAnchor(fullText)
+    ) {
+      return GENERAL_CATEGORY;
+    }
+    return supplied;
+  }
+
+  return GENERAL_CATEGORY;
 }
