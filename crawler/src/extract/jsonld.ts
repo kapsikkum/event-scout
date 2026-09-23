@@ -28,7 +28,15 @@ function str(value: unknown): string | undefined {
   }
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
-    return str(obj.name) ?? str(obj.url) ?? str(obj['@id']);
+    return (
+      str(obj['@value']) ??
+      str(obj.name) ??
+      str(obj.headline) ??
+      str(obj.text) ??
+      str(obj.url) ??
+      str(obj.contentUrl) ??
+      str(obj['@id'])
+    );
   }
   return undefined;
 }
@@ -49,7 +57,10 @@ function collectEvents(node: unknown, out: Record<string, unknown>[] = []): Reco
   if (isEventType(obj['@type'])) out.push(obj);
   // @graph is how most CMSes wrap a page's whole set of entities, and subEvent
   // is how a festival lists its programme — both hold events worth having.
-  for (const key of ['@graph', 'subEvent', 'subEvents', 'event', 'events', 'itemListElement', 'item']) {
+  for (const key of [
+    '@graph', 'subEvent', 'subEvents', 'event', 'events',
+    'itemListElement', 'item', 'mainEntity', 'about', 'hasPart',
+  ]) {
     if (key in obj) collectEvents(obj[key], out);
   }
   return out;
@@ -77,6 +88,14 @@ export function jsonLdBlocks(html: string): unknown[] {
   return out;
 }
 
+function isPhysicalPlace(loc: unknown): boolean {
+  if (!loc || typeof loc !== 'object') return false;
+  const obj = loc as Record<string, unknown>;
+  if (obj.address != null || obj.geo != null) return true;
+  const type = str(obj['@type']) ?? '';
+  return /Place/i.test(type);
+}
+
 function placeOf(node: Record<string, unknown>): {
   venueName?: string; address?: string; lat?: number; lng?: number; online: boolean;
 } {
@@ -86,7 +105,13 @@ function placeOf(node: Record<string, unknown>): {
   if (!location || typeof location !== 'object') {
     return { venueName: str(location), online };
   }
-  const loc = (Array.isArray(location) ? location[0] : location) as Record<string, unknown>;
+  let loc: Record<string, unknown> | undefined;
+  if (Array.isArray(location)) {
+    const physical = location.find(isPhysicalPlace);
+    loc = (physical ?? location[0]) as Record<string, unknown> | undefined;
+  } else {
+    loc = location as Record<string, unknown>;
+  }
   if (!loc || typeof loc !== 'object') return { online };
 
   const addr = loc.address;
@@ -99,12 +124,16 @@ function placeOf(node: Record<string, unknown>): {
       .filter(Boolean)
       .join(', ') || undefined;
   }
-  const geo = loc.geo as Record<string, unknown> | undefined;
+  const geoObj = Array.isArray(loc.geo) ? loc.geo[0] : loc.geo;
+  const geo = geoObj && typeof geoObj === 'object' ? (geoObj as Record<string, unknown>) : undefined;
+  const lat = geo ? (num(geo.latitude) ?? num(geo.lat)) : undefined;
+  const lng = geo ? (num(geo.longitude) ?? num(geo.lng) ?? num(geo.lon)) : undefined;
+
   return {
     venueName: str(loc.name),
     address,
-    lat: geo ? num(geo.latitude) : undefined,
-    lng: geo ? num(geo.longitude) : undefined,
+    lat,
+    lng,
     online: online || /VirtualLocation/i.test(str(loc['@type']) ?? ''),
   };
 }
@@ -118,6 +147,27 @@ function priceOf(node: Record<string, unknown>): string | undefined {
   if (/^0(\.0+)?$/.test(price)) return 'Free';
   const currency = str(first.priceCurrency) ?? '';
   return `${currency === 'AUD' || currency === 'USD' ? '$' : currency ? currency + ' ' : ''}${price}`;
+}
+
+function imageOf(node: Record<string, unknown>): string | undefined {
+  const img = node.image;
+  if (typeof img === 'string') return img.trim() || undefined;
+  if (Array.isArray(img)) {
+    for (const item of img) {
+      if (typeof item === 'string' && item.trim()) return item.trim();
+      if (item && typeof item === 'object') {
+        const obj = item as Record<string, unknown>;
+        const u = str(obj.contentUrl) ?? str(obj.url);
+        if (u) return u;
+      }
+    }
+    return undefined;
+  }
+  if (img && typeof img === 'object') {
+    const obj = img as Record<string, unknown>;
+    return str(obj.contentUrl) ?? str(obj.url);
+  }
+  return undefined;
 }
 
 /**
@@ -144,11 +194,11 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
 
   for (const block of jsonLdBlocks(html)) {
     for (const node of collectEvents(block)) {
-      const title = str(node.name);
-      const startRaw = str(node.startDate);
+      const title = str(node.name) ?? str(node.headline);
+      const startRaw = str(node.startDate) ?? str(node.doorTime);
       if (!title || !startRaw) continue;
 
-      const when = parseWhen(startRaw);
+      const when = parseWhen(str(node.startDate), str(node.doorTime));
       if (!when || !isWorthKeeping(when.startTime, foundAt)) continue;
 
       const endRaw = str(node.endDate);
@@ -165,7 +215,7 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
       const find = tidyFind({
         sourceId: findKey(url, title, when.startTime),
         title,
-        description: str(node.description),
+        description: str(node.description) ?? str(node.text),
         startTime: when.startTime,
         endTime,
         venueName: place.venueName,
@@ -173,7 +223,7 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
         lat: place.lat,
         lng: place.lng,
         url,
-        imageUrl: str(node.image),
+        imageUrl: imageOf(node),
         priceText: priceOf(node),
         isOnline: place.online,
         dateOnly: when.dateOnly,

@@ -19,6 +19,19 @@ import { isWorthKeeping, MAX_DURATION_MS } from './shared/when.js';
 export function tidyFind(ev: CrawledEvent, now = new Date()): CrawledEvent | null {
   const title = cleanLine(ev.title).slice(0, 300);
   if (title.replace(/[^\p{L}\p{N}]/gu, '').length < 3) return null;
+
+  // Reject titles that are homepages, contact pages, or non-event admin pages
+  const titleLc = title.toLowerCase();
+  if (/^home\s*[-|–—:]/.test(titleLc)) return null;
+  if (/^(contact(\s+us)?|about(\s+us)?|terms|privacy policy?|privacy)$/.test(titleLc)) return null;
+  // Reject if URL is a root homepage
+  if (ev.url) {
+    try {
+      const path = new URL(ev.url).pathname;
+      if (path === '/' || path === '') return null;
+    } catch { /* ignore */ }
+  }
+
   if (!isWorthKeeping(ev.startTime, now)) return null;
 
   const start = Date.parse(ev.startTime);

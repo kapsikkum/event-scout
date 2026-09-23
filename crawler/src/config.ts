@@ -75,6 +75,11 @@ export const config = {
   maxSocialPerCycle: int('CRAWLER_SOCIAL_PER_CYCLE', 20),
   /** Gap between two Instagram requests, milliseconds. A person scrolling, not a scraper. */
   socialDelayMs: int('CRAWLER_SOCIAL_DELAY_MS', 8000),
+
+  /** Local Ollama endpoint for language extraction, if enabled. */
+  ollamaUrl: (process.env.OLLAMA_URL || undefined) as string | undefined,
+  /** Model to use for language extraction with Ollama. */
+  llmModel: (process.env.LLM_MODEL || undefined) as string | undefined,
 };
 
 export function ensureDataDir(): string {

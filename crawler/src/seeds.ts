@@ -57,8 +57,8 @@ function mojeekLinks(html: string): string[] {
 }
 
 const ENGINES: { name: string; url: (q: string) => string; links: (html: string) => string[] }[] = [
-  { name: 'duckduckgo', url: (q) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, links: ddgLinks },
   { name: 'mojeek', url: (q) => `https://www.mojeek.com/search?q=${encodeURIComponent(q)}`, links: mojeekLinks },
+  { name: 'duckduckgo', url: (q) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, links: ddgLinks },
   { name: 'bing', url: (q) => `https://www.bing.com/search?q=${encodeURIComponent(q)}`, links: bingLinks },
 ];
 
@@ -75,25 +75,36 @@ export async function seedFrom(interests: Interest[], log: (line: string) => voi
   let added = 0;
   for (const interest of interests) {
     for (const query of queriesFor(interest, undefined, undefined, config.social)) {
-      // One engine per query, rotating, so no single engine sees the lot.
-      const engine = ENGINES[Math.floor(Math.random() * ENGINES.length)];
-      try {
-        const html = await search(engine.url(query));
-        for (const raw of engine.links(html).slice(0, 10)) {
-          const url = normalizeUrl(raw);
-          if (!url) continue;
-          // A search for "car show Bathurst" turns up the club's Instagram
-          // post as often as any website. See extract/social.ts.
-          const social = config.social ? socialKind(url) : null;
-          if (social) {
-            if (store.offerSocial(social, `search: ${query}`)) added++;
-            continue;
+      // Sequential fallback across engines (Mojeek -> DuckDuckGo -> Bing).
+      let rawLinks: string[] = [];
+      const errors: string[] = [];
+      for (const engine of ENGINES) {
+        try {
+          const html = await search(engine.url(query));
+          const found = engine.links(html);
+          if (found.length > 0) {
+            rawLinks = found;
+            break;
           }
-          if (isSkippedHost(url)) continue;
-          if (store.offer(url, 0, eventLikeness(url) + 5)) added++;
+        } catch (err) {
+          errors.push(`${engine.name}: ${(err as Error).message}`);
         }
-      } catch (err) {
-        log(`  seed "${query}" via ${engine.name}: ${(err as Error).message}`);
+      }
+      if (rawLinks.length === 0 && errors.length > 0) {
+        log(`  seed "${query}" failed across engines (${errors.join(', ')})`);
+      }
+      for (const raw of rawLinks.slice(0, 10)) {
+        const url = normalizeUrl(raw);
+        if (!url) continue;
+        // A search for "car show Bathurst" turns up the club's Instagram
+        // post as often as any website. See extract/social.ts.
+        const social = config.social ? socialKind(url) : null;
+        if (social) {
+          if (store.offerSocial(social, `search: ${query}`)) added++;
+          continue;
+        }
+        if (isSkippedHost(url)) continue;
+        if (store.offer(url, 0, eventLikeness(url) + 5)) added++;
       }
       await sleep(1200);
     }

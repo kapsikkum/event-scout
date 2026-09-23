@@ -5,6 +5,8 @@ import {
   titleOf,
 } from './extract/social.js';
 import { eventsFromHtml } from './extract/jsonld.js';
+import { eventsFromMicrodata } from './extract/microdata.js';
+import { eventsFromLanguage } from './extract/language.js';
 import { crawlableLinks, feedsFrom } from './extract/links.js';
 import { Interest } from './queries.js';
 import { seedFrom } from './seeds.js';
@@ -105,7 +107,16 @@ async function crawlOne(
     return;
   }
 
-  const found = eventsFromHtml(page.html, page.url);
+  let found = eventsFromHtml(page.html, page.url);
+  if (found.length === 0) {
+    found = eventsFromMicrodata(page.html, page.url);
+  }
+  if (found.length === 0) {
+    const now = new Date();
+    const areas = knownInterests().map((i) => i.city);
+    const llmConfig = { ollamaUrl: config.ollamaUrl, llmModel: config.llmModel };
+    found = await eventsFromLanguage(page.html, page.url, areas, now, llmConfig);
+  }
   for (const event of found) store.keep(event);
   report.events += found.length;
   report.fetched++;
@@ -323,7 +334,16 @@ export async function crawlUrlNow(raw: string): Promise<PageReport> {
     return { url, ok: false, message: `Could not read it: ${(err as Error).message}`, ...nothing };
   }
 
-  const events = eventsFromHtml(page.html, page.url);
+  let events = eventsFromHtml(page.html, page.url);
+  if (events.length === 0) {
+    events = eventsFromMicrodata(page.html, page.url);
+  }
+  if (events.length === 0) {
+    const now = new Date();
+    const areas = knownInterests().map((i) => i.city);
+    const llmConfig = { ollamaUrl: config.ollamaUrl, llmModel: config.llmModel };
+    events = await eventsFromLanguage(page.html, page.url, areas, now, llmConfig);
+  }
   for (const event of events) store.keep(event);
   const feeds = feedsFrom(page.html, page.url);
   for (const feed of feeds) store.rememberFeed(feed, page.url);

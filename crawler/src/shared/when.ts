@@ -56,8 +56,23 @@ export function isWorthKeeping(startTime: string, now: Date = new Date()): boole
 
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-export function parseWhen(raw: string): EventWhen | null {
-  const text = raw.trim();
+function rawDateString(val: unknown): string | undefined {
+  if (typeof val === 'string') {
+    const s = val.trim();
+    return s || undefined;
+  }
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    const obj = val as Record<string, unknown>;
+    const s = rawDateString(obj.startDate);
+    if (s) return s;
+    const d = rawDateString(obj.doorTime);
+    if (d) return d;
+  }
+  return undefined;
+}
+
+export function parseWhen(startRaw?: unknown, endRaw?: unknown): EventWhen | null {
+  const text = rawDateString(startRaw) ?? rawDateString(endRaw);
   if (!text) return null;
 
   const bare = DATE_ONLY.exec(text);
@@ -71,7 +86,16 @@ export function parseWhen(raw: string): EventWhen | null {
     return { startTime: at.toISOString(), dateOnly: true };
   }
 
-  const at = new Date(text);
+  // Normalize space-separated timestamps: e.g. "2026-10-15 19:30:00" -> "2026-10-15T19:30:00"
+  let normalized = text.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)/, '$1T$2');
+
+  // Normalize timezone offsets without colons: "+1100" -> "+11:00", "-0500" -> "-05:00"
+  normalized = normalized.replace(/(T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*([+-]\d{2})(\d{2})$/, '$1$2:$3');
+
+  // Also clean up loose space before coloned offset or Z
+  normalized = normalized.replace(/(T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s+([+-]\d{2}:\d{2}|Z)$/i, '$1$2');
+
+  const at = new Date(normalized);
   if (Number.isNaN(at.getTime())) return null;
   return { startTime: at.toISOString(), dateOnly: false };
 }

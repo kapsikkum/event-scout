@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { isWorthKeeping, parseWhen } from '../src/shared/when.js';
+import { isEventType } from '../src/shared/eventTypes.js';
 import { eventsFromHtml, jsonLdBlocks } from '../src/extract/jsonld.js';
 import { crawlableLinks, feedsFrom, linksFrom } from '../src/extract/links.js';
 import { eventLikeness, normalizeUrl, sameSite, siteOf } from '../src/urls.js';
@@ -112,8 +113,181 @@ test('a page with nothing structured yields nothing rather than throwing', () =>
 test('slightly malformed JSON-LD is still read', () => {
   const blocks = jsonLdBlocks('<script type="application/ld+json">{"a":1,}</script>');
   assert.deepEqual(blocks, [{ a: 1 }]);
-  assert.deepEqual(jsonLdBlocks('<script type="application/ld+json">not json at all</script>'), []);
 });
+
+test('extracts CommunityEvent and SaleEvent with schema: prefix and mainEntity traversal', () => {
+  const html = `<!doctype html><html><head>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "ItemPage",
+    "mainEntity": {
+      "@type": "schema:CommunityEvent",
+      "name": "Community Tree Planting",
+      "startDate": "2026-10-15 09:00:00 +1100",
+      "location": {
+        "@type": "Place",
+        "name": "Park",
+        "geo": { "@type": "GeoCoordinates", "lat": -33.85, "lon": 151.21 }
+      }
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "schema:SaleEvent",
+    "name": "Book Fair & Sale",
+    "startDate": "2026-10-16 10:00:00 -0500"
+  }
+  </script>
+  </head></html>`;
+
+  const events = eventsFromHtml(html, 'https://example.com/events', new Date('2026-09-11T00:00:00Z'));
+  assert.equal(events.length, 2);
+
+  const community = events.find((e) => e.title === 'Community Tree Planting');
+  assert.ok(community);
+  assert.equal(community.lat, -33.85);
+  assert.equal(community.lng, 151.21);
+  assert.equal(community.venueName, 'Park');
+  assert.equal(community.startTime, '2026-10-14T22:00:00.000Z');
+
+  const sale = events.find((e) => e.title === 'Book Fair & Sale');
+  assert.ok(sale);
+  assert.equal(sale.startTime, '2026-10-16T15:00:00.000Z');
+});
+
+test('extracts geo coordinates using geo.lat and geo.lon fallbacks', () => {
+  const html = `<!doctype html><html><head>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Event",
+    "name": "Astronomy Night",
+    "startDate": "2026-10-20T20:00:00Z",
+    "location": {
+      "@type": "Place",
+      "name": "Observatory",
+      "geo": {
+        "lat": -33.8598,
+        "lon": 151.2045
+      }
+    }
+  }
+  </script>
+  </head></html>`;
+
+  const [ev] = eventsFromHtml(html, 'https://example.com/events', new Date('2026-09-11T00:00:00Z'));
+  assert.ok(ev);
+  assert.equal(ev.lat, -33.8598);
+  assert.equal(ev.lng, 151.2045);
+});
+
+test('hybrid event prefers physical place over VirtualLocation and extracts contentUrl and doorTime', () => {
+  const html = `<!doctype html><html><head>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Event",
+    "name": {"headline": "Tech Conference"},
+    "doorTime": "2026-10-22 18:00:00 +1100",
+    "image": {
+      "@type": "ImageObject",
+      "url": "https://example.com/page.html",
+      "contentUrl": "https://example.com/banner.png"
+    },
+    "location": [
+      {
+        "@type": "VirtualLocation",
+        "url": "https://zoom.us/j/123456"
+      },
+      {
+        "@type": "Place",
+        "name": "Civic Centre",
+        "address": "500 George St, Sydney NSW",
+        "geo": { "latitude": -33.87, "longitude": 151.20 }
+      }
+    ]
+  }
+  </script>
+  </head></html>`;
+
+  const [ev] = eventsFromHtml(html, 'https://example.com/events', new Date('2026-09-11T00:00:00Z'));
+  assert.ok(ev);
+  assert.equal(ev.title, 'Tech Conference');
+  assert.equal(ev.venueName, 'Civic Centre');
+  assert.equal(ev.address, '500 George St, Sydney NSW');
+  assert.equal(ev.lat, -33.87);
+  assert.equal(ev.lng, 151.20);
+  assert.equal(ev.imageUrl, 'https://example.com/banner.png');
+  assert.equal(ev.startTime, '2026-10-22T07:00:00.000Z');
+});
+
+test('isEventType normalizes prefixes and filters non-public types', () => {
+  assert.equal(isEventType('CommunityEvent'), true);
+  assert.equal(isEventType('SaleEvent'), true);
+  assert.equal(isEventType('UserInteraction'), true);
+  assert.equal(isEventType('Hackathon'), true);
+  assert.equal(isEventType('schema:Event'), true);
+  assert.equal(isEventType('schema:CommunityEvent'), true);
+  assert.equal(isEventType('https://schema.org/SaleEvent'), true);
+  assert.equal(isEventType('http://schema.org/MusicEvent'), true);
+  assert.equal(isEventType('CustomConferenceEvent'), true);
+  assert.equal(isEventType('PublicationEvent'), false);
+  assert.equal(isEventType('DeliveryEvent'), false);
+  assert.equal(isEventType('schema:PublicationEvent'), false);
+  assert.equal(isEventType('https://schema.org/DeliveryEvent'), false);
+  assert.equal(isEventType(['WebSite', 'schema:CommunityEvent']), true);
+  assert.equal(isEventType(['PublicationEvent', 'DeliveryEvent']), false);
+});
+
+test('parseWhen normalizes space timestamps, colonless offsets, and doorTime', () => {
+  const space = parseWhen('2026-10-15 19:30:00+11:00')!;
+  assert.equal(space.startTime, '2026-10-15T08:30:00.000Z');
+  assert.equal(space.dateOnly, false);
+
+  const offsetPositive = parseWhen('2026-10-15T19:30:00+1100')!;
+  assert.equal(offsetPositive.startTime, '2026-10-15T08:30:00.000Z');
+
+  const offsetNegative = parseWhen('2026-10-15 19:30:00-0500')!;
+  assert.equal(offsetNegative.startTime, '2026-10-16T00:30:00.000Z');
+
+  const doorObj = parseWhen({ doorTime: '2026-10-15 19:30:00+1100' })!;
+  assert.equal(doorObj.startTime, '2026-10-15T08:30:00.000Z');
+
+  const doorFallback = parseWhen(undefined, '2026-10-15 19:30:00+1100')!;
+  assert.equal(doorFallback.startTime, '2026-10-15T08:30:00.000Z');
+});
+
+test('collectEvents traverses mainEntity, about, and hasPart', () => {
+  const html = `<!doctype html><html><head>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "about": {
+      "@type": "Event",
+      "name": "About Event",
+      "startDate": "2026-10-10T10:00:00Z"
+    },
+    "hasPart": [
+      {
+        "@type": "Event",
+        "name": "HasPart Event",
+        "startDate": "2026-10-11T10:00:00Z"
+      }
+    ]
+  }
+  </script>
+  </head></html>`;
+
+  const events = eventsFromHtml(html, 'https://example.com/page', new Date('2026-09-11T00:00:00Z'));
+  assert.equal(events.length, 2);
+  assert.ok(events.some((e) => e.title === 'About Event'));
+  assert.ok(events.some((e) => e.title === 'HasPart Event'));
+});
+
 
 // --- links and urls ---------------------------------------------------------
 

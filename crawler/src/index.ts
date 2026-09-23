@@ -136,13 +136,34 @@ const server = http.createServer((req, res) => {
    * the pages to read regularly. Replaces what was there, so an area removed
    * in Settings stops being searched; an empty body puts the crawler to rest.
    */
+  /**
+   * Where to look, from event-scout: the areas with their search terms, and
+   * the pages to read regularly. Replaces what was there, so an area removed
+   * in Settings stops being searched; an empty body puts the crawler to rest.
+   */
   if (req.method === 'PUT' && url.pathname === '/config') {
     readJson(req)
       .then((body) => {
-        const b = (body ?? {}) as { interests?: unknown; seeds?: unknown };
+        const b = (body ?? {}) as {
+          interests?: unknown;
+          seeds?: unknown;
+          ollamaUrl?: unknown;
+          llmModel?: unknown;
+        };
         const interests = parseInterests(b.interests);
         setInterests(interests);
         const pinned = store.pinSeeds(parseSeeds(b.seeds));
+        if (typeof b.ollamaUrl === 'string') {
+          config.ollamaUrl = b.ollamaUrl.trim() || undefined;
+        } else if (b.ollamaUrl === null || b.ollamaUrl === '') {
+          config.ollamaUrl = undefined;
+        }
+        if (typeof b.llmModel === 'string') {
+          config.llmModel = b.llmModel.trim() || undefined;
+        } else if (b.llmModel === null || b.llmModel === '') {
+          config.llmModel = undefined;
+        }
+        store.setJson('llmConfig', { ollamaUrl: config.ollamaUrl, llmModel: config.llmModel });
         json(res, 200, { ok: true, interests: interests.length, seeds: store.listSeeds().length, ...pinned });
       })
       .catch((err: Error) => json(res, 400, { ok: false, message: err.message }));
@@ -198,6 +219,8 @@ const server = http.createServer((req, res) => {
         minHostDelayMs: config.minHostDelayMs,
         intervalMinutes: config.intervalMinutes,
         userAgent: config.userAgent,
+        ollamaUrl: config.ollamaUrl,
+        llmModel: config.llmModel,
       },
     });
   }
@@ -232,6 +255,11 @@ const server = http.createServer((req, res) => {
 
   json(res, 404, { error: 'no such route' });
 });
+
+// Restore stored LLM config if present in the database and not overridden by env
+const savedLlm = store.getJson<{ ollamaUrl?: string; llmModel?: string }>('llmConfig', {});
+if (savedLlm.ollamaUrl && !config.ollamaUrl) config.ollamaUrl = savedLlm.ollamaUrl;
+if (savedLlm.llmModel && !config.llmModel) config.llmModel = savedLlm.llmModel;
 
 server.listen(config.port, () => {
   console.log(`crawler listening on ${config.port} (enabled: ${config.enabled})`);

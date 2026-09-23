@@ -37,3 +37,54 @@ test('only real web addresses are pinned, and each once', () => {
 test('no location means nowhere to search', () => {
   assert.deepEqual(crawlerConfigFrom({ ...DEFAULT_SETTINGS, city: '' }).interests, []);
 });
+
+test('crawler config includes ollamaUrl and llmModel when llm is enabled', () => {
+  const config = crawlerConfigFrom({
+    ...DEFAULT_SETTINGS,
+    city: 'Bathurst',
+    llmEnabled: true,
+    llmUrl: 'http://ollama.local:11434',
+    llmModel: 'llama3:8b',
+  });
+  assert.equal(config.ollamaUrl, 'http://ollama.local:11434');
+  assert.equal(config.llmModel, 'llama3:8b');
+});
+
+test('crawler config omits ollamaUrl when llm is disabled', () => {
+  const config = crawlerConfigFrom({
+    ...DEFAULT_SETTINGS,
+    city: 'Bathurst',
+    llmEnabled: false,
+    llmUrl: 'http://ollama.local:11434',
+    llmModel: 'llama3:8b',
+  });
+  assert.equal(config.ollamaUrl, undefined);
+  assert.equal(config.llmModel, 'llama3:8b');
+});
+
+test('syncCrawler sends ollamaUrl and llmModel to the crawler endpoint', async () => {
+  const { syncCrawler } = await import('../src/sources/crawler.js');
+  let sentBody: unknown = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    sentBody = JSON.parse(String(init?.body ?? '{}'));
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const res = await syncCrawler({
+      ...DEFAULT_SETTINGS,
+      crawlerUrl: 'http://crawler.local:3002',
+      city: 'Bathurst',
+      llmEnabled: true,
+      llmUrl: 'http://ollama.local:11434',
+      llmModel: 'llama3:8b',
+    });
+    assert.equal(res.ok, true);
+    assert.equal((sentBody as { ollamaUrl?: string })?.ollamaUrl, 'http://ollama.local:11434');
+    assert.equal((sentBody as { llmModel?: string })?.llmModel, 'llama3:8b');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+

@@ -100,15 +100,31 @@ export async function robotsFor(site: string, sampleUrl: string): Promise<Robots
   const origin = new URL(sampleUrl).origin;
   let body = '';
   try {
-    await assertPublicUrl(`${origin}/robots.txt`);
-    const res = await fetch(`${origin}/robots.txt`, {
-      headers: { 'User-Agent': config.userAgent, Accept: 'text/plain,*/*' },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(config.requestTimeoutMs),
-    });
+    let target = `${origin}/robots.txt`;
+    let res: Response | null = null;
+    for (let hop = 0; hop <= 3; hop++) {
+      await assertPublicUrl(target);
+      res = await fetch(target, {
+        headers: { 'User-Agent': config.userAgent, Accept: 'text/plain,*/*' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(config.requestTimeoutMs),
+      });
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+      if (!location) break;
+      if (hop >= 3) {
+        res = null;
+        break;
+      }
+      try {
+        target = new URL(location, target).toString();
+      } catch {
+        res = null;
+        break;
+      }
+    }
     // Only a 2xx is a robots.txt. A 404 is "no rules"; a 500 is not an
     // instruction either way, and treating it as "deny all" would strand sites.
-    if (res.ok) body = (await res.text()).slice(0, 512 * 1024);
+    if (res && res.ok) body = (await res.text()).slice(0, 512 * 1024);
   } catch {
     body = '';
   }

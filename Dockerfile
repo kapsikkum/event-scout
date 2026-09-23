@@ -9,6 +9,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/package.json
 COPY web/package.json web/package.json
+COPY crawler/package.json crawler/package.json
 RUN npm ci
 
 COPY . .
