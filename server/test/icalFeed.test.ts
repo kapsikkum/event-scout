@@ -69,6 +69,37 @@ test('a page that is not a calendar is refused rather than read as empty', () =>
   assert.throws(() => parseFeed('<!doctype html><p>Not found</p>', 'https://example.test/x', '', NOW), /not a calendar/);
 });
 
+const RRULE_FEED = [
+  'BEGIN:VCALENDAR',
+  'VERSION:2.0',
+  'BEGIN:VEVENT',
+  'UID:market-1',
+  'DTSTART:20260101T090000Z',
+  'DTEND:20260101T110000Z',
+  'RRULE:FREQ=WEEKLY;BYDAY=SU',
+  'EXDATE:20260927T090000Z',
+  'SUMMARY:Sunday Market',
+  'END:VEVENT',
+  'END:VCALENDAR',
+].join('\r\n');
+
+test('a recurring event is judged occurrence by occurrence, not by its first DTSTART', () => {
+  // The series began in January, long before the six-month horizon this test
+  // sets — a first-DTSTART-only reading would drop every occurrence in range.
+  const feed = parseFeed(RRULE_FEED, 'https://example.test/market.ics', 'Council', NOW);
+  const markets = feed.events.filter((e) => e.title === 'Sunday Market');
+  assert.ok(markets.length >= 3, `expected several occurrences, got ${markets.length}`);
+
+  // Every occurrence keeps the two-hour duration and gets its own id.
+  for (const m of markets) {
+    assert.equal(new Date(m.endTime!).getTime() - new Date(m.startTime).getTime(), 2 * 3600 * 1000);
+  }
+  assert.equal(new Set(markets.map((m) => m.sourceId)).size, markets.length, 'each occurrence has a distinct id');
+
+  // The excluded date does not turn up as an occurrence.
+  assert.ok(!markets.some((m) => m.startTime.startsWith('2026-09-27')));
+});
+
 test('webcal addresses are fetched over https', () => {
   assert.equal(feedUrl('webcal://example.test/cal.ics'), 'https://example.test/cal.ics');
   assert.equal(feedUrl(' https://example.test/cal.ics '), 'https://example.test/cal.ics');

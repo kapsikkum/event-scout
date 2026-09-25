@@ -2,6 +2,8 @@ import { db, getKv, getSettings, saveSettings, setKv } from '../db.js';
 import { TaskLog, TaskResult } from '../tasks/registry.js';
 import { chatJson, listModels, OllamaError } from './ollama.js';
 import { flyerBacklog } from './visionPipeline.js';
+import { cleanAddress, validateAddress } from '../validate.js';
+import { defaultRegionFrom } from '../regions.js';
 import {
   buildPrompt,
   buildSchema,
@@ -60,6 +62,34 @@ function toInput(row: Row): EnrichInput {
  */
 export function ollamaUrl(configured: string | undefined): string {
   return (configured || '').trim() || process.env.OLLAMA_URL || 'http://localhost:11434';
+}
+
+/**
+ * The region a model-supplied venue/address is tidied against, cached for a
+ * minute so a run of many events does not scan the table once each. Same
+ * source of truth as insertRaw's own region: whatever the stored addresses
+ * already agree on.
+ */
+let cachedRegion: { at: number; value: string } | null = null;
+function llmRegion(): string {
+  if (cachedRegion && Date.now() - cachedRegion.at < 60_000) return cachedRegion.value;
+  const rows = db.prepare("SELECT address FROM events WHERE address != ''").all() as unknown as {
+    address: string;
+  }[];
+  cachedRegion = { at: Date.now(), value: defaultRegionFrom(rows.map((r) => r.address)) };
+  return cachedRegion.value;
+}
+
+/**
+ * The same tidying insertRaw runs on a scraped venue/address, applied to what
+ * the model reads out of a description or a flyer — untidied, it stores
+ * "Bathurst, NSW, Australia, Bathurst" as literally as any other source would.
+ */
+export function cleanExtractedVenue(venue: string | undefined): string {
+  return venue ? cleanAddress(venue, llmRegion()) : '';
+}
+export function cleanExtractedAddress(address: string | undefined): string {
+  return validateAddress(address, llmRegion());
 }
 
 export function enabledJobs(): EnrichJob[] {
@@ -218,17 +248,19 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
         schema: buildSchema(jobs, input),
         timeoutMs: EVENT_TIMEOUT_MS,
       });
-      const verdict = readVerdict(raw, jobs);
+      const verdict = readVerdict(raw, jobs, input);
+      const venueName = cleanExtractedVenue(verdict.venueName);
+      const address = cleanExtractedAddress(verdict.address);
       update.run(
         verdict.description ?? '',
         verdict.title ?? '',
         verdict.category ?? '',
-        verdict.venueName ?? '',
-        verdict.address ?? '',
+        venueName,
+        address,
         verdict.priceText ?? '',
         verdict.photoScore ?? null,
-        verdict.venueName ?? '',
-        verdict.address ?? '',
+        venueName,
+        address,
         row.id
       );
       if (verdict.notEvent !== undefined) vet.run(verdict.notEvent, new Date().toISOString(), row.id);

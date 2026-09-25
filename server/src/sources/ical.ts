@@ -6,6 +6,9 @@ import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } 
 /** How far ahead a feed is read. Council calendars publish years of bin nights. */
 const HORIZON_MONTHS = 6;
 
+/** Occurrences kept per recurring event, so one badly-bounded RRULE cannot blow up a feed. */
+const MAX_OCCURRENCES = 60;
+
 /** How long a feed has to answer. A hung one used to hold up the whole refresh. */
 const FEED_TIMEOUT_MS = 20_000;
 
@@ -61,31 +64,64 @@ export function parseFeed(body: string, url: string, name: string, now = new Dat
     if (!ev.start) continue;
     total++;
     const start = new Date(ev.start);
-    // Kept until it is over, not until it has started. Judged on the start,
-    // an exhibition that opened in June and runs to Christmas was dropped for
-    // its whole run: all thirty events in Central NSW's feed were, and so was
-    // a week-long car tour on the day it was passing through.
     const end = ev.end ? new Date(ev.end) : start;
-    if (start > horizon || end < from) continue;
+    const duration = end.getTime() - start.getTime();
     const title = text(ev.summary) || 'Untitled event';
     const uid = ev.uid ?? crypto.createHash('sha1').update(`${url}|${title}|${start.toISOString()}`).digest('hex');
     const geo = (ev as unknown as { geo?: { lat?: number; lon?: number } }).geo;
-    events.push({
-      sourceId: `${feedKey}:${uid}`,
-      title,
-      description: text(ev.description),
-      startTime: start.toISOString(),
-      // node-ical already builds an all-day VALUE=DATE at local midnight,
-      // and says so; the flag is what stops it being shown as "12:00 am".
-      dateOnly: (ev as unknown as { datetype?: string }).datetype === 'date',
-      endTime: ev.end ? new Date(ev.end).toISOString() : undefined,
-      venueName: name,
-      address: text(ev.location),
-      lat: geo?.lat,
-      lng: geo?.lon,
-      url: typeof ev.url === 'string' ? ev.url : '',
-      category: 'Community',
-    });
+    const dateOnly = (ev as unknown as { datetype?: string }).datetype === 'date';
+    const address = text(ev.location);
+    const eventUrl = typeof ev.url === 'string' ? ev.url : '';
+    const description = text(ev.description);
+
+    const push = (occStart: Date, occEnd: Date, id: string): void => {
+      // Kept until it is over, not until it has started. Judged on the start,
+      // an exhibition that opened in June and runs to Christmas was dropped for
+      // its whole run: all thirty events in Central NSW's feed were, and so was
+      // a week-long car tour on the day it was passing through.
+      if (occStart > horizon || occEnd < from) return;
+      events.push({
+        sourceId: `${feedKey}:${id}`,
+        title,
+        description,
+        startTime: occStart.toISOString(),
+        // node-ical already builds an all-day VALUE=DATE at local midnight,
+        // and says so; the flag is what stops it being shown as "12:00 am".
+        dateOnly,
+        endTime: ev.end ? occEnd.toISOString() : undefined,
+        venueName: name,
+        address,
+        lat: geo?.lat,
+        lng: geo?.lon,
+        url: eventUrl,
+        category: 'Community',
+      });
+    };
+
+    const rrule = (ev as unknown as { rrule?: { between: (a: Date, b: Date, inc?: boolean) => Date[] } }).rrule;
+    if (!rrule) {
+      push(start, end, uid);
+      continue;
+    }
+
+    // A repeating event is judged occurrence by occurrence rather than once
+    // off its first DTSTART, so a weekly market six months from now is not
+    // silently dropped because the series itself began last year.
+    const exdate = (ev as unknown as { exdate?: Record<string, Date> }).exdate ?? {};
+    const excluded = new Set(Object.values(exdate).map((d) => new Date(d).toISOString()));
+    const overrides = (ev as unknown as { recurrences?: Record<string, ical.VEvent> }).recurrences ?? {};
+    const occurrences = rrule.between(from, horizon, true).slice(0, MAX_OCCURRENCES);
+    for (const occ of occurrences) {
+      if (excluded.has(occ.toISOString())) continue;
+      const override = Object.entries(overrides).find(([key]) => new Date(key).toISOString() === occ.toISOString())?.[1];
+      if (override && override.start) {
+        const oStart = new Date(override.start);
+        const oEnd = override.end ? new Date(override.end) : new Date(oStart.getTime() + duration);
+        push(oStart, oEnd, `${uid}:${oStart.toISOString()}`);
+      } else {
+        push(occ, new Date(occ.getTime() + duration), `${uid}:${occ.toISOString()}`);
+      }
+    }
   }
   const calendarName = text(body.match(/^X-WR-CALNAME:(.*)$/im)?.[1]).trim();
   return { calendarName, total, events };

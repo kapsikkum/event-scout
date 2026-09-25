@@ -1,7 +1,7 @@
 import { db, getSettings } from '../db.js';
 import { TaskLog, TaskResult } from '../tasks/registry.js';
 import { chatJson, listModels, OllamaError } from './ollama.js';
-import { ollamaUrl } from './pipeline.js';
+import { ollamaUrl, cleanExtractedVenue, cleanExtractedAddress } from './pipeline.js';
 import {
   buildVisionPrompt,
   fetchImage,
@@ -95,7 +95,9 @@ export async function runVisionPass(log: TaskLog): Promise<TaskResult> {
   );
   const update = db.prepare(
     `UPDATE events SET vision_venue_name = ?, vision_address = ?,
-                       vision_price_text = ?, vision_note = ?
+                       vision_price_text = ?, vision_note = ?,
+                       -- A place the flyer named is worth looking up on the map.
+                       geocode_tried = CASE WHEN lat IS NULL AND (? != '' OR ? != '') THEN 0 ELSE geocode_tried END
      WHERE id = ?`
   );
 
@@ -120,11 +122,16 @@ export async function runVisionPass(log: TaskLog): Promise<TaskResult> {
         timeoutMs: EVENT_TIMEOUT_MS,
       });
       const v = readVisionVerdict(raw);
-      update.run(v.venueName ?? '', v.address ?? '', v.priceText ?? '', v.note ?? '', row.id);
+      // Same tidying insertRaw runs on a scraped venue/address: an untidied
+      // flyer read stores "Bathurst, NSW, Australia, Bathurst" as literally as
+      // any other source would.
+      const venueName = cleanExtractedVenue(v.venueName);
+      const address = cleanExtractedAddress(v.address);
+      update.run(venueName, address, v.priceText ?? '', v.note ?? '', venueName, address, row.id);
       record.run(row.id, hash, model, 1, '', new Date().toISOString());
       read++;
       // Only what the event was actually missing counts as useful.
-      if ((!row.venue_name && v.venueName) || (!row.address && v.address) || (!row.price_text && v.priceText)) {
+      if ((!row.venue_name && venueName) || (!row.address && address) || (!row.price_text && v.priceText)) {
         filled++;
       }
     } catch (err) {

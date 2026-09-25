@@ -341,7 +341,7 @@ export function contentHash(
     .update(
       JSON.stringify([
         input.title, input.description, input.venueName, input.address,
-        input.category, input.source,
+        input.category, input.startTime, input.source,
         model, [...jobs].sort().join(','), PROMPT_VERSION,
       ])
     )
@@ -369,7 +369,7 @@ function cleanField(value: unknown, max: number): string | undefined {
  * several ways a model says "I do not know" in prose instead of with null.
  * Anything rejected simply leaves the scraped value in place.
  */
-export function readVerdict(raw: unknown, jobs: EnrichJob[]): EnrichVerdict {
+export function readVerdict(raw: unknown, jobs: EnrichJob[], input?: EnrichInput): EnrichVerdict {
   if (!raw || typeof raw !== 'object') return {};
   const obj = raw as Record<string, unknown>;
   const want = new Set(jobs);
@@ -398,8 +398,13 @@ export function readVerdict(raw: unknown, jobs: EnrichJob[]): EnrichVerdict {
     if (name) out.title = name;
   }
   if (want.has('extract')) {
-    const venue = cleanField(obj.venueName, 200);
-    const address = cleanField(obj.address, 300);
+    // Belt and braces, same as the enum check above: only accept venue/address
+    // when buildSchema actually asked for it (the listing lacked one). A model
+    // that ignores the grammar must not be able to overwrite a field it was
+    // never offered.
+    const blank = (value: string | undefined): boolean => !input || !value?.trim();
+    const venue = blank(input?.venueName) ? cleanField(obj.venueName, 200) : undefined;
+    const address = blank(input?.address) ? cleanField(obj.address, 300) : undefined;
     const price = cleanField(obj.priceText, 80);
     if (venue) out.venueName = venue;
     if (address) out.address = address;

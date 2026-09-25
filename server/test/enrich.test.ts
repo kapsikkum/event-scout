@@ -85,8 +85,9 @@ test('the cache key follows the text, the model and the jobs', () => {
   assert.notEqual(contentHash(EVENT, 'gemma3:4b', ALL), base, 'a new model reconsiders');
   assert.notEqual(contentHash(EVENT, 'qwen3:8b', ['score']), base, 'fewer jobs reconsiders');
 
-  // Things the answer does not depend on must not force a re-run.
-  assert.equal(contentHash({ ...EVENT, startTime: '2027-01-01T00:00:00.000Z' }, 'qwen3:8b', ALL), base);
+  // The prompt prints the start time (describeStart), so a changed one must
+  // reconsider rather than reuse a verdict formed against the old date.
+  assert.notEqual(contentHash({ ...EVENT, startTime: '2027-01-01T00:00:00.000Z' }, 'qwen3:8b', ALL), base);
 });
 
 test('a good answer is read through', () => {
