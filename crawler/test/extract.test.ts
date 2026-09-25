@@ -158,6 +158,24 @@ test('extracts CommunityEvent and SaleEvent with schema: prefix and mainEntity t
   assert.equal(sale.startTime, '2026-10-16T15:00:00.000Z');
 });
 
+test('a relative node.url is resolved against the page it was found on', () => {
+  const html = `<!doctype html><html><head>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Event",
+    "name": "Local Fair",
+    "startDate": "2026-10-20T20:00:00Z",
+    "url": "/events/local-fair"
+  }
+  </script>
+  </head></html>`;
+
+  const [ev] = eventsFromHtml(html, 'https://example.com/events', new Date('2026-09-11T00:00:00Z'));
+  assert.ok(ev);
+  assert.equal(ev.url, 'https://example.com/events/local-fair');
+});
+
 test('extracts geo coordinates using geo.lat and geo.lon fallbacks', () => {
   const html = `<!doctype html><html><head>
   <script type="application/ld+json">

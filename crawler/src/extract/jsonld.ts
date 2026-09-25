@@ -204,7 +204,17 @@ export function eventsFromHtml(html: string, pageUrl: string, foundAt = new Date
       const endRaw = str(node.endDate);
       const endTime = endRaw ? parseEnd(endRaw) : undefined;
       const place = placeOf(node);
-      const url = str(node.url) ?? pageUrl;
+      const rawUrl = str(node.url);
+      // A relative node.url (some sites emit "/events/foo" rather than a full
+      // link) has to be resolved against the page it was found on, or it ends
+      // up stored as a link nothing can follow.
+      const url = rawUrl ? (() => {
+        try {
+          return new URL(rawUrl, pageUrl).href;
+        } catch {
+          return pageUrl;
+        }
+      })() : pageUrl;
 
       // One event per title+start on a page. Calendars routinely emit the same
       // event twice, once in @graph and once inline.
