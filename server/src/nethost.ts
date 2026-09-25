@@ -57,9 +57,17 @@ export function isPrivateAddress(address: string): boolean {
   }
 
   // IPv6. Anything mapping onto a v4 address is judged as that address.
+  // Node's URL normalises a mapped address to hex groups (`::ffff:7f00:1`),
+  // not the dotted form it was typed in, so both are matched here.
   if (host.includes(':')) {
-    const mapped = /(?:^::ffff:)([\d.]+)$/i.exec(host);
-    if (mapped) return isPrivateAddress(mapped[1]);
+    const dottedMapped = /^(?:::ffff:|64:ff9b::)([\d.]+)$/i.exec(host);
+    if (dottedMapped) return isPrivateAddress(dottedMapped[1]);
+    const hexMapped = /^(?:::ffff:|64:ff9b::)([\da-f]{1,4}):([\da-f]{1,4})$/i.exec(host);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      return isPrivateAddress(`${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`);
+    }
     if (host === '::' || host === '::1') return true;  // unspecified, loopback
     if (/^f[cd]/i.test(host)) return true;             // unique-local
     if (/^fe[89ab]/i.test(host)) return true;          // link-local

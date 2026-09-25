@@ -151,6 +151,8 @@ test('one cookie is picked out of the header, and a missing one is undefined', (
   assert.equal(readCookie(undefined, 'es_session'), undefined);
   // Values are stored url-encoded.
   assert.equal(readCookie('es_session=a%20b', 'es_session'), 'a b');
+  // A malformed %-escape must not throw (URIError -> 500); treat as no cookie.
+  assert.equal(readCookie('es_session=%E0%A4%A', 'es_session'), undefined);
 });
 
 /**

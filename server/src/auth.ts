@@ -113,7 +113,11 @@ export function readCookie(header: string | undefined, name: string): string | u
     const eq = part.indexOf('=');
     if (eq < 0) continue;
     if (part.slice(0, eq).trim() !== name) continue;
-    return decodeURIComponent(part.slice(eq + 1).trim());
+    try {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    } catch {
+      return undefined; // malformed %-escape: treat as no cookie, not a 500
+    }
   }
   return undefined;
 }

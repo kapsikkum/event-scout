@@ -21,6 +21,8 @@ test('addresses inside the network are recognised', () => {
     '100.64.0.1',
     '224.0.0.1', '255.255.255.255',
     '::1', '::', '::ffff:127.0.0.1', '::ffff:10.0.0.1',
+    // Node's URL normalises a mapped address to hex groups.
+    '::ffff:7f00:1', '[::ffff:7f00:1]', '64:ff9b::7f00:1', '64:ff9b::a9fe:a9fe',
     'fc00::1', 'fd12:3456::1', 'fe80::1', 'ff02::1',
     'localhost', 'LOCALHOST', 'thing.localhost',
   ]) {

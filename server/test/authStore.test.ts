@@ -6,15 +6,27 @@ import {
   LOCKOUT_MS,
   MAX_ATTEMPTS,
   loginBlockedFor,
+  newSessionToken,
   noteLoginFailure,
   noteLoginSuccess,
   pruneAttempts,
+  sessionValid,
+  setPassword,
   _resetAttemptsForTest,
   _attemptsCountForTest,
 } from '../src/authStore.js';
 
 beforeEach(() => {
   _resetAttemptsForTest();
+});
+
+test('changing the password invalidates outstanding sessions', () => {
+  setPassword('old-password');
+  const { token } = newSessionToken();
+  assert.equal(sessionValid(token), true);
+  setPassword('new-password');
+  assert.equal(sessionValid(token), false);
+  setPassword(''); // leave no password behind for other tests
 });
 
 test('5 failed attempts are permitted before lockout', () => {

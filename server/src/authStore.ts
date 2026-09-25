@@ -13,6 +13,10 @@ import { readBearer, scryptHash, secureEqual, signSession, verifySession, SESSIO
 
 /** Set or clear the stored password. An empty string turns authentication off. */
 export function setPassword(password: string): void {
+  // Rotating the session secret invalidates every outstanding session token,
+  // since a token is only good as long as the secret that signed it. Without
+  // this, changing (or clearing) the password would leave old sessions valid.
+  setKv('authSessionSecret', '');
   if (!password) {
     setKv('authPasswordHash', '');
     setKv('authPasswordSalt', '');
