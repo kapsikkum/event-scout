@@ -50,7 +50,7 @@ x-zenith:
 
 services:
   app:
-    image: ghcr.io/kapsikkum/event-scout@sha256:18771a595e984927d55209eac2ec13a209b14bd463d72dc7acda074dabea8579
+    image: ghcr.io/kapsikkum/event-scout@sha256:647d1674840fc93a7057139050f947ecdc8464f23edcc1a81e85c9153fb93f30
     environment:
       API_PORT: "3001"
       BROWSER_CDP_URL: http://chromium:9222
@@ -62,14 +62,14 @@ services:
       - crawler
 
   crawler:
-    image: ghcr.io/kapsikkum/event-scout-crawler@sha256:e8baada2cd395580d0e22a6084c95670415604c20bff58a611507eacae08fb0a
+    image: ghcr.io/kapsikkum/event-scout-crawler@sha256:498e70f9851f8e8ebe5b1e87d1d9b837510309f5327be395a1ce57973f4c0a34
     environment:
       CRAWLER_PORT: "3002"
     volumes:
       - crawler-data:/app/data
 
   chromium:
-    image: ghcr.io/kapsikkum/event-scout-chromium@sha256:ad7a01e553a002dc46017e0bab5730c60b3c54db00e881943771a9a5e711202f
+    image: ghcr.io/kapsikkum/event-scout-chromium@sha256:ff08aa11733c83def514daf2b0e2d9d36e84ab44e05501212562636d8cdc00f4
     # Chromium exhausts the default 64 MB /dev/shm on any page worth reading.
     shm_size: 512mb
     volumes:
