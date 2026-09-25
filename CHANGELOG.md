@@ -7,6 +7,16 @@ what a commit has to look like to appear here.
 
 The entries below 0.2.0 were written by hand, since they predate the convention.
 
+## [0.10.1](https://github.com/kapsikkum/event-scout/compare/v0.10.0...v0.10.1) (2026-09-25)
+
+
+### Fixes
+
+* **crawler:** resolve relative JSON-LD event urls ([6693cf8](https://github.com/kapsikkum/event-scout/commit/6693cf8ff2dcc44cf93442871b18d391da7f0cd3))
+* **server:** block hex-mapped IPv6 SSRF, revoke sessions on password change ([fd5f3bb](https://github.com/kapsikkum/event-scout/commit/fd5f3bb8617d629a68e778c16286e1d5ae1a765e))
+* **server:** geocode flyer addresses, clean LLM venues, expand iCal RRULEs ([30c7941](https://github.com/kapsikkum/event-scout/commit/30c7941d1860c84c2420058f03321b068aed82ab))
+* **server:** stop pinning town-less listings on area centres ([efe0c45](https://github.com/kapsikkum/event-scout/commit/efe0c45efad6c16f4aa1a000bede43046113018c))
+
 ## [0.10.0](https://github.com/kapsikkum/event-scout/compare/v0.9.5...v0.10.0) (2026-09-23)
 
 
