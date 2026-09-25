@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { safeHref } from '../text.js';
 
 /** A line break, so the tooltip below stays one readable expression. */
 const NEWLINE = String.fromCharCode(10);
@@ -257,7 +258,7 @@ export default function EventDetail({
             <h4>Organiser</h4>
             <div className="detail__socials">
               {socials.map((s) => (
-                <a key={`${s.network}-${s.handle}`} href={s.url} target="_blank" rel="noreferrer">
+                <a key={`${s.network}-${s.handle}`} href={safeHref(s.url)} target="_blank" rel="noreferrer">
                   {s.icon} {s.network} <span className="detail__handle">@{s.handle}</span>
                 </a>
               ))}
@@ -314,7 +315,7 @@ export default function EventDetail({
           <div className="detail__sources">
             {ev.sources.map((s) =>
               s.url ? (
-                <a key={s.source + s.url} href={s.url} target="_blank" rel="noreferrer">
+                <a key={s.source + s.url} href={safeHref(s.url)} target="_blank" rel="noreferrer">
                   {s.source} ↗
                 </a>
               ) : (
@@ -344,7 +345,7 @@ export default function EventDetail({
             <h4>Links</h4>
             <div className="detail__sources">
               {links.map((l) => (
-                <a key={l.url} href={l.url} target="_blank" rel="noreferrer" title={l.url}>
+                <a key={l.url} href={safeHref(l.url)} target="_blank" rel="noreferrer" title={l.url}>
                   {l.host} ↗
                 </a>
               ))}

@@ -1,6 +1,6 @@
 import ical from 'node-ical';
 import crypto from 'node:crypto';
-import { assertPublicUrl } from '../nethost.js';
+import { assertPublicUrl, publicFetch, readCappedText } from '../nethost.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
 
 /** How far ahead a feed is read. Council calendars publish years of bin nights. */
@@ -42,6 +42,10 @@ export interface ParsedFeed {
  */
 export function parseFeed(body: string, url: string, name: string, now = new Date()): ParsedFeed {
   if (!/BEGIN:VCALENDAR/i.test(body)) throw new Error('that is not a calendar file');
+  // Counted before parsing, since node-ical builds every entry before any of
+  // them can be judged against the horizon.
+  const entries = body.match(/^BEGIN:VEVENT/gim)?.length ?? 0;
+  if (entries > MAX_FEED_EVENTS) throw new Error(`the feed has ${entries} events; more than ${MAX_FEED_EVENTS} is not read`);
   const data = ical.sync.parseICS(body);
   const horizon = new Date(now);
   horizon.setMonth(horizon.getMonth() + HORIZON_MONTHS);
@@ -88,13 +92,17 @@ export function parseFeed(body: string, url: string, name: string, now = new Dat
 }
 
 const MAX_REDIRECTS = 5;
+/** A feed with more entries than this is an archive, not a calendar. */
+const MAX_FEED_EVENTS = 20_000;
+/** A calendar feed bigger than this is not one worth reading in full. */
+const MAX_FEED_BYTES = 10 * 1024 * 1024;
 
 /** Fetch a feed and read it. Throws with a reason a person can act on. */
 export async function readFeed(url: string, name: string): Promise<ParsedFeed> {
   let target = feedUrl(url);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     await assertPublicUrl(target);
-    const res = await fetch(target, {
+    const res = await publicFetch(target, {
       signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
       headers: { Accept: 'text/calendar, text/plain;q=0.9, */*;q=0.5' },
       redirect: 'manual',
@@ -108,7 +116,7 @@ export async function readFeed(url: string, name: string): Promise<ParsedFeed> {
       continue;
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return parseFeed(await res.text(), url, name);
+    return parseFeed(await readCappedText(res, MAX_FEED_BYTES), url, name);
   }
   throw new Error('too many redirects');
 }

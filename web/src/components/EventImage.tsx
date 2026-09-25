@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * An image that falls through to the next candidate when one fails to load.
@@ -26,9 +26,13 @@ export default function EventImage({
   useEffect(() => setIndex(0), [key]);
 
   const src = images[index];
+  // Held in a ref so a caller's inline callback does not re-fire the effect
+  // on every render.
+  const onNoneRef = useRef(onNone);
+  onNoneRef.current = onNone;
   useEffect(() => {
-    if (!src && images.length > 0) onNone?.();
-  }, [src, images.length, onNone]);
+    if (!src && images.length > 0) onNoneRef.current?.();
+  }, [src, images.length]);
 
   if (!src) return null;
   return (

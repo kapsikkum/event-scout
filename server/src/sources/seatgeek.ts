@@ -32,7 +32,6 @@ export const seatgeek: EventSourceAdapter = {
     const maxPages = 5;
     for (let page = 1; page <= maxPages; page++) {
       const url = new URL('https://api.seatgeek.com/2/events');
-      url.searchParams.set('client_id', settings.seatgeekClientId);
       url.searchParams.set('lat', String(loc.lat));
       url.searchParams.set('lon', String(loc.lng));
       url.searchParams.set('range', `${Math.max(1, Math.round(loc.radiusKm))}km`);
@@ -40,7 +39,12 @@ export const seatgeek: EventSourceAdapter = {
       url.searchParams.set('page', String(page));
       url.searchParams.set('sort', 'datetime_utc.asc');
 
-      const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+      // Sent as Basic auth rather than ?client_id= so the ID stays out of any
+      // logged URL.
+      const res = await fetch(url, {
+        headers: { Authorization: `Basic ${Buffer.from(`${settings.seatgeekClientId}:`).toString('base64')}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
       if (res.status === 401 || res.status === 403) throw new MissingConfigError('SeatGeek rejected the client ID.');
       if (!res.ok) throw new Error(`SeatGeek returned HTTP ${res.status}`);
       const data = (await res.json()) as { events?: SgEvent[]; meta?: { total?: number; page?: number; per_page?: number } };

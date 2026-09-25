@@ -1,8 +1,23 @@
+import { readCappedText } from '../nethost.js';
+
+const MAX_JSON_BYTES = 20 * 1024 * 1024;
+
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** A URL with its query values blanked, so keys and tokens never reach a log line. */
+export function redactUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    for (const k of [...u.searchParams.keys()]) u.searchParams.set(k, '…');
+    return u.toString();
+  } catch {
+    return url.split('?')[0];
+  }
+}
 
 export class HttpError extends Error {
   constructor(public status: number, public body: string, public url: string) {
-    super(`HTTP ${status} for ${url}`);
+    super(`HTTP ${status} for ${redactUrl(url)}`);
   }
 }
 
@@ -23,7 +38,7 @@ export async function fetchJson<T = unknown>(url: string, opts: FetchOpts = {}):
     const timer = setTimeout(() => ac.abort(), timeoutMs);
     try {
       const res = await fetch(url, { ...init, signal: ac.signal });
-      const text = await res.text();
+      const text = await readCappedText(res, MAX_JSON_BYTES);
       if (!res.ok) {
         const err = new HttpError(res.status, text.slice(0, 500), url);
         if (res.status !== 429 && res.status < 500) throw err;
@@ -32,7 +47,7 @@ export async function fetchJson<T = unknown>(url: string, opts: FetchOpts = {}):
         try {
           return JSON.parse(text) as T;
         } catch {
-          throw new Error(`Non-JSON response from ${url}: ${text.slice(0, 200)}`);
+          throw new Error(`Non-JSON response from ${redactUrl(url)}: ${text.slice(0, 200)}`);
         }
       }
     } catch (err) {

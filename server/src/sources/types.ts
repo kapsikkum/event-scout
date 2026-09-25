@@ -24,6 +24,8 @@ export interface Settings {
   fbSearchTerms: string[];
   fbPages: string[];
   webSearchTerms: string[];
+  /** Search engines (duckduckgo, mojeek, bing) the web search should not use. */
+  webSearchDisabledEngines: string[];
   /**
    * Preset topics, expanded into search phrases per area. See `topics.ts`.
    * Custom terms above still apply and are appended to whatever these produce.
@@ -98,6 +100,8 @@ export interface Settings {
   /** Which of 'describe' | 'classify' | 'extract' | 'score' to ask for. */
   llmJobs: string[];
   llmIntervalMinutes: number;
+  /** How stale the event list may get before the hourly tick refreshes it. */
+  eventRefreshIntervalMinutes: number;
   /** Events per pass. A backlog drains over several runs rather than one long one. */
   llmMaxPerRun: number;
   /**
@@ -129,6 +133,12 @@ export interface Settings {
    * than a technical limit.
    */
   densityMaxVenues: number;
+  /** Mean pause between venue page loads, in milliseconds (jittered around). */
+  densityRequestDelayMs: number;
+  /** How long to let a venue page settle before reading it, in milliseconds. */
+  densityWaitMs: number;
+  /** How many matching places to keep per named place. */
+  densityPlacesPerName: number;
   densityCellMeters: number;
   densityKernelMeters: number;
   densityBrowserPath: string;
@@ -280,6 +290,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fbSearchTerms: [],
   fbPages: [],
   webSearchTerms: [],
+  webSearchDisabledEngines: [],
   eventTopics: [],
   eventAreas: [],
   cullOutsideAreas: false,
@@ -295,6 +306,7 @@ export const DEFAULT_SETTINGS: Settings = {
   llmModel: '',
   llmJobs: ['vet', 'describe', 'rename', 'classify', 'extract', 'score'],
   llmIntervalMinutes: 60,
+  eventRefreshIntervalMinutes: 360,
   llmMaxPerRun: 40,
   visionEnabled: false,
   visionModel: '',
@@ -307,6 +319,9 @@ export const DEFAULT_SETTINGS: Settings = {
   densitySearches: [],
   densityPlaces: ['Mount Panorama'],
   densityMaxVenues: 30,
+  densityRequestDelayMs: 2000,
+  densityWaitMs: 7000,
+  densityPlacesPerName: 2,
   densityCellMeters: 150,
   densityKernelMeters: 300,
   densityBrowserPath: '',

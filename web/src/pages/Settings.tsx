@@ -5,6 +5,7 @@ import NotifyPanel from '../components/NotifyPanel';
 import { api, DensityStatus, EventTopic, GeocodeResult, LlmQueueItem, LlmStatus, Settings as SettingsType, SourceStatus, VersionInfo } from '../api';
 import { useStore } from '../store';
 import Tasks from './Tasks';
+import { safeHref } from '../text.js';
 
 /** Newline, as a constant so the textarea handlers stay readable. */
 const LINE_BREAK = String.fromCharCode(10);
@@ -703,7 +704,7 @@ function LlmQueueSection() {
                   </td>
                   <td>
                     {item.url ? (
-                      <a href={item.url} target="_blank" rel="noreferrer" style={{ fontWeight: 500 }}>
+                      <a href={safeHref(item.url)} target="_blank" rel="noreferrer" style={{ fontWeight: 500 }}>
                         {item.title}
                       </a>
                     ) : (
@@ -1224,6 +1225,19 @@ export default function Settings() {
             </div>
           </>
         )}
+        <div className="formrow" style={{ marginTop: 10 }}>
+          <label>Refresh events every</label>
+          <input
+            type="number"
+            min={60}
+            max={10080}
+            step={60}
+            style={{ maxWidth: 90 }}
+            value={draft.eventRefreshIntervalMinutes ?? 360}
+            onChange={(e) => set({ eventRefreshIntervalMinutes: Math.max(60, Number(e.target.value) || 360) })}
+          />
+          <span className="hint" style={{ margin: 0 }}>minutes</span>
+        </div>
       </section>
   );
 
@@ -1297,6 +1311,37 @@ export default function Settings() {
           time budget rather than a limit — around 10 seconds each, and the hourly run
           skips itself while one is still going.
         </p>
+
+        <div className="formrow">
+          <label>Pause between pages (s)</label>
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            value={(draft.densityRequestDelayMs ?? 2000) / 1000}
+            onChange={(e) => set({ densityRequestDelayMs: Math.max(0, Math.round((Number(e.target.value) || 0) * 1000)) })}
+          />
+        </div>
+        <div className="formrow">
+          <label>Page settle time (s)</label>
+          <input
+            type="number"
+            min={1}
+            step={0.5}
+            value={(draft.densityWaitMs ?? 7000) / 1000}
+            onChange={(e) => set({ densityWaitMs: Math.max(1000, Math.round((Number(e.target.value) || 1) * 1000)) })}
+          />
+        </div>
+        <div className="formrow">
+          <label>Matches per named place</label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={draft.densityPlacesPerName ?? 2}
+            onChange={(e) => set({ densityPlacesPerName: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
+          />
+        </div>
 
         <label className="hint" style={{ display: 'block', marginTop: 10 }}>
           Always include these venues — a name, or a Google Maps link. A link pins
@@ -1496,6 +1541,26 @@ export default function Settings() {
           (v) => set({ webSearchTerms: v }),
           'e.g. Bathurst 1000 support events'
         )}
+        <label className="hint">Search engines to use, tried in this order</label>
+        <div className="formrow">
+          {['duckduckgo', 'mojeek', 'bing'].map((name) => {
+            const off = draft.webSearchDisabledEngines ?? [];
+            return (
+              <label key={name} style={{ marginRight: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={!off.includes(name)}
+                  onChange={(e) =>
+                    set({
+                      webSearchDisabledEngines: e.target.checked ? off.filter((n) => n !== name) : [...off, name],
+                    })
+                  }
+                />{' '}
+                {name}
+              </label>
+            );
+          })}
+        </div>
         <StatusLine status={statusFor('websearch')} />
       </section>
 

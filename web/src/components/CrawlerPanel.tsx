@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, CrawlerFind, CrawlerHistoryRow, CrawlerPageRow, CrawlerStatus, CrawlPageReport, IcalPreview, Unauthorized } from '../api';
 import { useStore } from '../store';
+import { safeHref } from '../text.js';
 
 /**
  * What the crawler is doing, read from the crawler itself.
@@ -90,6 +91,9 @@ function Fold({
     </details>
   );
 }
+
+/** A stable empty list, so `usePaged` does not reset on every render while loading. */
+const NO_PAGES: never[] = [];
 
 /** A page of a list at a time, starting over when the list itself changes. */
 function usePaged<T>(items: T[], size: number) {
@@ -280,7 +284,7 @@ function FeedPreview({ state, added, onAdd }: { state: PreviewState; added: bool
             {events.map((ev) => (
               <tr key={`${ev.title}|${ev.startTime}`}>
                 <td className="crawltable__when">{whenOf(ev)}</td>
-                <td>{ev.url ? <a href={ev.url} target="_blank" rel="noreferrer">{ev.title}</a> : ev.title}</td>
+                <td>{ev.url ? <a href={safeHref(ev.url)} target="_blank" rel="noreferrer">{ev.title}</a> : ev.title}</td>
                 <td>{ev.where}</td>
               </tr>
             ))}
@@ -422,7 +426,7 @@ function FeedRow({
     <>
       <tr>
         <td>{feed.site}</td>
-        <td><a href={feed.url} target="_blank" rel="noreferrer">{feed.url}</a></td>
+        <td><a href={safeHref(feed.url)} target="_blank" rel="noreferrer">{feed.url}</a></td>
         <td className="crawlfeeds__actions">
           <button onClick={onPreview}>{isOpen ? 'Hide' : 'Preview'}</button>
           {added ? <span className="crawlfeeds__added"> ✓ added</span> : <button onClick={onAdd}>Add</button>}
@@ -477,7 +481,7 @@ function PagesSection() {
     void load();
   }, [load]);
 
-  const paged = usePaged(pages ?? [], 15);
+  const paged = usePaged(pages ?? NO_PAGES, 15);
 
   return (
     <section>
@@ -497,7 +501,7 @@ function PagesSection() {
           <tbody>
             {paged.rows.map((p) => (
               <tr key={p.url}>
-                <td><a href={p.url} target="_blank" rel="noreferrer" title={p.url}>{shortUrl(p.url)}</a></td>
+                <td><a href={safeHref(p.url)} target="_blank" rel="noreferrer" title={p.url}>{shortUrl(p.url)}</a></td>
                 <td>{NUMBER.format(p.reads)}</td>
                 <td>{p.events > 0 ? NUMBER.format(p.events) : '—'}</td>
                 <td className="crawltable__when">{ago(p.fetchedAt)}</td>
@@ -573,7 +577,7 @@ function FindsSection({
                   <td className="crawltable__when">{whenOf(ev)}</td>
                   <td>
                     {ev.url ? (
-                      <a href={ev.url} target="_blank" rel="noreferrer">
+                      <a href={safeHref(ev.url)} target="_blank" rel="noreferrer">
                         {ev.title}
                       </a>
                     ) : (
@@ -785,7 +789,7 @@ export default function CrawlerPanel() {
                     <tr key={`${ev.title}|${ev.startTime}`}>
                       <td className="crawltable__when">{whenOf(ev)}</td>
                       <td>
-                        {ev.url ? <a href={ev.url} target="_blank" rel="noreferrer">{ev.title}</a> : ev.title}
+                        {ev.url ? <a href={safeHref(ev.url)} target="_blank" rel="noreferrer">{ev.title}</a> : ev.title}
                       </td>
                       <td>{ev.venueName ?? ''}</td>
                     </tr>
@@ -848,7 +852,7 @@ export default function CrawlerPanel() {
         {status.seeds?.length ? (
           <ul className="crawlphrases">
             {status.seeds.map((u) => (
-              <li key={u}><a href={u} target="_blank" rel="noreferrer">{u}</a></li>
+              <li key={u}><a href={safeHref(u)} target="_blank" rel="noreferrer">{u}</a></li>
             ))}
           </ul>
         ) : (

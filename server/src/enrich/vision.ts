@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { BROWSER_HEADERS } from '../useragent.js';
-import { assertPublicUrl } from '../nethost.js';
+import { assertPublicUrl, publicFetch, readCapped } from '../nethost.js';
 
 /**
  * Reading the flyer.
@@ -132,7 +132,7 @@ export async function fetchImage(url: string): Promise<string> {
       } catch (err) {
         throw new ImageError((err as Error).message);
       }
-      res = await fetch(target, { headers: BROWSER_HEADERS, redirect: 'manual', signal: ctrl.signal });
+      res = await publicFetch(target, { headers: BROWSER_HEADERS, redirect: 'manual', signal: ctrl.signal });
       const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
       if (!location) break;
       if (hop >= MAX_REDIRECTS) throw new ImageError('too many redirects');
@@ -141,7 +141,7 @@ export async function fetchImage(url: string): Promise<string> {
     if (!res.ok) throw new ImageError(`HTTP ${res.status}`);
     const type = res.headers.get('content-type') ?? '';
     if (!/^image\/(jpeg|png|webp)/i.test(type)) throw new ImageError(`not an image (${type || 'no type'})`);
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = await readCapped(res, MAX_IMAGE_BYTES);
     if (buf.length === 0) throw new ImageError('empty');
     if (buf.length > MAX_IMAGE_BYTES) throw new ImageError(`${Math.round(buf.length / 1e6)} MB is too large`);
     return buf.toString('base64');

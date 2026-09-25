@@ -96,3 +96,9 @@ test('a timed event is still written with its time', () => {
   const ics = buildIcs([EVENT]);
   assert.match(ics, /DTSTART:20260822T000000Z\r\n/);
 });
+
+test('one unreadable start time drops that event, not the whole feed', () => {
+  const ics = buildIcs([{ ...EVENT, uid: 'bad', startTime: 'not a date' }, EVENT]);
+  assert.ok(ics.includes('UID:abc123@event-scout'));
+  assert.ok(!ics.includes('UID:bad@event-scout'));
+});

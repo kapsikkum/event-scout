@@ -103,7 +103,11 @@ export function buildIcs(events: IcsEvent[], opts: IcsOptions = {}): string {
   }
 
   for (const ev of events) {
-    const end = ev.endTime ?? new Date(Date.parse(ev.startTime) + 2 * 3600 * 1000).toISOString();
+    // One unreadable row must not take the whole feed down for every subscriber.
+    const start = Date.parse(ev.startTime);
+    if (!Number.isFinite(start)) continue;
+    if (ev.endTime && !Number.isFinite(Date.parse(ev.endTime))) continue;
+    const end = ev.endTime ?? new Date(start + 2 * 3600 * 1000).toISOString();
     lines.push(
       'BEGIN:VEVENT',
       `UID:${ev.uid}@event-scout`,

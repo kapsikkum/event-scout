@@ -24,6 +24,12 @@ services:
     # over the compose network, and nothing else needs to.
     expose:
       - "9222"
+    # The same ceiling as the NixOS module: a leaked tab once grew a browser to
+    # 6.5 GB, and without a limit that is the host's memory, not Chromium's.
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: 2
+    pids_limit: 512
     restart: unless-stopped
 
   app:
@@ -43,6 +49,10 @@ services:
       # Leave it unset to set one from the Settings page instead, or to run
       # wide open, which is what the port below is by default.
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      # Behind a reverse proxy (Caddy, nginx, Traefik), set this to the number
+      # of proxies in front, usually 1. Otherwise every visitor shares the
+      # proxy's address and one wrong password locks everyone out of login.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       # An Ollama for the optional "read listings with a local model" task.
       # From inside a container the host's own Ollama is host.docker.internal,
       # never localhost — localhost here is this container. Only a default; the
@@ -101,6 +111,10 @@ services:
       - "3002"
     volumes:
       - crawler-data:/app/data
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1
+    pids_limit: 128
     restart: unless-stopped
 
 volumes:

@@ -55,6 +55,23 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 /**
+ * Behind a reverse proxy every request arrives from the proxy's address, so the
+ * login lockout (keyed on `req.ip`) would lock out every visitor at once.
+ * TRUST_PROXY tells Express how many proxies to believe X-Forwarded-For from:
+ * a hop count ("1"), "true", or a list of addresses/subnets. Unset means the
+ * socket address is used, which is right when nothing sits in front.
+ */
+function trustProxySetting(raw: string | undefined): boolean | number | string | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value);
+  if (value === 'true' || value === 'false') return value === 'true';
+  return value;
+}
+const trustProxy = trustProxySetting(process.env.TRUST_PROXY);
+if (trustProxy !== undefined) app.set('trust proxy', trustProxy);
+
+/**
  * Reading is open; changing anything is not.
  *
  * One rule applied to every route rather than a check inside each of them, so
@@ -261,9 +278,31 @@ app.get('/api/topics', (_req, res) => {
   res.json({ topics: EVENT_TOPICS, categories: ALL_CATEGORIES });
 });
 
+/**
+ * Geocoding is open to readers but forwards to Nominatim, whose usage policy
+ * allows about one request a second. A small per-address allowance keeps an
+ * anonymous caller from spending that on this server's behalf.
+ */
+const GEOCODE_PER_MINUTE = 20;
+const geocodeHits = new Map<string, number[]>();
+function geocodeAllowed(ip: string, now = Date.now()): boolean {
+  const recent = (geocodeHits.get(ip) ?? []).filter((t) => now - t < 60_000);
+  if (recent.length >= GEOCODE_PER_MINUTE) {
+    geocodeHits.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  geocodeHits.set(ip, recent);
+  if (geocodeHits.size > 1000) {
+    for (const [key, times] of geocodeHits) if (times.every((t) => now - t >= 60_000)) geocodeHits.delete(key);
+  }
+  return true;
+}
+
 app.get('/api/geocode', async (req, res) => {
-  const q = String(req.query.q ?? '').trim();
+  const q = String(req.query.q ?? '').trim().slice(0, 300);
   if (!q) return res.status(400).json({ error: 'q is required' });
+  if (!geocodeAllowed(req.ip ?? 'unknown')) return res.status(429).json({ error: 'Too many lookups; try again in a minute.' });
   try {
     res.json(await geocode(q));
   } catch (err) {

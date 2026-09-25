@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { assertPublicUrl } from './fetch.js';
+import { assertPublicUrl, publicFetch, readCapped } from './fetch.js';
 import { Interest, queriesFor } from './queries.js';
 import * as store from './store.js';
 import { eventLikeness, isSkippedHost, normalizeUrl } from './urls.js';
@@ -22,14 +22,26 @@ import { socialKind } from './extract/social.js';
 const MINIMAL_UA = 'Mozilla/5.0';
 
 async function search(url: string): Promise<string> {
-  await assertPublicUrl(url);
-  const res = await fetch(url, {
-    headers: { 'User-Agent': MINIMAL_UA, Accept: 'text/html' },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(config.requestTimeoutMs),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+  // Redirects walked by hand so each hop is checked, as in fetchPage.
+  let target = url;
+  for (let hop = 0; hop <= 3; hop++) {
+    await assertPublicUrl(target);
+    const res = await publicFetch(target, {
+      headers: { 'User-Agent': MINIMAL_UA, Accept: 'text/html' },
+      signal: AbortSignal.timeout(config.requestTimeoutMs),
+    });
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    if (location) {
+      await res.body?.cancel().catch(() => undefined);
+      target = new URL(location, target).toString();
+      continue;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = await readCapped(res, config.maxBytes);
+    if (!buf) throw new Error('too large');
+    return buf.toString('utf8');
+  }
+  throw new Error('too many redirects');
 }
 
 function ddgLinks(html: string): string[] {

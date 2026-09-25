@@ -1,8 +1,9 @@
+import { BLOCKING_HOSTS } from '../shared/skipHosts.js';
 import { extractEventsFromHtml } from './jsonld.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
 import { expandTopics, rotateQueries, webQuery } from './topics.js';
 import { BROWSER_HEADERS } from '../useragent.js';
-import { assertPublicUrl } from '../nethost.js';
+import { assertPublicUrl, publicFetch, readCappedText } from '../nethost.js';
 
 
 // DuckDuckGo's html endpoint flags the full Chrome fingerprint as a bot (a real
@@ -19,13 +20,9 @@ const MAX_PAGES_TOTAL = 30;
 const PAGE_TIMEOUT_MS = 12000;
 
 // Aggregators that reliably block scrapers or never expose JSON-LD — skip to save budget.
+// Ticketing sites with an adapter of their own are read through that instead.
 const SKIP_HOSTS = [
-  'facebook.com',
-  'instagram.com',
-  'twitter.com',
-  'x.com',
-  'tiktok.com',
-  'youtube.com',
+  ...BLOCKING_HOSTS,
   'songkick.com',
   'bandsintown.com',
   'ticketmaster.com',
@@ -73,6 +70,7 @@ const ENGINES: { name: string; url: (q: string) => string; decode: (html: string
 ];
 
 const MAX_REDIRECTS = 5;
+const MAX_PAGE_BYTES = 5 * 1024 * 1024;
 
 export async function fetchText(url: string, timeoutMs: number, extraHeaders: Record<string, string> = {}): Promise<string> {
   const ctrl = new AbortController();
@@ -81,7 +79,7 @@ export async function fetchText(url: string, timeoutMs: number, extraHeaders: Re
     let target = url;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
       await assertPublicUrl(target);
-      const res = await fetch(target, {
+      const res = await publicFetch(target, {
         headers: { ...PAGE_HEADERS, ...extraHeaders },
         redirect: 'manual',
         signal: ctrl.signal,
@@ -97,7 +95,7 @@ export async function fetchText(url: string, timeoutMs: number, extraHeaders: Re
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const ct = res.headers.get('content-type') ?? '';
       if (!/text\/html|application\/xhtml/i.test(ct) && ct !== '') throw new Error(`non-HTML (${ct})`);
-      return await res.text();
+      return await readCappedText(res, MAX_PAGE_BYTES);
     }
     throw new Error('too many redirects');
   } finally {
@@ -107,10 +105,11 @@ export async function fetchText(url: string, timeoutMs: number, extraHeaders: Re
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-async function searchLinks(term: string): Promise<string[]> {
+async function searchLinks(term: string, disabled: string[] = []): Promise<string[]> {
   // Walk the engines until one yields results. An engine that throws, blocks
-  // (anomaly page), or returns zero links is skipped.
-  for (const engine of ENGINES) {
+  // (anomaly page), or returns zero links is skipped, as is any turned off in
+  // Settings (one that has started blocking this server, say).
+  for (const engine of ENGINES.filter((e) => !disabled.includes(e.name))) {
     try {
       const html = await fetchText(engine.url(term), PAGE_TIMEOUT_MS, engine.headers ?? {});
       const links = engine.decode(html);
@@ -158,7 +157,7 @@ export const websearch: EventSourceAdapter = {
       // start returning empty pages rather than errors, so the refresh looks
       // like it worked and quietly finds nothing.
       if (i > 0) await sleep(QUERY_SPACING_MS);
-      const links = await searchLinks(term.trim());
+      const links = await searchLinks(term.trim(), settings.webSearchDisabledEngines ?? []);
       if (links.length === 0) searchErrors.push(`"${term}" returned no results`);
       for (const url of links.slice(0, RESULTS_PER_QUERY)) {
         const host = hostOf(url);
