@@ -51,7 +51,7 @@ tasks.register({
   // Ticks hourly and refreshes when the cache has gone stale, which is exactly
   // what the old refreshIfStale did.
   schedule: '15 * * * *',
-  intervalMinutes: () => 360,
+  intervalMinutes: () => Math.max(60, getSettings().eventRefreshIntervalMinutes ?? 360),
   enabled: () => !paused('events'),
   setEnabled: (on) => setPaused('events', !on),
   run: async (log) => {

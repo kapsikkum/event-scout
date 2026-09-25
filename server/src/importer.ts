@@ -1,7 +1,7 @@
 import { extractEventsFromHtml } from './sources/jsonld.js';
 import { fetchFb, LoginWallError, parseEvent } from './sources/facebook.js';
 import { crawlerBase } from './sources/crawler.js';
-import { assertPublicUrl } from './nethost.js';
+import { assertPublicUrl, publicFetch, readCappedText } from './nethost.js';
 import { BROWSER_HEADERS } from './useragent.js';
 import { parseEnd, parseWhen } from './shared/when.js';
 import { placeFromText, whenFromText } from './shared/textWhen.js';
@@ -210,7 +210,7 @@ async function fetchHtml(start: string): Promise<{ html: string; finalUrl: strin
   let url = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     await assertPublicUrl(url);
-    const res = await fetch(url, {
+    const res = await publicFetch(url, {
       headers: BROWSER_HEADERS,
       redirect: 'manual',
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -222,7 +222,7 @@ async function fetchHtml(start: string): Promise<{ html: string; finalUrl: strin
     if (!res.ok) throw new Error(`the site answered HTTP ${res.status}`);
     const type = res.headers.get('content-type') ?? '';
     if (type && !/html|xml/i.test(type)) throw new Error(`that is not a web page (${type.split(';')[0]})`);
-    return { html: (await res.text()).slice(0, MAX_HTML), finalUrl: url };
+    return { html: (await readCappedText(res, MAX_HTML * 4)).slice(0, MAX_HTML), finalUrl: url };
   }
   throw new Error('too many redirects');
 }

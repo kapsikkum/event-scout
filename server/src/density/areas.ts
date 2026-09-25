@@ -58,7 +58,7 @@ export function densityConfig(settings: Settings = getSettings()): DensityConfig
   return {
     searches: settings.densitySearches?.length ? settings.densitySearches : DEFAULT_SEARCHES,
     places: settings.densityPlaces ?? [],
-    placesPerName: 2,
+    placesPerName: Math.max(1, Math.round(settings.densityPlacesPerName ?? 2)),
     // 0 means keep everything discovery found. The cap only ever existed to
     // bound how long a pass takes, so there is no reason it cannot be lifted.
     maxVenues: (settings.densityMaxVenues ?? 30) > 0
@@ -67,8 +67,8 @@ export function densityConfig(settings: Settings = getSettings()): DensityConfig
     searchZoom: 14,
     // Mean pause between venue page loads; the caller jitters around it, so
     // this is the average cadence rather than a fixed interval.
-    requestDelayMs: 2000,
-    waitMs: 7000,
+    requestDelayMs: Math.max(0, settings.densityRequestDelayMs ?? 2000),
+    waitMs: Math.max(1000, settings.densityWaitMs ?? 7000),
     headless: true,
     browserPath: settings.densityBrowserPath || null,
     // Persistent, and it matters: a browser arriving with no cookies at all on

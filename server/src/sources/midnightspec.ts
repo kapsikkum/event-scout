@@ -1,3 +1,4 @@
+import { readCappedText } from '../nethost.js';
 import { extractEventsFromHtml } from './jsonld.js';
 import { EventSourceAdapter, Location, RawEvent, Settings } from './types.js';
 import { localitiesFrom } from '../venues.js';
@@ -51,7 +52,7 @@ async function fetchState(state: string): Promise<RawEvent[]> {
   try {
     const res = await fetch(url, { headers: BROWSER_HEADERS, redirect: 'follow', signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const events = extractEventsFromHtml(await res.text(), url);
+    const events = extractEventsFromHtml(await readCappedText(res, 10 * 1024 * 1024), url);
     cache.set(state, { at: Date.now(), events });
     return events;
   } finally {

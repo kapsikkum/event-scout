@@ -1,5 +1,8 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
+import type { LookupFunction } from 'node:net';
+import { pinnedFetch } from './shared/pinnedFetch.js';
 import { config } from './config.js';
 import { EMPTY_RULES, isAllowed, parseRobots, RobotsRules } from './robots.js';
 import * as store from './store.js';
@@ -73,6 +76,54 @@ export async function assertPublicUrl(raw: string): Promise<void> {
   }
 }
 
+/**
+ * The lookup outbound sockets use, refusing private answers. `assertPublicUrl`
+ * resolves once to give a clear error; this closes the gap between that check
+ * and the connection, where a rebinding DNS server could answer differently.
+ */
+function publicLookup(
+  hostname: string,
+  options: object,
+  callback: (err: Error | null, address: string | LookupAddress[], family?: number) => void,
+): void {
+  dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err, '');
+    const list = addresses as LookupAddress[];
+    if (list.length === 0) return callback(new BlockedError(`${hostname} has no address`), '');
+    const bad = list.find((a) => isPrivateAddress(a.address));
+    if (bad) return callback(new BlockedError(`${hostname} resolves to ${bad.address}`), '');
+    if ((options as { all?: boolean }).all) return callback(null, list);
+    callback(null, list[0].address, list[0].family);
+  });
+}
+
+/**
+ * Fetch one hop of a stranger's address: the connection itself is made only to
+ * a public address. Redirects are left to the caller, which checks each hop.
+ */
+export function publicFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return pinnedFetch(url, init, publicLookup as LookupFunction);
+}
+
+/** Read a body, aborting once it passes `max` rather than after buffering it all. */
+export async function readCapped(res: Response, max: number): Promise<Buffer | null> {
+  if (!res.body) return Buffer.alloc(0);
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
 // --- robots -----------------------------------------------------------------
 
 const ROBOTS_TTL_MS = 12 * 3600_000;
@@ -104,7 +155,7 @@ export async function robotsFor(site: string, sampleUrl: string): Promise<Robots
     let res: Response | null = null;
     for (let hop = 0; hop <= 3; hop++) {
       await assertPublicUrl(target);
-      res = await fetch(target, {
+      res = await publicFetch(target, {
         headers: { 'User-Agent': config.userAgent, Accept: 'text/plain,*/*' },
         redirect: 'manual',
         signal: AbortSignal.timeout(config.requestTimeoutMs),
@@ -124,7 +175,7 @@ export async function robotsFor(site: string, sampleUrl: string): Promise<Robots
     }
     // Only a 2xx is a robots.txt. A 404 is "no rules"; a 500 is not an
     // instruction either way, and treating it as "deny all" would strand sites.
-    if (res && res.ok) body = (await res.text()).slice(0, 512 * 1024);
+    if (res && res.ok) body = ((await readCapped(res, 512 * 1024)) ?? Buffer.alloc(0)).toString('utf8');
   } catch {
     body = '';
   }
@@ -191,7 +242,7 @@ export async function fetchPage(url: string, opts: { browser?: boolean } = {}): 
   for (let hop = 0; ; hop++) {
     await assertPublicUrl(target);
     try {
-      res = await fetch(target, {
+      res = await publicFetch(target, {
         headers: opts.browser
           ? BROWSER_HEADERS
           : {
@@ -227,8 +278,8 @@ export async function fetchPage(url: string, opts: { browser?: boolean } = {}): 
   const declared = Number(res.headers.get('content-length') ?? 0);
   if (declared > config.maxBytes) throw new FetchError(`${Math.round(declared / 1e6)} MB is too large`);
 
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > config.maxBytes) throw new FetchError('too large');
+  const buf = await readCapped(res, config.maxBytes);
+  if (!buf) throw new FetchError('too large');
   return { url: target, html: buf.toString('utf8') };
 }
 

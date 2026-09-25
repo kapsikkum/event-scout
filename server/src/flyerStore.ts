@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { dataDir, db } from './db.js';
-import { assertPublicUrl } from './nethost.js';
+import { assertPublicUrl, publicFetch, readCapped } from './nethost.js';
 import { BROWSER_HEADERS } from './useragent.js';
 import {
   extensionFor,
@@ -63,7 +63,7 @@ export async function download(url: string): Promise<{ bytes: Buffer; extension:
   let target = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     await assertPublicUrl(target);
-    const res = await fetch(target, {
+    const res = await publicFetch(target, {
       headers: BROWSER_HEADERS,
       redirect: 'manual',
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -79,7 +79,7 @@ export async function download(url: string): Promise<{ bytes: Buffer; extension:
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const extension = extensionFor(res.headers.get('content-type') ?? '');
     if (!extension) throw new Error(`not an image (${res.headers.get('content-type') || 'no type'})`);
-    const bytes = Buffer.from(await res.arrayBuffer());
+    const bytes = await readCapped(res, MAX_BYTES).catch(() => { throw new Error('too large'); });
     if (bytes.length === 0) throw new Error('empty');
     if (bytes.length > MAX_BYTES) throw new Error(`${Math.round(bytes.length / 1e6)} MB is too large`);
     return { bytes, extension };

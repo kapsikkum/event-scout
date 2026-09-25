@@ -1,3 +1,4 @@
+import { USER_AGENT } from './useragent.js';
 import { getSettings } from './db.js';
 
 /**
@@ -194,7 +195,7 @@ async function fetchWeather(lat: number, lon: number): Promise<OpenMeteo | null>
     '&current=temperature_2m,cloud_cover,weather_code,wind_speed_10m' +
     '&timezone=auto&forecast_days=2';
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     return (await res.json()) as OpenMeteo;
   } catch {

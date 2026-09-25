@@ -128,6 +128,7 @@ export interface Settings {
   fbSearchTerms: string[];
   fbPages: string[];
   webSearchTerms: string[];
+  webSearchDisabledEngines?: string[];
   eventTopics: string[];
   eventAreas: { name: string; lat?: number; lng?: number; radiusKm?: number }[];
   /** Keep events well outside every area out of sight. Never deletes; undoes itself. */
@@ -152,6 +153,7 @@ export interface Settings {
   llmModel: string;
   llmJobs: string[];
   llmIntervalMinutes: number;
+  eventRefreshIntervalMinutes?: number;
   llmMaxPerRun: number;
   visionEnabled: boolean;
   visionModel: string;
@@ -165,6 +167,9 @@ export interface Settings {
   densitySearches: string[];
   densityPlaces: string[];
   densityMaxVenues: number;
+  densityRequestDelayMs?: number;
+  densityWaitMs?: number;
+  densityPlacesPerName?: number;
   /** Discord webhooks and Matrix rooms to tell about events. */
   notifyTargets: NotifyTarget[];
   matrixBot: {

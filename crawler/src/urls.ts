@@ -1,3 +1,5 @@
+import { BLOCKING_HOSTS } from './shared/skipHosts.js';
+
 /**
  * Deciding what a URL is and whether it is worth a fetch.
  *
@@ -8,8 +10,7 @@
 
 /** Hosts that never yield JSON-LD worth having, or block scrapers outright. */
 const SKIP_HOSTS = [
-  'facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'tiktok.com',
-  'youtube.com', 'linkedin.com', 'pinterest.com', 'reddit.com',
+  ...BLOCKING_HOSTS,
   'google.com', 'bing.com', 'duckduckgo.com', 'mojeek.com',
 ];
 

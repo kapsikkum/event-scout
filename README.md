@@ -574,6 +574,7 @@ history to 14 days.
 | `API_PORT` | `3001` | Backend port. |
 | `TZ` | `Australia/Sydney` | Decides when an event counts as past. |
 | `AUTH_PASSWORD` | unset | Sets a password. Unset means open. |
+| `TRUST_PROXY` | unset | Behind a reverse proxy, the number of proxies in front (usually `1`), so the login lockout sees each visitor's own address. Also accepts `true` or a list of addresses. |
 | `OLLAMA_URL` | `http://localhost:11434` | Default Ollama; the setting overrides it. |
 | `BROWSER_CDP_URL` | unset | Attach to an existing Chromium. Set in compose; unset starts one locally. |
 

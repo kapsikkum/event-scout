@@ -4,6 +4,7 @@ import { inBbox } from '../geo.js';
 import { loadVenues, recordPanelChecks, replaceVenues, saveVenues, Venue, WeekProfile, Observation } from '../store.js';
 import type { Area, DensityConfig } from '../areas.js';
 import { BROWSER_HEADERS } from '../../useragent.js';
+import { publicFetch } from '../../nethost.js';
 
 
 /**
@@ -69,9 +70,10 @@ export async function resolvePlaceUrl(link: string): Promise<Omit<Venue, 'term' 
   const direct = parsePlaceLink(link);
   if (direct) return direct;
   try {
-    const res = await fetch(link, { redirect: 'follow', headers: BROWSER_HEADERS });
+    // A pasted link, so it is checked like any other stranger's address.
+    const res = await publicFetch(link, { headers: BROWSER_HEADERS, signal: AbortSignal.timeout(15_000) });
     // Only the final URL is wanted; the body is a consent page as often as not.
-    await res.arrayBuffer().catch(() => undefined);
+    await res.body?.cancel().catch(() => undefined);
     return res.url && res.url !== link ? parsePlaceLink(res.url) : null;
   } catch {
     return null;

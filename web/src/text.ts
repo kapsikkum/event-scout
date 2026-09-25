@@ -42,3 +42,12 @@ export function isSafeUrl(url: string): boolean {
   }
 }
 
+/**
+ * An href for a URL that came from scraped data: the URL itself when it is
+ * http(s), otherwise undefined so the anchor renders inert rather than running
+ * a `javascript:` link on click.
+ */
+export function safeHref(url: string | null | undefined): string | undefined {
+  return url && isSafeUrl(url) ? url : undefined;
+}
+

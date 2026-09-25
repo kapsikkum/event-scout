@@ -1,4 +1,7 @@
 import dns from 'node:dns/promises';
+import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
+import type { LookupFunction } from 'node:net';
+import { pinnedFetch } from './shared/pinnedFetch.js';
 
 /**
  * Refusing to fetch things inside the network on a stranger's say-so.
@@ -17,8 +20,8 @@ import dns from 'node:dns/promises';
  * Names are resolved rather than pattern-matched, because `internal.example.com`
  * resolving to 10.0.0.1 is the same attack as writing 10.0.0.1. That leaves a
  * gap between the check and the connection which a rebinding attack could slip
- * through; closing it properly means resolving once and connecting to the
- * address, which Node's fetch will not do. This is the cheap ninety per cent.
+ * through, so `publicFetch` below also checks the address the connection is
+ * actually made to: the lookup that feeds the socket refuses private answers.
  */
 
 /** A parsed IPv4, or null if it is not one. */
@@ -104,4 +107,90 @@ export async function assertPublicUrl(raw: string): Promise<void> {
       throw new BlockedHostError(`${host} resolves to private address ${address}`);
     }
   }
+}
+
+/**
+ * DNS lookup for outbound sockets that refuses private answers. Because it is
+ * the lookup the connection itself uses, a name that resolved publicly for
+ * `assertPublicUrl` and privately a moment later (DNS rebinding) is still
+ * refused.
+ */
+export function publicLookup(
+  hostname: string,
+  options: object,
+  callback: (err: Error | null, address: string | LookupAddress[], family?: number) => void,
+): void {
+  dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err, '');
+    const list = addresses as LookupAddress[];
+    if (list.length === 0) return callback(new BlockedHostError(`${hostname} has no address`), '');
+    const bad = list.find((a) => isPrivateAddress(a.address));
+    if (bad) return callback(new BlockedHostError(`${hostname} resolves to private address ${bad.address}`), '');
+    if ((options as { all?: boolean }).all) return callback(null, list);
+    callback(null, list[0].address, list[0].family);
+  });
+}
+
+const MAX_HOPS = 5;
+
+/**
+ * `fetch` for addresses chosen by strangers. Every hop of a redirect is put
+ * through `assertPublicUrl` (so a redirect to an IP literal or an odd scheme is
+ * refused), and the socket itself only ever connects to a public address.
+ */
+export async function publicFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  let target = url;
+  for (let hop = 0; hop <= MAX_HOPS; hop++) {
+    await assertPublicUrl(target);
+    const res = await pinnedFetch(target, init, publicLookup as LookupFunction);
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    if (!location) {
+      // A constructed Response has no url; callers following a share link need
+      // to know where it ended up.
+      if (!res.url) Object.defineProperty(res, 'url', { value: target });
+      return res;
+    }
+    await res.body?.cancel().catch(() => undefined);
+    try {
+      target = new URL(location, target).toString();
+    } catch {
+      throw new BlockedHostError('bad redirect');
+    }
+  }
+  throw new BlockedHostError('too many redirects');
+}
+
+export class TooLargeError extends Error {}
+
+/**
+ * Read a response body, giving up once it passes `maxBytes` rather than after
+ * the whole thing has been buffered. A declared Content-Length over the cap is
+ * refused before reading anything.
+ */
+export async function readCapped(res: Response, maxBytes: number): Promise<Buffer> {
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new TooLargeError(`response of ${declared} bytes exceeds ${maxBytes}`);
+  }
+  if (!res.body) return Buffer.alloc(0);
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new TooLargeError(`response exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
+/** `readCapped`, decoded as UTF-8 text. */
+export async function readCappedText(res: Response, maxBytes: number): Promise<string> {
+  return (await readCapped(res, maxBytes)).toString('utf8');
 }

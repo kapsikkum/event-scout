@@ -1,5 +1,5 @@
 import { getSettings } from '../db.js';
-import { assertPublicUrl } from '../nethost.js';
+import { publicFetch, readCapped } from '../nethost.js';
 import { USER_AGENT } from '../useragent.js';
 import type { MatrixContent, MatrixPicture } from './format.js';
 
@@ -101,25 +101,30 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
  */
 export async function uploadImage(conn: MatrixConn, url: string): Promise<MatrixPicture | null> {
   const known = media.get(url);
-  if (known) return known;
+  if (known) {
+    media.delete(url);
+    media.set(url, known);
+    return known;
+  }
   if (!/^https?:\/\/\S+$/i.test(url)) return null;
   try {
-    await assertPublicUrl(url);
-    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(15000) });
+    const res = await publicFetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(15000) });
     const type = (res.headers.get('content-type') ?? '').split(';')[0].trim();
     if (!res.ok || !type.startsWith('image/')) return null;
-    const bytes = Buffer.from(await res.arrayBuffer());
+    const bytes = await readCapped(res, MAX_IMAGE_BYTES);
     if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) return null;
     const up = await fetch(`${conn.homeserver}/_matrix/media/v3/upload?filename=flyer`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${conn.token}`, 'Content-Type': type },
-      body: bytes,
+      body: new Uint8Array(bytes),
       signal: AbortSignal.timeout(30000),
     });
     if (!up.ok) return null;
     const uri = ((await up.json()) as { content_uri?: string }).content_uri;
     if (!uri) return null;
-    if (media.size > 500) media.clear();
+    // Oldest first: a Map iterates in insertion order, so this drops the
+    // least recently uploaded picture rather than forgetting them all at once.
+    if (media.size >= 500) media.delete(media.keys().next().value!);
     const picture: MatrixPicture = { uri, mimetype: type, size: bytes.length };
     media.set(url, picture);
     return picture;

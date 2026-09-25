@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { download } from '../src/flyerStore.js';
 import { feedUrl, readFeed } from '../src/sources/ical.js';
 import { fetchText } from '../src/sources/websearch.js';
-import { assertPublicUrl, BlockedHostError } from '../src/nethost.js';
+import { assertPublicUrl, BlockedHostError, publicLookup, readCapped, TooLargeError } from '../src/nethost.js';
 
 test('ical preview feedUrl validation rejects private address', async () => {
   for (const url of [
@@ -113,4 +113,23 @@ test('websearch fetchText refuses too many redirects', async () => {
   } finally {
     globalThis.fetch = origFetch;
   }
+});
+
+test('the connection lookup refuses a name answering with a private address', async () => {
+  // What a rebinding server does on the second lookup: the name that passed
+  // assertPublicUrl now resolves somewhere private, and the socket is refused.
+  const err = await new Promise<Error | null>((resolve) => publicLookup('localhost', {}, (e) => resolve(e)));
+  assert.ok(err instanceof BlockedHostError);
+});
+
+test('readCapped stops reading once a body passes the cap', async () => {
+  const big = new Response(new ReadableStream({
+    pull(ctrl) {
+      ctrl.enqueue(new Uint8Array(64 * 1024));
+    },
+  }));
+  await assert.rejects(() => readCapped(big, 256 * 1024), TooLargeError);
+  const declared = new Response('x', { headers: { 'content-length': String(10 ** 9) } });
+  await assert.rejects(() => readCapped(declared, 1024), TooLargeError);
+  assert.equal((await readCapped(new Response('hello'), 1024)).toString(), 'hello');
 });

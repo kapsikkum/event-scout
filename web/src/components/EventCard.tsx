@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import EventImage from './EventImage';
 import { enrichedTooltip, isEnriched } from '../enriched';
 import { isRecent } from '../filtering';
+import { safeHref } from '../text.js';
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
@@ -200,7 +201,7 @@ export default function EventCard({ ev, dates, onOpen, selected, onSelect }: Eve
           {onOpen ? (
             <button className="linklike" onClick={() => onOpen(ev)}>{decodeEntities(ev.title)}</button>
           ) : mainUrl ? (
-            <a href={mainUrl} target="_blank" rel="noreferrer">{decodeEntities(ev.title)}</a>
+            <a href={safeHref(mainUrl)} target="_blank" rel="noreferrer">{decodeEntities(ev.title)}</a>
           ) : (
             decodeEntities(ev.title)
           )}

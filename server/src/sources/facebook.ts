@@ -1,3 +1,4 @@
+import { readCappedText } from '../nethost.js';
 // We bypass facebook-event-scraper's HTTP layer (it sends incomplete headers and
 // gets a 400 "Error" stub back from Facebook) and instead fetch the HTML ourselves
 // with a full browser fingerprint, then reuse the library's battle-tested HTML
@@ -45,7 +46,7 @@ export async function fetchFb(url: string, cookie: string): Promise<string> {
   const headers: Record<string, string> = { ...FULL_HEADERS };
   if (cookie) headers.Cookie = cookie;
   const res = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(15_000) });
-  const html = await res.text();
+  const html = await readCappedText(res, 10 * 1024 * 1024);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   if (/You must log in to continue|Log in to Facebook|name="checkpoint"|temporarily blocked|confirm your identity/i.test(html.slice(0, 8000))) {
     throw new LoginWallError('Facebook served a login/checkpoint wall');
