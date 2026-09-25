@@ -1,9 +1,12 @@
 import crypto from 'node:crypto';
 import { db, getKv, getSettings, setKv } from './db.js';
 import { assignDedupeGroups, DedupeInput } from './dedupe.js';
-import { AREA_SLACK, inArea } from './shared/geo.js';
+import { AREA_SLACK, haversineKm, inArea } from './shared/geo.js';
 import { countriesOfAreas, regionsOfAreas } from './places.js';
-import { anchorQueries, Hit, isPlace, pickAnchor, pickHit, placeQueries, statedOf, textAnchorQuery } from './locate.js';
+import {
+  anchorQueries, countryOf, Hit, isPlace, nearAnyAreaCentre, pickAnchor, pickAreaHit, pickHit, placeQueries,
+  statedOf, textAnchorQuery
+} from './locate.js';
 import { MAX_DURATION_MS } from './shared/when.js';
 import { photoScore } from './photoScore.js';
 import { crawlerSource } from './sources/crawler.js';
@@ -15,7 +18,7 @@ import { seatgeek } from './sources/seatgeek.js';
 import { ticketmaster } from './sources/ticketmaster.js';
 import { websearch } from './sources/websearch.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, SourceStatus } from './sources/types.js';
-import { geocode, isGeocodeCached } from './geocode.js';
+import { cachedGeocode, geocode, isGeocodeCached } from './geocode.js';
 import { classifyEvent } from './sources/topics.js';
 import { cleanAddress, cleanDescription, validateAddress, validateDates, validateLocation } from './validate.js';
 import { localitiesFrom, unifyVenueNames } from './venues.js';
@@ -157,13 +160,18 @@ export async function eventLocations(settings: {
     });
   }
 
+  // The home city's own country, when it has ever been geocoded, so an
+  // ambiguous area name ("Penrith", "Orange") is broken towards it rather
+  // than towards whatever Nominatim happened to rank first.
+  const homeCountry = countryOf(cachedGeocode(settings.city)?.[0]?.displayName ?? '');
+
   for (const area of settings.eventAreas ?? []) {
     const name = (area.name ?? '').trim();
     if (!name) continue;
     let { lat, lng } = area;
     if (lat == null || lng == null) {
       try {
-        const [hit] = await geocode(name);
+        const hit = pickAreaHit(await geocode(name), homeCountry);
         if (!hit) {
           console.warn(`Event area "${name}" could not be geocoded; skipping`);
           continue;
@@ -308,6 +316,8 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     // for a second between lookups, so sixty venues is a minute on its own,
     // and without a note here the run looks hung after the last source.
     forgetInventedPositions();
+    forgetPinsOnAreaCentres(locations);
+    forgetPinsInWrongRegion(locations);
     note('Placing venues on the map');
     const placed = await geocodeMissing(locations);
     if (placed > 0) note(`Placed ${placed} venue${placed === 1 ? '' : 's'}`);
@@ -344,9 +354,84 @@ function forgetInventedPositions(): void {
   if (cleared) console.log(`[refresh] re-placing ${cleared} events looked up under the old rules`);
 }
 
-/** Lookups per refresh. Nominatim asks for one request a second. */
+/**
+ * Forget pins that landed on an area's own centre for a listing that never
+ * named a town, once.
+ *
+ * pickHit used to accept a kindless hit sitting on an area centre as a venue,
+ * which is how "NSW" with no town ended up pinned exactly on Sydney. Now that
+ * it doesn't, those old pins are just wrong and worth clearing so the next
+ * geocode (or the honest "nowhere to place it") replaces them.
+ */
+function forgetPinsOnAreaCentres(locations: Location[]): void {
+  const flag = 'migrate:unpin-area-centres';
+  if (getKv(flag)) return;
+  const rows = db
+    .prepare(
+      `SELECT id, lat, lng,
+              COALESCE(NULLIF(venue_name, ''), NULLIF(vision_venue_name, ''), llm_venue_name) AS venue_name,
+              COALESCE(NULLIF(address, ''), NULLIF(vision_address, ''), llm_address) AS address
+         FROM events WHERE lat IS NOT NULL AND lng IS NOT NULL`
+    )
+    .all() as unknown as { id: number; lat: number; lng: number; venue_name: string; address: string }[];
+  const clear = db.prepare('UPDATE events SET lat = NULL, lng = NULL, geocode_tried = 0 WHERE id = ?');
+  let cleared = 0;
+  for (const row of rows) {
+    if (!nearAnyAreaCentre(row.lat, row.lng, locations)) continue;
+    if (statedOf(row.venue_name, row.address).locality) continue;
+    clear.run(row.id);
+    cleared++;
+  }
+  setKv(flag, new Date().toISOString());
+  if (cleared) console.log(`[refresh] re-placing ${cleared} events pinned on an area centre with no town named`);
+}
+
+/**
+ * Forget pins whose stated region disagrees with the area they landed in,
+ * once.
+ *
+ * "Victoria Park" with address "SA" pinned in Bathurst NSW, from before
+ * pickHit's region check existed: nothing re-geocodes a row that already has
+ * coordinates, so a pin like that sits there wrong forever unless something
+ * goes and clears it. Only rows whose area has a known region are checked —
+ * an area nobody has ever resolved a region for is left alone rather than
+ * guessed at.
+ */
+function forgetPinsInWrongRegion(locations: Location[]): void {
+  const flag = 'migrate:unpin-wrong-region';
+  if (getKv(flag)) return;
+  const areas = locations
+    .map((l) => ({
+      lat: l.lat, lng: l.lng, radiusKm: l.radiusKm,
+      region: regionOf(l.city) || regionOf(cachedGeocode(l.city)?.[0]?.displayName ?? ''),
+    }))
+    .filter((a) => a.region && a.lat != null && a.lng != null);
+  if (areas.length > 0) {
+    const rows = db
+      .prepare(
+        `SELECT id, lat, lng,
+                COALESCE(NULLIF(venue_name, ''), NULLIF(vision_venue_name, ''), llm_venue_name) AS venue_name,
+                COALESCE(NULLIF(address, ''), NULLIF(vision_address, ''), llm_address) AS address
+           FROM events WHERE lat IS NOT NULL AND lng IS NOT NULL`
+      )
+      .all() as unknown as { id: number; lat: number; lng: number; venue_name: string; address: string }[];
+    const clear = db.prepare('UPDATE events SET lat = NULL, lng = NULL, geocode_tried = 0 WHERE id = ?');
+    let cleared = 0;
+    for (const row of rows) {
+      const stated = statedOf(row.venue_name, row.address);
+      if (!stated.region) continue;
+      const area = areas.find((a) => haversineKm(a.lat as number, a.lng as number, row.lat, row.lng) <= a.radiusKm);
+      if (!area || area.region === stated.region) continue;
+      clear.run(row.id);
+      cleared++;
+    }
+    if (cleared) console.log(`[refresh] re-placing ${cleared} events pinned in an area whose region contradicts the one stated`);
+  }
+  setKv(flag, new Date().toISOString());
+}
+
+/** Lookups per refresh. */
 const GEOCODE_BUDGET = 120;
-const GEOCODE_SPACING_MS = 1100;
 
 /**
  * Put coordinates on events that arrived without any.
@@ -386,12 +471,15 @@ async function geocodeMissing(locations: Location[]): Promise<number> {
   return placed;
 }
 
-/** Ask the geocoder, paying the rate limit only for a question not asked before. */
+/**
+ * Ask the geocoder, paying this refresh's budget only for a question not
+ * already answered. The rate limit itself is enforced once, process-wide, in
+ * geocode.ts — not here, so a concurrent manual add can't double it up.
+ */
 async function ask(query: string, spend: { asked: number; budget: number }): Promise<Hit[] | null> {
   if (isGeocodeCached(query)) return geocode(query);
   if (spend.asked >= spend.budget) return null;
   spend.asked++;
-  await new Promise((r) => setTimeout(r, GEOCODE_SPACING_MS));
   return geocode(query);
 }
 

@@ -185,12 +185,42 @@ export function pickAnchor(
     const country = countryOf(hit.displayName);
     return !(opts.countries.length > 0 && country !== '' && !opts.countries.includes(country));
   });
+  // No candidates[0] fallback: a result that is neither in an area nor a
+  // populated place is exactly what let "Royal Hotel" anchor on a pub
+  // anywhere in the country, wrongly rejecting the real local venue and, via
+  // coordsDisagree, wiping its correct coordinates at display time. No
+  // anchor is better than a wrong one.
   return (
     candidates.find((h) => inAnyArea(h.lat, h.lng, opts.areas, opts.slack)) ??
     candidates.find((h) => isPlace(h)) ??
-    candidates[0] ??
     null
   );
+}
+
+/**
+ * The hit that names an area itself, out of everything Nominatim ranked
+ * above or below it.
+ *
+ * An area is typed in as a bare name — "Penrith", "Orange" — and geocoded
+ * once, blind, taking whatever came back first. Nominatim ranks a Cumbrian
+ * town or a Californian county above the Australian one those names were
+ * meant to find, so an area could end up centred on the wrong continent
+ * before a single listing was ever looked up against it. A populated place
+ * is preferred over anything else Nominatim returned, and among those the
+ * home country's, when one is known; a warning is logged when neither rule
+ * settles it and a guess had to be made.
+ */
+export function pickAreaHit(hits: Hit[], homeCountry: string): Hit | null {
+  const places = hits.filter(isPlace);
+  const pool = places.length > 0 ? places : hits;
+  if (pool.length === 0) return null;
+  const home = homeCountry ? pool.find((h) => countryOf(h.displayName) === homeCountry) : undefined;
+  const chosen = home ?? pool[0];
+  const countries = new Set(pool.map((h) => countryOf(h.displayName)).filter(Boolean));
+  if (!home && countries.size > 1) {
+    console.warn(`Area lookup for "${pool[0].displayName.split(',')[0]}" is ambiguous (${[...countries].join(', ')}); guessing ${chosen.displayName}`);
+  }
+  return chosen;
 }
 
 /** Whether a result names the region the listing does. A result that names none is allowed. */
@@ -219,14 +249,30 @@ export function pickHit(
   opts: { region: string; anchor: Hit | null; areas: LocateArea[]; slack: number }
 ): Hit | null {
   for (const hit of hits) {
-    if (!regionFits(hit, opts.region)) continue;
     if (opts.anchor) {
+      if (!regionFits(hit, opts.region)) continue;
       if (haversineKm(opts.anchor.lat, opts.anchor.lng, hit.lat, hit.lng) <= ANCHOR_REACH_KM) return hit;
       continue;
     }
+    // No anchor: the query had an area's name stapled on, and a listing that
+    // names its own region but not one this hit names is the same guesswork
+    // an anchor would have caught ("Victoria Park, SA" answering as Bathurst).
+    if (opts.region && regionOf(hit.displayName) !== opts.region) continue;
+    // The hazard this exists for: "Alpine Quest Adventure Race, Bathurst"
+    // with no venue in Bathurst comes back as Bathurst itself, inside the
+    // area by construction. A populated place answering a venue query is
+    // never the venue; a kindless (pre-`kind`) hit gets the same verdict
+    // only when it sits on top of an area's own centre, since older answers
+    // that are genuinely venues elsewhere still deserve to be believed.
+    if (hit.kind ? isPlace(hit) : nearAnyAreaCentre(hit.lat, hit.lng, opts.areas)) continue;
     if (inAnyArea(hit.lat, hit.lng, opts.areas, opts.slack)) return hit;
   }
   return null;
+}
+
+/** Whether a point sits on top of one of the areas' own centres, not merely inside it. */
+export function nearAnyAreaCentre(lat: number, lng: number, areas: LocateArea[]): boolean {
+  return areas.some((a) => a.lat != null && a.lng != null && haversineKm(a.lat, a.lng, lat, lng) <= 0.3);
 }
 
 /**

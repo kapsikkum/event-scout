@@ -145,6 +145,16 @@ test('classifyEvent does NOT assign Cars & bikes to events with "shine" without 
   assert.notEqual(breakfastCat, 'Cars & bikes');
 });
 
+test('classifyEvent does not treat a bare "race" as an automotive anchor', () => {
+  // 'race', 'racing' and 'drive' used to sit in AUTO_ANCHORS, letting any
+  // running race through the Motorsport/Cars & bikes gate.
+  assert.notEqual(classifyEvent('Alpine Quest Adventure Race', '', 'Motorsport'), 'Motorsport');
+  assert.notEqual(classifyEvent('Sydney City Race', '', 'Motorsport'), 'Motorsport');
+  // Genuine motorsport still gets through on its own terms.
+  assert.equal(classifyEvent('Bathurst 1000', '', ''), 'Motorsport');
+  assert.equal(classifyEvent('Speedway race night', '', ''), 'Motorsport');
+});
+
 test('classifyEvent respects valid sourceCategory when no strong keywords match', () => {
   const cat = classifyEvent('Random Gathering of Friends', '', 'Community');
   assert.equal(cat, 'Community');

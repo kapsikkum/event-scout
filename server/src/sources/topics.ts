@@ -216,9 +216,12 @@ function mentions(haystack: string, needle: string): boolean {
 const VENUE_PERFORMANCE_REGEX = /\b(entertainment centre|theatre|theater|concert hall|opera house|auditorium|amphitheatre)\b/i;
 const VENUE_MOTORSPORT_REGEX = /\b(circuit|raceway|speedway|dragway|motorsport park)\b/i;
 
+// 'race', 'racing' and 'drive' used to be here, but they anchor on any
+// running race or "Adventure Race" too, dragging non-automotive events
+// through this gate. Car-specific terms only.
 const AUTO_ANCHORS = [
   'car', 'cars', 'bike', 'bikes', 'motorcycle', 'motorbike', 'vehicle', 'auto',
-  'ute', 'harley', 'truck', '4x4', 'hot rod', 'cruiz', 'drive', 'race', 'racing',
+  'ute', 'harley', 'truck', '4x4', 'hot rod', 'cruiz',
   'raceway', 'speedway', 'motorsport', 'kart', 'drift', 'rally', 'circuit', 'dragway', 'bathurst 1000',
   'show and shine', "show 'n' shine", 'show & shine', 'cars and coffee', 'swap meet',
 ];

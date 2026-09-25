@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { anchorQueries, coordsDisagree, countryOf, isPlace, pickAnchor, pickHit, placeQueries, statedOf, textAnchorQuery } from '../src/locate.js';
+import {
+  anchorQueries, coordsDisagree, countryOf, isPlace, pickAnchor, pickAreaHit, pickHit, placeQueries, statedOf,
+  textAnchorQuery
+} from '../src/locate.js';
 
 const BATHURST = { lat: -33.4166, lng: 149.5804, radiusKm: 50 };
 const PENRITH = { lat: -33.751, lng: 150.694, radiusKm: 25 };
@@ -102,6 +105,45 @@ test('a town outside every area still anchors, so it can be seen to be far', () 
   const opts = { region: '', areas, slack: SLACK, countries: ['australia'] };
   assert.equal(pickAnchor([darwinDrive, { ...darwin, kind: 'place:city' }], opts), darwinDrive, 'in an area wins');
   assert.equal(pickAnchor([{ ...darwin, kind: 'place:city' }], opts)?.displayName, darwin.displayName);
+});
+
+test('without a town, a place answering a venue query is refused, however inside the area it is', () => {
+  // "Alpine Quest Adventure Race, Bathurst" with no venue in Bathurst comes
+  // back as Bathurst town centre itself: inside the area by construction,
+  // but a place is never the venue that was asked about.
+  const bathurstCentre = { displayName: 'Bathurst, New South Wales, 2795, Australia', lat: -33.4166, lng: 149.5804, kind: 'place:town' };
+  assert.equal(pickHit([bathurstCentre], { region: '', anchor: null, areas, slack: SLACK }), null);
+  // A kindless (old cache) hit gets the same verdict only when it sits on
+  // the area's own centre; elsewhere it is still a believable venue.
+  const kindlessOnCentre = { displayName: 'Bathurst, New South Wales, Australia', lat: -33.4166, lng: 149.5804 };
+  assert.equal(pickHit([kindlessOnCentre], { region: '', anchor: null, areas, slack: SLACK }), null);
+  const kindlessVenue = { displayName: 'Showground, Bathurst, New South Wales, Australia', lat: -33.43, lng: 149.6 };
+  assert.equal(pickHit([kindlessVenue], { region: '', anchor: null, areas, slack: SLACK }), kindlessVenue);
+});
+
+test('without a town, a hit naming a different region than the listing is refused', () => {
+  // "Victoria Park, SA" landing in Bathurst NSW: the hit names no region at
+  // all, and the old loose regionFits let that pass.
+  const victoriaParkNoRegion = { displayName: 'Victoria Park, Bathurst, Australia', lat: -33.42, lng: 149.58, kind: 'leisure:park' };
+  assert.equal(pickHit([victoriaParkNoRegion], { region: 'sa', anchor: null, areas, slack: SLACK }), null);
+  const inRegion = { displayName: 'Victoria Park, Bathurst, New South Wales, Australia', lat: -33.42, lng: 149.58, kind: 'leisure:park' };
+  assert.equal(pickHit([inRegion], { region: 'nsw', anchor: null, areas, slack: SLACK }), inRegion);
+});
+
+test('no result to anchor on beats a wrong one', () => {
+  // "Royal Hotel" is a pub anywhere in the country: not in an area, not a
+  // populated place, and taking it anyway anchored on a random pub instead
+  // of admitting the town could not be found.
+  const opts = { region: '', areas, slack: SLACK, countries: ['australia'] };
+  const royalHotel = { displayName: 'Royal Hotel, Toowoomba, Queensland, Australia', lat: -27.56, lng: 151.95, kind: 'amenity:pub' };
+  assert.equal(pickAnchor([royalHotel], opts), null);
+});
+
+test('an area name resolves to the populated place, not whatever ranked first', () => {
+  assert.equal(pickAreaHit([penrithUk, penrithNsw], ''), penrithUk, 'no home country known: first populated place wins');
+  assert.equal(pickAreaHit([penrithUk, penrithNsw], 'australia'), penrithNsw, 'home country breaks the tie');
+  assert.equal(pickAreaHit([orangeCa, orangeNsw], 'australia'), orangeNsw, 'home country breaks the tie here too');
+  assert.equal(pickAreaHit([], 'australia'), null);
 });
 
 test('the country is read off the end of a result', () => {

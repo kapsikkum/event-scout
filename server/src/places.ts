@@ -16,7 +16,7 @@
 
 import { haversineKm } from './shared/geo.js';
 import { cachedGeocode } from './geocode.js';
-import { countryOf } from './locate.js';
+import { countryOf, pickAreaHit } from './locate.js';
 import { regionOf, stripRegionAndPostcode } from './regions.js';
 
 /** The place an event lands at when it is near none of the user's towns. */
@@ -409,7 +409,10 @@ export function countriesOfAreas(areaNames: string[]): string[] {
   for (const name of areaNames) {
     const region = regionOf(name);
     const hits = cachedGeocode(name) ?? [];
-    const hit = hits.find((h) => !region || regionOf(h.displayName) === region) ?? hits[0];
+    // A stated region ("Penrith NSW") settles it outright; without one, the
+    // blind first hit is what put "Penrith"/"Orange" in England/California,
+    // so pickAreaHit's populated-place-first rule decides instead.
+    const hit = hits.find((h) => !region || regionOf(h.displayName) === region) ?? pickAreaHit(hits, '');
     const country = hit ? countryOf(hit.displayName) : '';
     if (country) out.add(country);
   }
